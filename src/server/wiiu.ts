@@ -690,14 +690,25 @@ export async function findFirstReadableWiiURoot(
     throw new Error(`No readable Wii U roots found. ${errors.join('; ')}`);
 }
 
-type LibraryValidationProgress = {
-    status: 'validating' | 'validated';
-    titleId: string;
-    titleName: string;
-    titleKind: string;
-    sizeText?: string;
-    result?: 'ok' | 'failed';
-};
+type LibraryValidationProgress =
+    | {
+          status: 'validating';
+          titleId: string;
+          titleName: string;
+          titleKind: TitleKinds;
+          sizeText: string;
+      }
+    | {
+          status: 'validated';
+          titleId: string;
+          titleName: string;
+          titleKind: TitleKinds;
+          result: 'ok' | 'failed';
+      };
+
+export type LibraryValidationProgressCallback = (
+    progress: LibraryValidationProgress
+) => void;
 
 export async function validateWiiUTitles(
     root: string,
@@ -705,14 +716,11 @@ export async function validateWiiUTitles(
 ): Promise<LibraryTitleValidation[]> {
     const directories = await findTitleDirs(root);
     const validations: LibraryTitleValidation[] = [];
+    const titleDatabase = await readTitleDatabase();
 
     for (const directory of directories) {
         const dirPath = path.join(root, directory);
-        const titleEntry = await readTitleEntry(
-            root,
-            directory,
-            await readTitleDatabase()
-        );
+        const titleEntry = await readTitleEntry(root, directory, titleDatabase);
         const sizeBytes =
             titleEntry?.sizeBytes ?? (await getImmediatePathSizeBytes(dirPath));
         const titleId = titleEntry?.titleId ?? 'unknown';
@@ -734,6 +742,7 @@ export async function validateWiiUTitles(
             `validating title: [${titleId}] ${titleName} [${titleKind}] (${sizeText})`
         );
         const validation = await validateTitleInstallFiles(dirPath);
+        const result = validation.status === 'ok' ? 'ok' : 'failed';
         const status =
             validation.status === 'failed'
                 ? `${ANSI_RED}failed${ANSI_RESET}`
@@ -744,6 +753,14 @@ export async function validateWiiUTitles(
             'wiiu',
             `validated title:  [${titleId}] ${titleName} [${titleKind}] (${status})`
         );
+
+        onProgress?.({
+            status: 'validated',
+            titleId,
+            titleName,
+            titleKind,
+            result,
+        });
 
         validations.push({
             root,

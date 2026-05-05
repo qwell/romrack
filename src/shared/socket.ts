@@ -3,6 +3,7 @@ import { TitleKinds } from './shared.js';
 export type AppConnectedEvent = {
     type: 'app.connected';
     downloads: DownloadQueueItem[];
+    libraryValidationStatus?: ValidationStatusEvent | null;
 };
 
 export type DownloadQueueState =

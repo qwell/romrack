@@ -336,6 +336,10 @@ function handleAppSocketEvent(event: AppSocketEvent): void {
         case 'app.connected':
             hideServerGoneModal();
             syncDownloadQueue(event.downloads);
+
+            if (event.libraryValidationStatus) {
+                handleAppSocketEvent(event.libraryValidationStatus);
+            }
             return;
 
         case 'download.queueChanged':

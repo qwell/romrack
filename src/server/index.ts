@@ -25,6 +25,7 @@ import {
     AppSocketEvent,
     DownloadSocketCommand,
     DownloadQueueItem,
+    ValidationStatusEvent,
 } from '../shared/socket.js';
 import logger from '../shared/logger.js';
 
@@ -122,6 +123,7 @@ function handleAppSocketCommand(command: AppSocketCommand): void {
 
 let downloadQueue: DownloadQueueItem[] = [];
 let activeDownloadItemId: string | null = null;
+let latestLibraryValidationStatus: ValidationStatusEvent | null = null;
 
 function sendAppSocketEvent(socket: WebSocket, event: AppSocketEvent): void {
     if (socket.readyState !== WebSocket.OPEN) {
@@ -142,6 +144,11 @@ function broadcastDownloadQueue(): void {
         type: 'download.queueChanged',
         items: downloadQueue,
     });
+}
+
+function broadcastLibraryValidationStatus(event: ValidationStatusEvent): void {
+    latestLibraryValidationStatus = event;
+    broadcastAppSocketEvent(event);
 }
 
 function parseSocketCommand(data: RawData): AppSocketCommand | null {
@@ -167,10 +174,16 @@ function parseSocketCommand(data: RawData): AppSocketCommand | null {
     }
 }
 
+type DownloadTitleResult = {
+    name: string | null;
+    titleVersion: number | null;
+    sizeBytes: number;
+};
+
 async function downloadTitle(
     titleId: string,
     onProgress?: (progress: TitleDownloadProgress) => void
-) {
+): Promise<DownloadTitleResult> {
     const romRoot = await findFirstReadableWiiURoot(romRoots);
 
     return generateTitleInstallFiles(titleId, romRoot, {
@@ -357,20 +370,20 @@ app.get('/api/library', async (req, res) => {
 
 app.get('/api/library/validate', async (_req, res) => {
     try {
-        broadcastAppSocketEvent({
+        broadcastLibraryValidationStatus({
             type: 'library.validationStatus',
             status: 'started',
         });
 
         const titles = await validateWiiUTitleRoots(romRoots, (progress) => {
-            broadcastAppSocketEvent({
+            broadcastLibraryValidationStatus({
                 type: 'library.validationStatus',
                 ...progress,
             });
         });
         const failed = titles.filter((title) => title.status !== 'ok').length;
 
-        broadcastAppSocketEvent({
+        broadcastLibraryValidationStatus({
             type: 'library.validationStatus',
             status: 'complete',
             total: titles.length,
@@ -384,6 +397,13 @@ app.get('/api/library/validate', async (_req, res) => {
             titles,
         });
     } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        broadcastLibraryValidationStatus({
+            type: 'library.validationStatus',
+            status: 'failed',
+            error: message,
+        });
+
         logServerError('[server] Failed to validate library:', error);
         sendServerError(res, 'Failed to validate library', error, {
             includeDetails: true,
@@ -571,6 +591,7 @@ socketServer.on('connection', (socket) => {
     sendAppSocketEvent(socket, {
         type: 'app.connected',
         downloads: downloadQueue,
+        libraryValidationStatus: latestLibraryValidationStatus,
     });
 
     socket.on('message', (data) => {
