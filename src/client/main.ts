@@ -30,6 +30,7 @@ type SlotBadgeState =
     | 'unknown';
 type LibraryViewMode = 'table' | 'list';
 type LibraryVcFilter = 'all' | 'vc' | 'non-vc' | VirtualConsolePlatform;
+type LibraryStatusTone = 'info' | 'success' | 'error';
 type LibraryControlState = {
     region: string;
     status: TitleGroupStatus | 'all';
@@ -47,6 +48,9 @@ let libraryControlState: LibraryControlState = {
     vc: 'all',
     search: '',
 };
+let libraryStatusMessage = '';
+let libraryStatusTone: LibraryStatusTone = 'info';
+let validatingLibrary = false;
 let activeLibraryRequestId = 0;
 
 let iconObserver: IntersectionObserver | null = null;
@@ -235,6 +239,33 @@ function getDownloadMarker(state: DownloadQueueState | null): string {
     }
 }
 
+function formatValidationStatus(event: AppSocketEvent): string | null {
+    if (event.type !== 'library.validationStatus') {
+        return null;
+    }
+
+    switch (event.status) {
+        case 'started':
+            return 'Validating library...';
+
+        case 'validating':
+            return `Validating library... [${event.titleId}] ${event.titleName} [${event.titleKind}] (${event.sizeText})`;
+
+        case 'validated':
+            return `Validated library... [${event.titleId}] ${event.titleName} [${event.titleKind}] (${event.result})`;
+
+        case 'complete':
+            return event.failed === 0
+                ? `Validation passed for ${event.total} titles.`
+                : `Validation failed for ${event.failed} of ${event.total} titles. Check the server logs for details.`;
+
+        case 'failed':
+            return event.error
+                ? `Failed to validate library. ${event.error}`
+                : 'Failed to validate library.';
+    }
+}
+
 function formatDownloadProgress(item: DownloadQueueItem): string {
     if (item.state === 'queued') {
         return 'Queued';
@@ -311,6 +342,27 @@ function handleAppSocketEvent(event: AppSocketEvent): void {
             hideServerGoneModal();
             syncDownloadQueue(event.items);
             return;
+
+        case 'library.validationStatus': {
+            hideServerGoneModal();
+
+            const message = formatValidationStatus(event);
+            if (!message) {
+                return;
+            }
+
+            libraryStatusMessage = message;
+            libraryStatusTone =
+                event.status === 'complete' && event.failed === 0
+                    ? 'success'
+                    : event.status === 'failed' ||
+                        (event.status === 'complete' && event.failed !== 0)
+                      ? 'error'
+                      : 'info';
+
+            updateLibraryStatusLine();
+            return;
+        }
     }
 }
 
@@ -1560,6 +1612,26 @@ function buildControls(
     refreshIcon.className = 'fa-solid fa-refresh';
     refreshButton.append(refreshIcon);
 
+    const validateButton = document.createElement('button');
+    validateButton.className = 'library-field-validate';
+    validateButton.type = 'button';
+    validateButton.title = validatingLibrary
+        ? 'Validating library'
+        : 'Validate library';
+    validateButton.setAttribute(
+        'aria-label',
+        validatingLibrary ? 'Validating library' : 'Validate library'
+    );
+    validateButton.setAttribute('aria-busy', String(validatingLibrary));
+    validateButton.disabled =
+        loading || validatingLibrary || groups.length === 0;
+
+    const validateIcon = document.createElement('i');
+    validateIcon.className = validatingLibrary
+        ? 'fa-solid fa-spinner fa-spin'
+        : 'fa-solid fa-check-double';
+    validateButton.append(validateIcon);
+
     controls.append(
         regionText,
         statusText,
@@ -1572,7 +1644,8 @@ function buildControls(
         searchInput,
         titleLabel,
         viewToggle,
-        refreshButton
+        refreshButton,
+        validateButton
     );
 
     regionSelect.value = controlState.region;
@@ -1614,6 +1687,60 @@ function buildControls(
         if (!refreshButton.disabled && refreshLibrary) {
             void refreshLibrary();
         }
+    });
+
+    validateButton.addEventListener('click', () => {
+        void (async () => {
+            if (loading || validatingLibrary || groups.length === 0) {
+                return;
+            }
+
+            validatingLibrary = true;
+            validateButton.disabled = true;
+            validateButton.title = 'Validating library';
+            validateButton.setAttribute('aria-label', 'Validating library');
+            validateButton.setAttribute('aria-busy', 'true');
+            validateIcon.className = 'fa-solid fa-spinner fa-spin';
+
+            libraryStatusMessage = 'Validating library...';
+            libraryStatusTone = 'info';
+            updateLibraryStatusLine();
+
+            try {
+                const response = await fetch('/api/library/validate');
+
+                if (!response.ok) {
+                    throw new Error(
+                        `Request failed with status ${response.status}`
+                    );
+                }
+
+                const result = (await response.json()) as {
+                    status: 'ok' | 'failed';
+                    total: number;
+                    failed: number;
+                };
+
+                libraryStatusMessage =
+                    result.failed === 0
+                        ? `Validation passed for ${result.total} titles.`
+                        : `Validation failed for ${result.failed} of ${result.total} titles. Check the server logs for details.`;
+
+                libraryStatusTone = result.failed === 0 ? 'success' : 'error';
+            } catch (error) {
+                console.error(error);
+                libraryStatusMessage = 'Failed to validate library.';
+                libraryStatusTone = 'error';
+            } finally {
+                validatingLibrary = false;
+                validateButton.disabled = loading || groups.length === 0;
+                validateButton.title = 'Validate library';
+                validateButton.setAttribute('aria-label', 'Validate library');
+                validateButton.setAttribute('aria-busy', 'false');
+                validateIcon.className = 'fa-solid fa-check-double';
+                updateLibraryStatusLine();
+            }
+        })();
     });
 
     if (!loading && groups.length > 0) {
@@ -1691,6 +1818,7 @@ function buildLibraryContent(
     grid.className = 'library-grid';
 
     const sidebar = buildDetailSidebar();
+
     const controls = buildControls(
         groups,
         grid,
@@ -1698,14 +1826,28 @@ function buildLibraryContent(
         loading,
         controlState
     );
-    fragment.append(controls, grid, sidebar);
 
     const loadingLine = document.createElement('div');
-    loadingLine.className = 'library-loading';
-    loadingLine.textContent = loading ? 'Loading...' : '';
-    fragment.append(loadingLine);
+    loadingLine.className = `library-loading library-loading-${loading ? 'info' : libraryStatusTone}`;
+    loadingLine.textContent = loading ? 'Loading...' : libraryStatusMessage;
+    loadingLine.setAttribute('role', 'status');
+    loadingLine.setAttribute('aria-live', 'polite');
+
+    fragment.append(controls, loadingLine, grid, sidebar);
 
     return fragment;
+}
+
+function updateLibraryStatusLine(): void {
+    const loadingLine =
+        document.querySelector<HTMLDivElement>('.library-loading');
+
+    if (!loadingLine) {
+        return;
+    }
+
+    loadingLine.className = `library-loading library-loading-${libraryStatusTone}`;
+    loadingLine.textContent = libraryStatusMessage;
 }
 
 async function loadLibrary(output: HTMLElement): Promise<void> {

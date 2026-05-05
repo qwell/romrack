@@ -690,8 +690,18 @@ export async function findFirstReadableWiiURoot(
     throw new Error(`No readable Wii U roots found. ${errors.join('; ')}`);
 }
 
+type LibraryValidationProgress = {
+    status: 'validating' | 'validated';
+    titleId: string;
+    titleName: string;
+    titleKind: string;
+    sizeText?: string;
+    result?: 'ok' | 'failed';
+};
+
 export async function validateWiiUTitles(
-    root: string
+    root: string,
+    onProgress?: (progress: LibraryValidationProgress) => void
 ): Promise<LibraryTitleValidation[]> {
     const directories = await findTitleDirs(root);
     const validations: LibraryTitleValidation[] = [];
@@ -709,9 +719,19 @@ export async function validateWiiUTitles(
         const titleName = titleEntry?.titleName ?? directory;
         const titleKind = titleEntry?.kind ?? TitleKinds.Unknown;
 
+        const sizeText = formatSize(sizeBytes);
+
+        onProgress?.({
+            status: 'validating',
+            titleId,
+            titleName,
+            titleKind,
+            sizeText,
+        });
+
         logger.log(
             'wiiu',
-            `validating title: [${titleId}] ${titleName} [${titleKind}] (${formatSize(sizeBytes)})`
+            `validating title: [${titleId}] ${titleName} [${titleKind}] (${sizeText})`
         );
         const validation = await validateTitleInstallFiles(dirPath);
         const status =
@@ -741,14 +761,15 @@ export async function validateWiiUTitles(
 }
 
 export async function validateWiiUTitleRoots(
-    roots: string[]
+    roots: string[],
+    onProgress?: (progress: LibraryValidationProgress) => void
 ): Promise<LibraryTitleValidation[]> {
     const validations: LibraryTitleValidation[] = [];
 
     for (const root of roots) {
         try {
             await assertReadableDirectory(root);
-            validations.push(...(await validateWiiUTitles(root)));
+            validations.push(...(await validateWiiUTitles(root, onProgress)));
         } catch {
             logger.warn('wiiu', `skipping Wii U root ${root}`);
         }

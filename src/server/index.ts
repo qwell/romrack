@@ -357,8 +357,25 @@ app.get('/api/library', async (req, res) => {
 
 app.get('/api/library/validate', async (_req, res) => {
     try {
-        const titles = await validateWiiUTitleRoots(romRoots);
+        broadcastAppSocketEvent({
+            type: 'library.validationStatus',
+            status: 'started',
+        });
+
+        const titles = await validateWiiUTitleRoots(romRoots, (progress) => {
+            broadcastAppSocketEvent({
+                type: 'library.validationStatus',
+                ...progress,
+            });
+        });
         const failed = titles.filter((title) => title.status !== 'ok').length;
+
+        broadcastAppSocketEvent({
+            type: 'library.validationStatus',
+            status: 'complete',
+            total: titles.length,
+            failed,
+        });
 
         res.json({
             status: failed === 0 ? 'ok' : 'failed',

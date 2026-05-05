@@ -1,5 +1,10 @@
 import { TitleKinds } from './shared.js';
 
+export type AppConnectedEvent = {
+    type: 'app.connected';
+    downloads: DownloadQueueItem[];
+};
+
 export type DownloadQueueState =
     | 'queued'
     | 'downloading'
@@ -45,8 +50,29 @@ export type DownloadSocketEvent = {
     items: DownloadQueueItem[];
 };
 
+export type ValidationStatus =
+    | 'started'
+    | 'validating'
+    | 'validated'
+    | 'complete'
+    | 'failed';
+
+export type ValidationStatusEvent = {
+    type: 'library.validationStatus';
+    status: ValidationStatus;
+    titleId?: string;
+    titleName?: string;
+    titleKind?: string;
+    sizeText?: string;
+    result?: 'ok' | 'failed';
+    total?: number;
+    failed?: number;
+    error?: string;
+};
+
 export type AppSocketCommand = DownloadSocketCommand;
 
 export type AppSocketEvent =
-    | { type: 'app.connected'; downloads: DownloadQueueItem[] }
-    | DownloadSocketEvent;
+    | AppConnectedEvent
+    | DownloadSocketEvent
+    | ValidationStatusEvent;
