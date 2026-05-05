@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { getUserAppRoot } from './paths.js';
+import logger from '../shared/logger.js';
 
 const DEFAULT_SERVER_HOST = '127.0.0.1';
 const DEFAULT_SERVER_PORT = 3000;
@@ -88,7 +89,7 @@ function writeDefaultConfig(configPath: string): void {
         configPath,
         `${JSON.stringify(getDefaultConfig(), null, 4)}\n`
     );
-    console.log(`[server] Created config at ${configPath}`);
+    logger.log('server', `Created config at ${configPath}`);
 }
 
 export function loadConfig(): ServerConfig {
@@ -98,7 +99,7 @@ export function loadConfig(): ServerConfig {
         writeDefaultConfig(configPath);
     }
 
-    console.log(`[server] Loaded config from ${configPath}`);
+    logger.log('server', `Loaded config from ${configPath}`);
 
     const raw = fs.readFileSync(configPath, 'utf8');
     const parsed = JSON.parse(raw) as unknown;

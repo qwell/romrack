@@ -1,6 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import open from 'open';
 import { createServer } from 'node:http';
+import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import path from 'node:path';
 
 import { getAppRoot } from './paths.js';
@@ -10,6 +11,7 @@ import {
     generateTitleInstallFiles,
     getDlcMetadata,
     getUpdateMetadata,
+    TitleDownloadProgress,
 } from './metadata.js';
 import { getCachedImage } from './image-cache.js';
 import {
@@ -18,6 +20,13 @@ import {
     scanWiiUTitleRoots,
     validateWiiUTitleRoots,
 } from './wiiu.js';
+import {
+    AppSocketCommand,
+    AppSocketEvent,
+    DownloadSocketCommand,
+    DownloadQueueItem,
+} from '../shared/socket.js';
+import logger from '../shared/logger.js';
 
 const config = loadConfig();
 
@@ -27,11 +36,6 @@ const port = config.port;
 const romRoots = config.wiiuRoots;
 
 const clientDir = path.join(getAppRoot(), 'client');
-
-let lastHeartbeatAt: number | null = null;
-
-const HEARTBEAT_TIMEOUT_MS = 30000;
-const HEARTBEAT_CHECK_MS = 5000;
 
 type TitleIdQueryResult =
     | {
@@ -109,12 +113,210 @@ function sendServerError(
     res.status(500).json(body);
 }
 
+function handleAppSocketCommand(command: AppSocketCommand): void {
+    if (command.type.startsWith('download.')) {
+        handleDownloadSocketCommand(command);
+        return;
+    }
+}
+
+let downloadQueue: DownloadQueueItem[] = [];
+let activeDownloadItemId: string | null = null;
+
+function sendAppSocketEvent(socket: WebSocket, event: AppSocketEvent): void {
+    if (socket.readyState !== WebSocket.OPEN) {
+        return;
+    }
+
+    socket.send(JSON.stringify(event));
+}
+
+function broadcastAppSocketEvent(event: AppSocketEvent): void {
+    for (const client of socketServer.clients) {
+        sendAppSocketEvent(client, event);
+    }
+}
+
+function broadcastDownloadQueue(): void {
+    broadcastAppSocketEvent({
+        type: 'download.queueChanged',
+        items: downloadQueue,
+    });
+}
+
+function parseSocketCommand(data: RawData): AppSocketCommand | null {
+    try {
+        const text = Buffer.isBuffer(data)
+            ? data.toString('utf8')
+            : Buffer.from(data as ArrayBuffer).toString('utf8');
+
+        const parsed = JSON.parse(text) as unknown;
+        if (!parsed || typeof parsed !== 'object') {
+            return null;
+        }
+
+        const command = parsed as { type?: unknown };
+
+        if (typeof command.type !== 'string') {
+            return null;
+        }
+
+        return parsed as AppSocketCommand;
+    } catch {
+        return null;
+    }
+}
+
+async function downloadTitle(
+    titleId: string,
+    onProgress?: (progress: TitleDownloadProgress) => void
+) {
+    const romRoot = await findFirstReadableWiiURoot(romRoots);
+
+    return generateTitleInstallFiles(titleId, romRoot, {
+        onProgress,
+    });
+}
+
+async function processDownloadQueue(): Promise<void> {
+    if (activeDownloadItemId) {
+        return;
+    }
+
+    const nextItem = downloadQueue.find((item) => item.state === 'queued');
+
+    if (!nextItem) {
+        broadcastDownloadQueue();
+        return;
+    }
+
+    activeDownloadItemId = nextItem.id;
+    nextItem.state = 'downloading';
+    nextItem.error = null;
+    nextItem.progress = 0;
+    nextItem.downloadedBytes = null;
+    nextItem.speedText = null;
+    nextItem.installedSizeBytes = null;
+    nextItem.installedVersion = null;
+    nextItem.installedTitleName = null;
+    broadcastDownloadQueue();
+
+    try {
+        const result = await downloadTitle(nextItem.titleId, (progress) => {
+            nextItem.progress =
+                progress.totalFiles > 0
+                    ? Math.round(
+                          (progress.completedFiles / progress.totalFiles) * 100
+                      )
+                    : 0;
+
+            nextItem.downloadedBytes = null;
+            nextItem.speedText = `${progress.completedFiles}/${progress.totalFiles} files`;
+
+            broadcastDownloadQueue();
+        });
+        nextItem.state = 'complete';
+        nextItem.error = null;
+        nextItem.progress = 100;
+        nextItem.downloadedBytes = result.sizeBytes;
+        nextItem.speedText = null;
+        nextItem.installedSizeBytes = result.sizeBytes;
+        nextItem.installedVersion = result.titleVersion;
+        nextItem.installedTitleName = result.name;
+
+        broadcastDownloadQueue();
+    } catch (error) {
+        nextItem.state = 'failed';
+        nextItem.error = error instanceof Error ? error.message : String(error);
+        broadcastDownloadQueue();
+    } finally {
+        activeDownloadItemId = null;
+        void processDownloadQueue();
+    }
+}
+
+function handleDownloadSocketCommand(command: DownloadSocketCommand): void {
+    switch (command.type) {
+        case 'download.enqueue': {
+            const newItems = command.items.filter(
+                (item) =>
+                    !downloadQueue.some(
+                        (existing) =>
+                            existing.family === item.family &&
+                            existing.kind === item.kind &&
+                            existing.titleId === item.titleId &&
+                            existing.state !== 'complete'
+                    )
+            );
+
+            if (newItems.length === 0) {
+                return;
+            }
+
+            downloadQueue.push(
+                ...newItems.map((item) => ({
+                    ...item,
+                    state: 'queued' as const,
+                    error: null,
+                    progress: 0,
+                    downloadedBytes: null,
+                    speedText: null,
+                    installedSizeBytes: null,
+                    installedVersion: null,
+                    installedTitleName: null,
+                }))
+            );
+
+            broadcastDownloadQueue();
+            void processDownloadQueue();
+            return;
+        }
+
+        case 'download.retry': {
+            const item = downloadQueue.find(
+                (candidate) => candidate.id === command.id
+            );
+
+            if (!item || item.state !== 'failed') {
+                return;
+            }
+
+            item.state = 'queued';
+            item.error = null;
+            item.installedSizeBytes = null;
+            item.installedVersion = null;
+            item.installedTitleName = null;
+
+            broadcastDownloadQueue();
+            void processDownloadQueue();
+            return;
+        }
+
+        case 'download.remove': {
+            const item = downloadQueue.find(
+                (candidate) => candidate.id === command.id
+            );
+
+            if (!item || item.state === 'downloading') {
+                return;
+            }
+
+            downloadQueue = downloadQueue.filter(
+                (candidate) => candidate.id !== command.id
+            );
+
+            broadcastDownloadQueue();
+            return;
+        }
+    }
+}
+
 function formatLogError(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
 function logServerError(message: string, error: unknown): void {
-    console.error(`${message} ${formatLogError(error)}`);
+    logger.error('server', `${message} ${formatLogError(error)}`);
 }
 
 function formatUrlHost(host: string): string {
@@ -132,7 +334,7 @@ function getListenUrl(host: string, port: number): string {
 }
 
 app.use((req, _res, next) => {
-    console.log(`[server] ${req.method} ${req.url}`);
+    logger.log('server', `${req.method} ${req.url}`);
     next();
 });
 
@@ -286,8 +488,7 @@ app.get('/api/title-download', async (req, res) => {
     }
 
     try {
-        const romRoot = await findFirstReadableWiiURoot(romRoots);
-        res.json(await generateTitleInstallFiles(titleId, romRoot));
+        res.json(await downloadTitle(titleId));
     } catch (error) {
         logServerError('[server] Failed to download title:', error);
         sendServerError(res, 'Failed to download title', error, {
@@ -340,29 +541,62 @@ app.get('/api/title-dlc', async (req, res) => {
     }
 });
 
-app.post('/api/session/heartbeat', (_req, res) => {
-    res.json({
-        status: 'ok',
+const server = createServer(app);
+
+const socketServer = new WebSocketServer({
+    server,
+    path: '/api/socket',
+});
+
+socketServer.on('connection', (socket) => {
+    logger.log('server', 'WebSocket client connected');
+
+    sendAppSocketEvent(socket, {
+        type: 'app.connected',
+        downloads: downloadQueue,
+    });
+
+    socket.on('message', (data) => {
+        const command = parseSocketCommand(data);
+
+        if (!command) {
+            return;
+        }
+
+        handleAppSocketCommand(command);
+    });
+
+    socket.on('close', () => {
+        logger.warn('server', 'WebSocket client disconnected');
+    });
+
+    socket.on('error', (error) => {
+        logger.warn(
+            'server',
+            `WebSocket client error: ${formatLogError(error)}`
+        );
     });
 });
 
-const server = createServer(app);
-
 server.on('error', (error: NodeJS.ErrnoException) => {
-    console.error(
-        `[server] Failed to listen at ${getListenUrl(host, port)}: ${error.message}`
+    logger.error(
+        'server',
+        `Failed to listen at ${getListenUrl(host, port)}: ${error.message}`
     );
     process.exit(1);
 });
 
 server.on('listening', () => {
-    console.log(`[server] Listening at ${getListenUrl(host, port)}`);
+    logger.log('server', `Listening at ${getListenUrl(host, port)}`);
 
     if (config.openBrowser) {
         const url = getBrowserUrl(host, port);
-        console.log(`[server] Opening browser at ${url}`);
+        logger.log('server', `Opening browser at ${url}`);
         void open(url).catch((error: unknown) => {
-            console.warn('[server] Failed to open browser:', error);
+            logger.warn(
+                'server',
+                `Failed to open browser: ${formatLogError(error)}`
+            );
         });
     }
 });

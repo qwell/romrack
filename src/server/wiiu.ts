@@ -25,8 +25,12 @@ import {
     mapConcurrent,
     formatSize,
     TitleKinds,
+    TitleDatabaseEntry,
+    RawTitleDatabaseEntry,
 } from '../shared/shared.js';
+import { getImmediatePathSizeBytes } from '../shared/file.js';
 import { readTmd } from './metadata.js';
+import logger from '../shared/logger.js';
 
 export type LibraryTitleValidation = {
     root: string | null;
@@ -37,32 +41,6 @@ export type LibraryTitleValidation = {
     status: 'ok' | 'failed';
     error: string | null;
     verification: ContentTreeVerification[];
-};
-
-type RawTitleDatabaseEntry = {
-    titleId: string;
-    name: string;
-    region: string;
-    companyCode?: string | null;
-    iconUrl: string | null;
-    productCode: string | null;
-    baseVersions: number[];
-    updates: number[];
-    dlc: number[];
-};
-
-type TitleDatabaseEntry = {
-    titleId: string;
-    name: string;
-    region: string | null;
-    companyCode: string | null;
-    iconUrl: string | null;
-    productCode: string | null;
-    baseVersions: number[];
-    updates: number[];
-    dlc: number[];
-
-    family: string;
 };
 
 type GameTdbLocale = {
@@ -105,6 +83,8 @@ const LIBRARY_SCAN_CONCURRENCY = 8;
 const ANSI_RED = '\u001b[31m';
 const ANSI_GREEN = '\u001b[32m';
 const ANSI_RESET = '\u001b[0m';
+
+const availableOnCdnByTitleId = new Map<string, boolean>();
 
 async function assertReadableDirectory(root: string): Promise<void> {
     const info = await stat(root);
@@ -216,6 +196,7 @@ function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
             dlc: entry.dlc,
 
             family,
+            availableOnCdn: entry.availableOnCdn,
         };
     });
 
@@ -283,6 +264,7 @@ function getAvailableEntries(
             kind: TitleKinds.Base,
             titleId: entry.titleId,
             versions: latestVersion(entry.baseVersions),
+            availableOnCdn: getTitleAvailableOnCdn(entry.titleId),
         },
     ];
 
@@ -291,6 +273,9 @@ function getAvailableEntries(
             kind: TitleKinds.Update,
             titleId: replaceTitleKind(entry.titleId, TitleKinds.Update),
             versions: latestVersion(entry.updates),
+            availableOnCdn: getTitleAvailableOnCdn(
+                replaceTitleKind(entry.titleId, TitleKinds.Update)
+            ),
         });
     }
 
@@ -299,10 +284,17 @@ function getAvailableEntries(
             kind: TitleKinds.DLC,
             titleId: replaceTitleKind(entry.titleId, TitleKinds.DLC),
             versions: latestVersion(entry.dlc),
+            availableOnCdn: getTitleAvailableOnCdn(
+                replaceTitleKind(entry.titleId, TitleKinds.DLC)
+            ),
         });
     }
 
     return available;
+}
+
+function getTitleAvailableOnCdn(titleId: string): boolean {
+    return availableOnCdnByTitleId.get(titleId.toLowerCase()) ?? true;
 }
 
 function parseGameTdbDetails(game: GameTdbGame): TitleDetails {
@@ -346,7 +338,7 @@ async function readGameTdb(): Promise<Map<string, TitleDetails>> {
                 ])
         );
     } catch (error) {
-        console.warn(`[wiiu] failed to read GameTdb at ${filePath}:`, error);
+        logger.warn('wiiu', `failed to read GameTdb at ${filePath}:`, error);
         return new Map();
     }
 }
@@ -362,9 +354,9 @@ async function readTitleDatabaseFile(
         const message = `[wiiu] failed to read titles DB at ${filePath}:`;
 
         if (required) {
-            console.error(message, error);
+            logger.error('metadata', message, error);
         } else {
-            console.warn(message, error);
+            logger.warn('metadata', message, error);
         }
 
         return [];
@@ -381,6 +373,15 @@ async function readTitleDatabase(): Promise<Map<string, TitleDatabaseEntry>> {
         readTitleDatabaseFile(extraJsonPath),
     ]);
 
+    for (const entry of [...titleEntries, ...extraEntries]) {
+        if (entry.availableOnCdn !== undefined) {
+            availableOnCdnByTitleId.set(
+                entry.titleId.toLowerCase(),
+                entry.availableOnCdn !== 'No'
+            );
+        }
+    }
+
     return new Map(
         [...titleEntries, ...extraEntries].map((entry) => [entry.family, entry])
     );
@@ -389,34 +390,6 @@ async function readTitleDatabase(): Promise<Map<string, TitleDatabaseEntry>> {
 export async function getTitleIconUrl(family: string): Promise<string | null> {
     const titleDatabase = await readTitleDatabase();
     return titleDatabase.get(family)?.iconUrl ?? null;
-}
-
-async function getDirectorySizeBytes(targetPath: string): Promise<number> {
-    const info = await stat(targetPath);
-
-    if (info.isFile()) {
-        return info.size;
-    }
-
-    if (!info.isDirectory()) {
-        return 0;
-    }
-
-    const entries = await readdir(targetPath, { withFileTypes: true });
-    const sizes = await mapConcurrent(
-        entries.filter((entry) => entry.isFile()),
-        LIBRARY_SCAN_CONCURRENCY,
-        async (entry) => {
-            try {
-                const childInfo = await stat(path.join(targetPath, entry.name));
-                return childInfo.size;
-            } catch {
-                return 0;
-            }
-        }
-    );
-
-    return sizes.reduce((total, size) => total + size, 0);
 }
 
 async function readTitleEntry(
@@ -446,7 +419,7 @@ async function readTitleEntry(
 
         kind,
         family,
-        sizeBytes: await getDirectorySizeBytes(dirPath),
+        sizeBytes: await getImmediatePathSizeBytes(dirPath),
     };
 }
 
@@ -689,7 +662,7 @@ export async function scanWiiUTitleRoots(
             );
             scannedRootCount += 1;
         } catch {
-            console.warn(`[wiiu] skipping Wii U root ${root}`);
+            logger.warn('wiiu', `skipping Wii U root ${root}`);
         }
     }
 
@@ -731,13 +704,14 @@ export async function validateWiiUTitles(
             await readTitleDatabase()
         );
         const sizeBytes =
-            titleEntry?.sizeBytes ?? (await getDirectorySizeBytes(dirPath));
+            titleEntry?.sizeBytes ?? (await getImmediatePathSizeBytes(dirPath));
         const titleId = titleEntry?.titleId ?? 'unknown';
         const titleName = titleEntry?.titleName ?? directory;
         const titleKind = titleEntry?.kind ?? TitleKinds.Unknown;
 
-        console.log(
-            `[wiiu] validating title: [${titleId}] ${titleName} [${titleKind}] (${formatSize(sizeBytes)})`
+        logger.log(
+            'wiiu',
+            `validating title: [${titleId}] ${titleName} [${titleKind}] (${formatSize(sizeBytes)})`
         );
         const validation = await validateTitleInstallFiles(dirPath);
         const status =
@@ -746,8 +720,9 @@ export async function validateWiiUTitles(
                 : `${ANSI_GREEN}${validation.status}${ANSI_RESET}`;
 
         // Keep the extra space, for alignment purposes
-        console.log(
-            `[wiiu] validated title:  [${titleId}] ${titleName} [${titleKind}] (${status})`
+        logger.log(
+            'wiiu',
+            `validated title:  [${titleId}] ${titleName} [${titleKind}] (${status})`
         );
 
         validations.push({
@@ -775,7 +750,7 @@ export async function validateWiiUTitleRoots(
             await assertReadableDirectory(root);
             validations.push(...(await validateWiiUTitles(root)));
         } catch {
-            console.warn(`[wiiu] skipping Wii U root ${root}`);
+            logger.warn('wiiu', `skipping Wii U root ${root}`);
         }
     }
 

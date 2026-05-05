@@ -33,12 +33,12 @@ export function getProductCodeRegion(
 export function normalizeRegion(
     region: string | null | undefined,
     productCode?: string | null
-): string | null {
+): string {
     return getProductCodeRegion(productCode) ?? parseRegion(region);
 }
 
-export function parseRegion(value: string | null | undefined): string | null {
-    if (!value) return null;
+export function parseRegion(value: string | null | undefined): string {
+    if (!value) return '';
 
     const normalized = value.toUpperCase();
     if (normalized.length === 3) {

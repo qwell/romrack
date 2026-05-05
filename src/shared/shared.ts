@@ -71,7 +71,7 @@ export function normalizeTitleName(name: string): string {
 }
 
 export function formatSize(sizeBytes: number | null): string {
-    if (sizeBytes === null) {
+    if (sizeBytes === null || sizeBytes === undefined) {
         return '-';
     }
 
@@ -132,7 +132,36 @@ export type TitleGroupStatus =
     | 'complete'
     | 'incomplete'
     | 'missing'
+    | 'unavailable'
     | 'unknown';
+
+export type RawTitleDatabaseEntry = {
+    titleId: string;
+    name: string;
+    region: string;
+    companyCode: string | null;
+    iconUrl: string | null;
+    productCode: string | null;
+    baseVersions: number[];
+    updates: number[];
+    dlc: number[];
+    availableOnCdn?: 'Yes' | 'No';
+};
+
+export type TitleDatabaseEntry = {
+    titleId: string;
+    name: string;
+    region: string | null;
+    companyCode: string | null;
+    iconUrl: string | null;
+    productCode: string | null;
+    baseVersions: number[];
+    updates: number[];
+    dlc: number[];
+    availableOnCdn?: 'Yes' | 'No';
+
+    family: string;
+};
 
 export type TitleEntry = {
     titleId: string;
@@ -165,6 +194,7 @@ export type AvailableTitleEntry = {
     kind: TitleKinds.Base | TitleKinds.Update | TitleKinds.DLC;
     titleId: string;
     versions: number[];
+    availableOnCdn: boolean;
 };
 
 export type TitleGroup = {

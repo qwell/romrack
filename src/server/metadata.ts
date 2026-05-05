@@ -17,7 +17,9 @@ import {
 } from './decryption.js';
 import { getUserAppRoot } from './paths.js';
 import { normalizeRegion } from '../shared/regions.js';
+import { getImmediatePathSizeBytes } from '../shared/file.js';
 import { mapConcurrent, normalizeTitleName } from '../shared/shared.js';
+import logger from '../shared/logger.js';
 
 export type Tmd = {
     header: TmdHeader;
@@ -107,10 +109,12 @@ export type ChildTitleMetadata = {
 export type GeneratedTitleInstallFiles = {
     titleId: string;
     kind: 'Game' | 'Update' | 'DLC';
+    name: string;
     titleVersion: number;
     titleKey: string;
     titleKeyPassword: string | null;
     outputDir: string;
+    sizeBytes: number;
     files: {
         tmd: string;
         tik: string;
@@ -148,6 +152,11 @@ type ContentInstallFiles = {
 };
 
 type ContentFileDownload = (targetFile: string) => Promise<void>;
+
+export type TitleDownloadProgress = {
+    completedFiles: number;
+    totalFiles: number;
+};
 
 export type InstalledTitleValidation = {
     titleId: string | null;
@@ -491,7 +500,10 @@ export async function getDlcMetadata(
 
 export async function generateTitleInstallFiles(
     titleId: string,
-    outputRoot: string
+    romRoot: string,
+    options: {
+        onProgress?: (progress: TitleDownloadProgress) => void;
+    } = {}
 ): Promise<GeneratedTitleInstallFiles> {
     const baseUrl = NUS_BASE_URL;
     const { titleId: normalizedTitleId, kind } =
@@ -600,7 +612,7 @@ export async function generateTitleInstallFiles(
     );
     const meta = metaXml ? readMetaXml(metaXml) : null;
     const outputDir = path.join(
-        outputRoot,
+        romRoot,
         `${safeDirectoryName(meta?.name ?? normalizedTitleId)} [${kind}] [${normalizedTitleId}]`
     );
     const tmdFile = path.join(outputDir, TMD_TITLE_FILE);
@@ -630,17 +642,30 @@ export async function generateTitleInstallFiles(
         ),
     ]);
 
+    const totalFiles = tmd.contents.length;
+    let completedFiles = 0;
+
     const downloadedContentFiles = await mapConcurrent(
         tmd.contents,
         TITLE_DOWNLOAD_CONCURRENCY,
-        async (content) =>
-            downloadTitleContentFile({
+        async (content) => {
+            const downloadedContentFile = await downloadTitleContentFile({
                 content,
                 outputDir,
                 titleKey,
                 baseUrl,
                 titleId: normalizedTitleId,
-            })
+            });
+
+            completedFiles += 1;
+
+            options.onProgress?.({
+                completedFiles,
+                totalFiles,
+            });
+
+            return downloadedContentFile;
+        }
     );
 
     for (const downloadedContentFile of downloadedContentFiles) {
@@ -653,17 +678,23 @@ export async function generateTitleInstallFiles(
         verification.push(downloadedContentFile.verification);
     }
 
-    console.log(
-        `[metadata] finished downloading: [${normalizedTitleId}] ${normalizeTitleName(meta?.name ?? normalizedTitleId)}`
+    const name = normalizeTitleName(meta?.name ?? normalizedTitleId);
+    const sizeBytes = await getImmediatePathSizeBytes(outputDir);
+
+    logger.log(
+        'metadata',
+        `finished downloading: [${normalizedTitleId}] ${name}`
     );
 
     return {
         titleId: normalizedTitleId,
         kind,
+        name,
         titleVersion: tmd.header.titleVersion,
         titleKey: Buffer.from(titleKey).toString('hex'),
         titleKeyPassword,
         outputDir,
+        sizeBytes,
         files,
         verification,
     };
@@ -1078,7 +1109,7 @@ export async function readCommonKey(): Promise<Uint8Array> {
                 await readFile(commonKeyPath),
                 commonKeyPath
             );
-            console.log(`[metadata] Loaded common key from ${commonKeyPath}`);
+            logger.log('metadata', `Loaded common key from ${commonKeyPath}`);
             return commonKey;
         } catch (error) {
             if (isNodeError(error) && error.code === 'ENOENT') {
@@ -1146,7 +1177,8 @@ async function readDefaultCert(): Promise<Uint8Array> {
 }
 
 async function downloadCommonKey(filePath: string): Promise<Uint8Array> {
-    console.warn(
+    logger.warn(
+        'metadata',
         [
             'Wii U common key was not found in any configured location.',
             `Downloading a copy now and saving it to: ${filePath}`,
@@ -1174,7 +1206,7 @@ async function downloadCommonKey(filePath: string): Promise<Uint8Array> {
 
             await mkdir(path.dirname(filePath), { recursive: true });
             await writeFile(filePath, body);
-            console.log(`[metadata] Saved common key to ${filePath}`);
+            logger.log('metadata', `Saved common key to ${filePath}`);
 
             return commonKey;
         } catch (error) {
@@ -1579,8 +1611,9 @@ function getEncryptedContentFileSize(content: TmdContent): bigint {
 }
 
 function logExistingContentSkipped(contentId: string, size: bigint): void {
-    console.log(
-        `[metadata] content ${contentId} (${size.toString()} bytes, cached)`
+    logger.log(
+        'metadata',
+        `content ${contentId} (${size.toString()} bytes, cached)`
     );
 }
 
@@ -1588,8 +1621,13 @@ function logExistingContentInvalid(
     contentId: string,
     error: string | undefined
 ): void {
-    console.log(
-        `[metadata] cached content invalid, redownloading: ${contentId}${error ? ` (${error})` : ''}`
+    if (error?.includes('ENOENT')) {
+        logger.log('metadata', `content not found, downloading: ${contentId}`);
+        return;
+    }
+    logger.log(
+        'metadata',
+        `cached content invalid, redownloading: ${contentId}${error ? ` (${error})` : ''}`
     );
 }
 
@@ -2466,14 +2504,15 @@ async function downloadBinary(
     url: string,
     label = 'file'
 ): Promise<Uint8Array> {
-    console.log(`[metadata] downloading ${label}: ${url}`);
+    logger.log('metadata', `downloading ${label}: ${url}`);
     const response = await fetch(url);
     if (!response.ok) {
         throw new Error(`download failed for ${url}: ${response.status}`);
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
-    console.log(
-        `[metadata] downloaded ${label}: ${url} (${bytes.length} bytes)`
+    logger.log(
+        'metadata',
+        `downloaded ${label}: ${url} (${bytes.length} bytes)`
     );
     return bytes;
 }
@@ -2483,7 +2522,7 @@ async function downloadBinaryToFile(
     targetFile: string,
     label = 'file'
 ): Promise<void> {
-    console.log(`[metadata] downloading ${label}: ${url}`);
+    logger.log('metadata', `downloading ${label}: ${url}`);
     const response = await fetch(url);
     if (!response.ok) {
         throw new Error(`download failed for ${url}: ${response.status}`);
@@ -2506,8 +2545,9 @@ async function downloadBinaryToFile(
     }
 
     const { size } = await stat(targetFile);
-    console.log(
-        `[metadata] downloaded ${label}: ${url} (${size.toString()} bytes)`
+    logger.log(
+        'metadata',
+        `downloaded ${label}: ${url} (${size.toString()} bytes)`
     );
 }
 

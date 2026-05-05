@@ -9,6 +9,7 @@
     --complete: #2e8b57;
     --incomplete: #b8860b;
     --na: #808080;
+    --unavailable: #b84a4a;
     --unknown: #7b3fb3;
     --vc: #0fa0c8;
     --footer: #d0d0d0;
@@ -24,6 +25,7 @@
     --complete: #57b87a;
     --incomplete: #d1a93a;
     --na: #a0a0a0;
+    --unavailable: #ff6b6b;
     --unknown: #b07cff;
     --vc: #0fa0c8;
     --footer: #222222;
@@ -38,14 +40,11 @@ body {
 }
 
 body[data-detail-open] {
-    height: calc(100vh - 32px);
     margin-right: 420px;
-    overflow: hidden;
 }
 
-body[data-detail-open] #output {
-    max-height: calc(100vh - 96px);
-    overflow-y: auto;
+body[data-detail-open] .download-queue {
+    right: 420px;
 }
 
 header {
@@ -91,7 +90,7 @@ select {
     z-index: 999;
     display: grid;
     grid-template-columns:
-        max-content max-content max-content minmax(220px, 420px)
+        max-content max-content max-content minmax(120px, 420px)
         max-content max-content 22px;
     grid-template-rows: auto auto;
     column-gap: 8px;
@@ -126,7 +125,7 @@ select {
     grid-row: 1;
 }
 
-.library-label-scope {
+.library-label-title {
     grid-column: 5;
     grid-row: 1;
 }
@@ -151,7 +150,7 @@ select {
     grid-row: 2;
 }
 
-.library-field-scope {
+.library-field-title {
     grid-column: 5;
     grid-row: 2;
 }
@@ -297,6 +296,14 @@ select {
     color: var(--fg);
 }
 
+.title-group-unavailable {
+    border-color: var(--unavailable);
+}
+
+.title-group-unavailable .title-group-header {
+    color: var(--unavailable);
+}
+
 .title-group-unknown {
     border-color: var(--unknown);
 }
@@ -374,12 +381,17 @@ select {
     border-style: dashed;
 }
 
-.title-slot-badge-unknown {
-    color: var(--unknown);
+.title-slot-badge-unavailable {
+    color: var(--unavailable);
+    border-style: dashed;
 }
 
 .title-slot-badge-vc {
     color: var(--vc);
+}
+
+.title-slot-badge-unknown {
+    color: var(--unknown);
 }
 
 .title-region {
@@ -464,7 +476,7 @@ select {
 }
 
 .title-detail-section {
-    margin: 12px 0 4px;
+    margin: 14px 0 6px;
     padding-top: 8px;
     border-top: 1px solid var(--border-muted);
     color: var(--fg);
@@ -477,6 +489,10 @@ select {
     flex-direction: column;
     min-height: 0;
     overflow: auto;
+}
+
+.title-detail-bottom {
+    margin-top: auto;
 }
 
 .title-detail-list {
@@ -499,6 +515,10 @@ select {
     margin: 0;
     min-width: 0;
     overflow-wrap: anywhere;
+}
+
+.title-detail-availability {
+    padding-bottom: 0px;
 }
 
 .title-availability-list {
@@ -525,6 +545,7 @@ select {
 }
 
 .title-detail-synopsis {
+    flex: 0 1 auto;
     margin: 12px 0 0;
     padding-top: 10px;
     border-top: 1px solid var(--border-muted);
@@ -586,4 +607,187 @@ footer {
 
 footer > div:last-child {
     margin-left: auto;
+}
+
+.title-slot-badge-download {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.4em;
+    margin-left: 4px;
+    padding: 0 3px;
+    border-left: 1px solid currentColor;
+    font-size: 8px;
+    font-weight: 700;
+}
+
+.title-slot-badge-download[hidden] {
+    display: none;
+}
+
+.title-download-list {
+    display: grid;
+    gap: 2px;
+    margin: 0;
+}
+
+.title-download-row {
+    display: grid;
+    grid-template-columns: 18px 10ch minmax(0, 1fr) max-content;
+    gap: 6px;
+    align-items: center;
+    min-height: 20px;
+    color: var(--fg);
+}
+
+.title-download-row input {
+    margin: 0;
+}
+
+.title-download-row-unavailable {
+    opacity: 0.55;
+}
+
+.title-download-row-unavailable .title-download-checkbox {
+    cursor: not-allowed;
+}
+
+.title-download-slot {
+    color: var(--border-muted);
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.title-download-id {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.title-download-size {
+    white-space: nowrap;
+    color: var(--border-muted);
+}
+
+.title-download-state {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    font-size: 9px;
+    font-weight: 700;
+}
+
+.title-download-row-downloading .title-download-state {
+    color: var(--complete);
+}
+
+.title-download-row-queued .title-download-state {
+    color: var(--incomplete);
+}
+
+.title-download-row-failed .title-download-state {
+    color: var(--unknown);
+}
+
+.title-download-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    gap: 8px;
+    align-items: end;
+}
+
+.title-download-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin: 0;
+}
+
+.title-download-actions button,
+.download-queue-button {
+    min-height: 22px;
+    border: 1px solid var(--border-muted);
+    background: var(--bg);
+    color: var(--fg);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.title-download-actions button:disabled,
+.download-queue-button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.download-queue {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 24px;
+    z-index: 1002;
+    box-sizing: border-box;
+    border-top: 1px solid var(--border-muted);
+    background: var(--panel-bg);
+    color: var(--fg);
+    font-size: 11px;
+    box-shadow: 0 -4px 16px rgb(0 0 0 / 0.2);
+}
+
+.download-queue-summary {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
+    gap: 12px;
+    align-items: center;
+    min-height: 28px;
+    padding: 4px 8px;
+}
+
+.download-queue-details {
+    display: grid;
+    gap: 4px;
+    max-height: 35vh;
+    overflow: auto;
+    padding: 6px 8px 8px;
+    border-top: 1px solid var(--border-muted);
+}
+
+.download-queue-row {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) 10ch 12ch max-content;
+    gap: 8px;
+    align-items: center;
+    min-height: 24px;
+}
+
+.download-queue-current,
+.download-queue-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.download-queue-state {
+    min-width: 20px;
+    text-align: center;
+    font-size: 9px;
+    font-weight: 700;
+}
+
+.download-queue-row-downloading .download-queue-state {
+    color: var(--complete);
+}
+
+.download-queue-row-queued .download-queue-state {
+    color: var(--incomplete);
+}
+
+.download-queue-row-failed .download-queue-state {
+    color: var(--unknown);
+}
+
+.download-queue-action {
+    display: flex;
+    gap: 4px;
 }

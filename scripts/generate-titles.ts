@@ -7,20 +7,11 @@ import { parse as CsvParse } from 'csv-parse/sync';
 import { XMLParser } from 'fast-xml-parser';
 
 import { normalizeRegion } from '../src/shared/regions.js';
-import { normalizeTitleName, toArray } from '../src/shared/shared.js';
-
-type Title = {
-    titleId: string;
-    name: string | null;
-    region: string | null;
-    productCode: string | null;
-    companyCode: string | null;
-    iconUrl: string | null;
-    baseVersions: number[];
-    updates: number[];
-    dlc: number[];
-    availableOnCdn?: 'Yes' | 'No';
-};
+import {
+    normalizeTitleName,
+    RawTitleDatabaseEntry,
+    toArray,
+} from '../src/shared/shared.js';
 
 type Icon = {
     titleId: string;
@@ -286,7 +277,7 @@ function generateTitleIds(excluded: Set<string>): string[] {
 async function processTitle(
     titleId: string,
     index: number
-): Promise<Title | null> {
+): Promise<RawTitleDatabaseEntry | null> {
     const metadata = await fetchJson<TitleAllResponse>(
         formatUrl(titleAllUrl, titleId)
     );
@@ -302,9 +293,9 @@ async function processTitle(
         return null;
     }
 
-    const title: Title = {
+    const title: RawTitleDatabaseEntry = {
         titleId,
-        name: metadata.name == null ? null : normalizeTitleName(metadata.name),
+        name: metadata.name == null ? '' : normalizeTitleName(metadata.name),
         region: normalizeRegion(metadata.region, metadata.productCode),
         productCode: metadata.productCode ?? null,
         companyCode: metadata.companyCode ?? null,
@@ -325,7 +316,9 @@ function versionsText(versions: number[]): string {
     return versions.length === 0 ? 'none' : versions.join(',');
 }
 
-async function loadTitles(excluded: Set<string>): Promise<Title[]> {
+async function loadTitles(
+    excluded: Set<string>
+): Promise<RawTitleDatabaseEntry[]> {
     const titleIds = generateTitleIds(excluded);
     const titles = await mapPool(titleIds, parallel, processTitle);
 
@@ -350,13 +343,16 @@ async function loadChildVersion(
     return null;
 }
 
-async function processExtraTitle(title: Title, index: number): Promise<Title> {
+async function processExtraTitle(
+    title: RawTitleDatabaseEntry,
+    index: number
+): Promise<RawTitleDatabaseEntry> {
     const [updateVersion, dlcVersion] = await Promise.all([
         loadChildVersion(updateMetadataUrl, title.titleId),
         loadChildVersion(dlcMetadataUrl, title.titleId),
     ]);
 
-    const updatedTitle: Title = {
+    const updatedTitle: RawTitleDatabaseEntry = {
         ...title,
         updates: updateVersion === null ? [] : [updateVersion],
         dlc: dlcVersion === null ? [] : [dlcVersion],
@@ -370,9 +366,9 @@ async function processExtraTitle(title: Title, index: number): Promise<Title> {
 }
 
 async function loadExtraTitles(
-    existingTitles: Title[],
+    existingTitles: RawTitleDatabaseEntry[],
     excluded: Set<string>
-): Promise<Title[] | null> {
+): Promise<RawTitleDatabaseEntry[] | null> {
     if (!(await fileExists(titledbFile))) {
         return null;
     }
@@ -380,7 +376,7 @@ async function loadExtraTitles(
     const existing = new Set(existingTitles.map((title) => title.titleId));
     const rows = parseCsvRows(await fs.readFile(titledbFile, 'utf8'));
     const titles = rows
-        .map((row): Title | null => {
+        .map((row): RawTitleDatabaseEntry | null => {
             const titleId = normalizeTitleId(row['Title ID'] ?? '');
             if (titleId === null) {
                 return null;
@@ -409,7 +405,7 @@ async function loadExtraTitles(
             };
         })
         .filter(
-            (title): title is Title =>
+            (title): title is RawTitleDatabaseEntry =>
                 title !== null &&
                 !existing.has(title.titleId) &&
                 !excluded.has(title.titleId)

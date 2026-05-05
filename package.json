@@ -34,6 +34,7 @@
         "@types/express": "^5",
         "@types/node": "^25.6.0",
         "@types/prettier": "^3.0.0",
+        "@types/ws": "^8",
         "@typescript-eslint/eslint-plugin": "^8.58.2",
         "@typescript-eslint/parser": "^8.58.2",
         "@yarnpkg/sdks": "^3.2.3",
@@ -54,6 +55,7 @@
         "csv-parse": "^6.2.1",
         "express": "^5.2.1",
         "fast-xml-parser": "^5.7.1",
-        "open": "^11.0.0"
+        "open": "^11.0.0",
+        "ws": "^8.20.0"
     }
 }
