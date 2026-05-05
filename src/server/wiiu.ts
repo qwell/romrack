@@ -495,6 +495,7 @@ function createEmptyGroup(family: string): TitleGroup {
         family,
         name: 'Unknown',
         region: null,
+        productCode: null,
         iconUrl: null,
         details: null,
         availableEntries: [],
@@ -588,6 +589,7 @@ export async function scanWiiUTitles(
     for (const group of groups.values()) {
         const databaseEntry = titleDatabase.get(group.family) ?? null;
         const parentEntry = getParentByKind(group.entries);
+        group.productCode = databaseEntry?.productCode ?? null;
         group.titleInDatabase = databaseEntry !== null;
         group.details = databaseEntry
             ? getGameTdbDetails(gameTdb, databaseEntry)
@@ -654,6 +656,7 @@ function mergeTitleGroups(groups: TitleGroup[]): TitleGroup[] {
         if (existing.status === 'missing' && group.status !== 'missing') {
             existing.name = group.name;
             existing.region = group.region;
+            existing.productCode = group.productCode;
             existing.iconUrl = group.iconUrl;
             existing.details = group.details;
             existing.titleInDatabase = group.titleInDatabase;

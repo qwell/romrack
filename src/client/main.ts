@@ -9,6 +9,8 @@ import {
     type ChildKind,
     PARENT_KINDS,
     formatSize,
+    getVirtualConsolePlatform,
+    VirtualConsolePlatform,
 } from '../shared/shared.js';
 
 declare const __APP_VERSION__: string;
@@ -247,6 +249,21 @@ function renderSlotBadge(label: string, state: SlotBadgeState): HTMLElement {
     return badge;
 }
 
+function renderVirtualConsoleBadge(group: TitleGroup): HTMLElement | null {
+    const platform = getVirtualConsolePlatform(group.productCode);
+
+    if (!platform) {
+        return null;
+    }
+
+    const badge = document.createElement('div');
+    badge.className = 'title-slot-badge title-slot-badge-vc';
+    badge.textContent = platform.toString();
+    badge.title = 'Virtual Console';
+
+    return badge;
+}
+
 function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
     const fragment = document.createDocumentFragment();
     const summary = document.createElement('div');
@@ -473,6 +490,11 @@ function renderGroup(
 
     const badgeList = document.createElement('div');
     badgeList.className = 'title-slot-badge-list';
+
+    const virtualConsoleBadge = renderVirtualConsoleBadge(group);
+    if (virtualConsoleBadge) {
+        badgeList.append(virtualConsoleBadge);
+    }
     badgeList.append(
         renderSlotBadge(TitleKinds.Base, getGameBadgeState(group)),
         renderSlotBadge(
@@ -484,6 +506,7 @@ function renderGroup(
             getSlotBadgeState(group, TitleKinds.DLC)
         )
     );
+
     badges.append(badgeList);
 
     if (group.region) {
@@ -571,6 +594,7 @@ function renderGroups(
     sidebar: HTMLElement,
     statusValue: string,
     regionValue: string,
+    vcValue: string,
     searchValue: string
 ): void {
     const normalizedSearch = normalizeSearchText(searchValue.trim());
@@ -581,6 +605,22 @@ function renderGroups(
         }
 
         if (regionValue !== 'all' && group.region !== regionValue) {
+            return false;
+        }
+
+        const vcPlatform = group.productCode
+            ? getVirtualConsolePlatform(group.productCode)
+            : null;
+        if (vcValue === 'vc' && !vcPlatform) {
+            return false;
+        } else if (vcValue === 'non-vc' && vcPlatform) {
+            return false;
+        } else if (
+            vcValue !== 'all' &&
+            vcValue !== 'vc' &&
+            vcValue !== 'non-vc' &&
+            vcValue !== vcPlatform?.toString()
+        ) {
             return false;
         }
 
@@ -617,6 +657,10 @@ function buildControls(
     const statusText = document.createElement('div');
     statusText.className = 'library-label library-label-status';
     statusText.textContent = 'Status';
+
+    const vcText = document.createElement('div');
+    vcText.className = 'library-label library-label-vc';
+    vcText.textContent = 'VC';
 
     const searchText = document.createElement('div');
     searchText.className = 'library-label library-label-search';
@@ -664,6 +708,30 @@ function buildControls(
         statusSelect.append(option);
     }
 
+    const vcSelect = document.createElement('select');
+    vcSelect.className = 'library-select library-field-vc';
+    vcSelect.disabled = loading || groups.length === 0;
+
+    const vcOptions: Array<{
+        value: 'all' | 'vc' | 'non-vc' | VirtualConsolePlatform;
+        label: string;
+    }> = [
+        { value: 'all', label: 'All' },
+        { value: 'vc', label: 'VC only' },
+        { value: 'non-vc', label: 'Non-VC' },
+        ...Object.values(VirtualConsolePlatform).map((platform) => ({
+            value: platform,
+            label: platform.toString(),
+        })),
+    ];
+
+    for (const vcOption of vcOptions) {
+        const option = document.createElement('option');
+        option.value = vcOption.value;
+        option.textContent = vcOption.label;
+        vcSelect.append(option);
+    }
+
     const searchInput = document.createElement('input');
     searchInput.type = 'search';
     searchInput.placeholder = 'Name, title ID, or region';
@@ -699,10 +767,12 @@ function buildControls(
     controls.append(
         regionText,
         statusText,
+        vcText,
         searchText,
         scopeText,
         regionSelect,
         statusSelect,
+        vcSelect,
         searchInput,
         scopeLabel,
         viewToggle,
@@ -716,6 +786,7 @@ function buildControls(
             sidebar,
             statusSelect.value,
             regionSelect.value,
+            vcSelect.value,
             searchInput.value
         );
     };
@@ -723,6 +794,7 @@ function buildControls(
     searchInput.addEventListener('input', update);
     regionSelect.addEventListener('change', update);
     statusSelect.addEventListener('change', update);
+    vcSelect.addEventListener('change', update);
 
     scopeCheckbox.addEventListener('change', () => {
         showAllTitles = scopeCheckbox.checked;
@@ -820,7 +892,7 @@ function buildLibraryContent(
     fragment.append(loadingLine);
 
     if (!loading && groups.length > 0) {
-        renderGroups(groups, grid, sidebar, 'all', 'all', '');
+        renderGroups(groups, grid, sidebar, 'all', 'all', 'all', '');
     }
 
     return fragment;

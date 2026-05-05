@@ -11,6 +11,51 @@ export enum TitleKinds {
     Unknown = 'Unknown',
 }
 
+export enum VirtualConsolePlatform {
+    NES = 'NES',
+    SNES = 'SNES',
+    N64 = 'N64',
+    GBA = 'GBA',
+    NDS = 'NDS',
+    Wii = 'Wii',
+    PCE = 'PCE',
+    MSX = 'MSX',
+}
+
+export function getVirtualConsolePlatform(
+    productCode: string | null
+): VirtualConsolePlatform | null {
+    const code = productCode;
+
+    if (code === null) {
+        return null;
+    }
+    if (code.startsWith('WUP-N-D')) {
+        return VirtualConsolePlatform.NDS;
+    } else if (code.startsWith('WUP-N-F')) {
+        return VirtualConsolePlatform.NES;
+    } else if (code.startsWith('WUP-N-J')) {
+        return VirtualConsolePlatform.SNES;
+    } else if (code.startsWith('WUP-N-N')) {
+        return VirtualConsolePlatform.N64;
+    } else if (code.startsWith('WUP-N-V')) {
+        return VirtualConsolePlatform.Wii;
+    } else if (code.startsWith('WUP-N-MN')) {
+        return VirtualConsolePlatform.MSX;
+    } else if (
+        code.startsWith('WUP-N-PA') ||
+        code.startsWith('WUP-N-PB') ||
+        code.startsWith('WUP-N-PC') ||
+        code.startsWith('WUP-N-PD')
+    ) {
+        return VirtualConsolePlatform.GBA;
+    } else if (code.startsWith('WUP-N-PN')) {
+        return VirtualConsolePlatform.PCE;
+    }
+
+    return null;
+}
+
 export function toArray<T>(value: T | readonly T[] | null | undefined): T[] {
     if (value == null) {
         return [];
@@ -125,6 +170,7 @@ export type AvailableTitleEntry = {
 export type TitleGroup = {
     name: string;
     region: string | null;
+    productCode: string | null;
     iconUrl: string | null;
     details: TitleDetails | null;
     availableEntries: AvailableTitleEntry[];
