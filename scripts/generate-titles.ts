@@ -422,12 +422,18 @@ function parseCsvRows(text: string): CsvRow[] {
         skipEmptyLines: true,
     });
 
-    return toArray(parsed as unknown).filter(
-        (value): value is CsvRow =>
-            typeof value === 'object' &&
-            value !== null &&
-            Object.values(value).every((item) => typeof item === 'string')
-    );
+    const rows: CsvRow[] = [];
+    for (const value of toArray(parsed as unknown)) {
+        if (typeof value !== 'object' || value === null) {
+            continue;
+        }
+        const row: CsvRow = {};
+        for (const [key, item] of Object.entries(value)) {
+            row[key] = typeof item === 'string' ? item : '';
+        }
+        rows.push(row);
+    }
+    return rows;
 }
 
 async function loadSamuraiIcons(): Promise<Icon[] | null> {
