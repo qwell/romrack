@@ -1,6 +1,6 @@
 # WiiU Vault
 
-WiiU Vault is a web-based application that allows users to manage and organize their Wii U game library. It provides features such as game categorization, search and filter functionality, and the ability to track game statuses (e.g., complete, incomplete, etc.). The application is built using TypeScript and Node.js. The aim is to be cross-platform.
+WiiU Vault is a web-based application that allows users to manage and organize their Wii U game library. It provides features such as game categorization, search and filter functionality, the ability to track title statuses (e.g., complete, incomplete, etc.), download homebrew and other titles, and copy titles to an SD card. The application is built using TypeScript and Node.js, with the aim is to be cross-platform.
 
 Work in Progress
 
