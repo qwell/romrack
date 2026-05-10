@@ -317,7 +317,11 @@ function parseGameTdbDetails(game: GameTdbGame): TitleDetails {
 }
 
 async function readGameTdb(): Promise<Map<string, TitleDetails>> {
-    const filePath = path.join(getAppRoot(), 'titles', 'wiiutdb.json');
+    const filePath = path.join(
+        getAppRoot(import.meta.url),
+        'titles',
+        'wiiutdb.json'
+    );
 
     try {
         const text = await readFile(filePath, 'utf8');
@@ -359,7 +363,7 @@ async function readTitleDatabaseFile(
 }
 
 async function readTitleDatabase(): Promise<Map<string, TitleDatabaseEntry>> {
-    const titlesDir = path.join(getAppRoot(), 'titles');
+    const titlesDir = path.join(getAppRoot(import.meta.url), 'titles');
     const titlesJsonPath = path.join(titlesDir, 'titles.json');
     const extraJsonPath = path.join(titlesDir, 'extra.json');
 

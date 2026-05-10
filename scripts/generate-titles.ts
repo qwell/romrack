@@ -10,8 +10,8 @@ import { normalizeRegion } from '../src/shared/regions.js';
 import {
     normalizeTitleName,
     RawTitleDatabaseEntry,
-    toArray,
 } from '../src/shared/titles.js';
+import { toArray } from '../src/shared/shared.js';
 
 type Icon = {
     titleId: string;

@@ -2367,6 +2367,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"globals@npm:^17.6.0":
+  version: 17.6.0
+  resolution: "globals@npm:17.6.0"
+  checksum: 10c0/cf94fb4329cc5c68cf81018fd68324f413181ee169f0235b0b33b82bc93fe7825a21beea951f83a80e8e4bbdad9c0c80515a145b5fd4b5cb52f2a80db899a93f
+  languageName: node
+  linkType: hard
+
 "gopd@npm:^1.2.0":
   version: 1.2.0
   resolution: "gopd@npm:1.2.0"
@@ -4144,6 +4151,7 @@ __metadata:
     eslint-plugin-prettier: "npm:^5.5.5"
     express: "npm:^5.2.1"
     fast-xml-parser: "npm:^5.7.3"
+    globals: "npm:^17.6.0"
     open: "npm:^11.0.0"
     prettier: "npm:^3.8.3"
     rimraf: "npm:^6.1.3"

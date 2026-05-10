@@ -59,7 +59,7 @@ const app = express();
 const host = config.host;
 const port = config.port;
 
-const clientDir = path.join(getAppRoot(), 'client');
+const clientDir = path.join(getAppRoot(import.meta.url), 'client');
 
 let activeStorageCopyPid: number | null = null;
 

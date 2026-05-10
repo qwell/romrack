@@ -15,7 +15,7 @@
     },
     "packageManager": "yarn@4.14.1",
     "scripts": {
-        "lint": "eslint --cache --cache-strategy metadata --cache-location ./.cache/eslint src/ tests/",
+        "lint": "eslint --cache --cache-strategy metadata --cache-location ./.cache/eslint .",
         "format": "prettier --write --cache --cache-strategy metadata --cache-location ./.cache/prettier .",
         "hygiene": "yarn format && yarn lint",
         "clean": "rimraf dist/ release/ .cache/",
@@ -43,6 +43,7 @@
         "eslint": "^10.3.0",
         "eslint-config-prettier": "^10.1.8",
         "eslint-plugin-prettier": "^5.5.5",
+        "globals": "^17.6.0",
         "prettier": "^3.8.3",
         "rimraf": "^6.1.3",
         "tsx": "^4.21.0",
