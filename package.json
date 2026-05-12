@@ -1,6 +1,6 @@
 {
     "name": "wiiu-vault",
-    "version": "0.1.1",
+    "version": "0.1.4",
     "repository": "https://github.com/qwell/wiiu-vault",
     "author": "Jason Parker",
     "license": "GPL-3.0-or-later",

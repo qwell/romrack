@@ -59,7 +59,13 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
+                  awk '
+                    /^## / { count++ }
+                    count == 1 { print }
+                    count == 2 { exit }
+                  ' CHANGELOG.md > RELEASE_NOTES.md
+
                   gh release create "${GITHUB_REF_NAME}" ./release/wiiu-vault-*.zip \
                     --title "${GITHUB_REF_NAME}" \
-                    --generate-notes \
+                    --notes-file RELEASE_NOTES.md \
                     --verify-tag
