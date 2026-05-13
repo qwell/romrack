@@ -1,8 +1,10 @@
 import express, { type Request, type Response } from 'express';
 import open from 'open';
-import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { mkdir, rm, stat, unlink } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { pipeline } from 'node:stream/promises';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import path from 'node:path';
 
@@ -41,16 +43,16 @@ import {
     type AppConfigValidateRootResponse,
 } from '../shared/config.js';
 import {
-    copyPath,
-    cancelCopy,
-    type CopyPathCommand,
-    type CancelCopyCommand,
     getRuntimeOs,
     listFat32Volumes,
     resolveReadablePath,
     resolveFat32Destination,
 } from '../shared/os.js';
-import { getPathFileSizes, getPathStats } from '../shared/file.js';
+import {
+    getPathFileSizes,
+    getPathStats,
+    type PathFileSize,
+} from '../shared/file.js';
 import logger from '../shared/logger.js';
 import { DownloadQueueItem, StorageCopyItem } from '../shared/shared.js';
 
@@ -61,8 +63,6 @@ const host = config.host;
 const port = config.port;
 
 const clientDir = path.join(getAppRoot(), 'client');
-
-let activeStorageCopyPid: number | null = null;
 
 type TitleIdQueryResult =
     | {
@@ -122,14 +122,6 @@ function requireTitleIdQuery(req: Request, res: Response): string | null {
     return null;
 }
 
-function toError(error: unknown): Error {
-    if (error instanceof Error) {
-        return error;
-    }
-
-    return new Error(String(error));
-}
-
 function getErrorStage(error: unknown): string | null {
     return typeof error === 'object' &&
         error !== null &&
@@ -171,160 +163,10 @@ function getStringQuery(req: Request, name: string): string | null {
     return trimmed.length > 0 ? trimmed : null;
 }
 
-function executeCancelCopyCommand(command: CancelCopyCommand): Promise<void> {
-    logger.log(
-        'server',
-        `storage cancel command: ${command.command} ${command.args
-            .map((arg) => JSON.stringify(arg))
-            .join(' ')}`
-    );
-
-    return new Promise((resolve, reject) => {
-        const child = spawn(command.command, command.args, {
-            stdio: 'ignore',
-            windowsHide: true,
-        });
-
-        child.once('error', reject);
-
-        child.once('close', (exitCode, signal) => {
-            const successExitCodes = command.successExitCodes ?? [0];
-            logger.log(
-                'server',
-                `storage cancel command exited: ${command.command} exit=${exitCode ?? 'null'} signal=${signal ?? 'null'}`
-            );
-
-            if (exitCode !== null && successExitCodes.includes(exitCode)) {
-                resolve();
-                return;
-            }
-
-            reject(
-                new Error(
-                    `${command.command} failed with exit code ${exitCode ?? signal}`
-                )
-            );
-        });
-    });
-}
-
 function createStorageCopyCancelledError(): Error {
     const error = new Error('Storage copy cancelled');
     error.name = 'AbortError';
     return error;
-}
-
-function executeCopyCommand(
-    command: CopyPathCommand,
-    onOutput: (text: string) => void,
-    onPid?: (pid: number) => void,
-    signal?: AbortSignal
-): Promise<{
-    exitCode: number | null;
-    signal: NodeJS.Signals | null;
-    stdout: string;
-    stderr: string;
-}> {
-    return new Promise((resolve, reject) => {
-        if (signal?.aborted) {
-            reject(createStorageCopyCancelledError());
-            return;
-        }
-
-        const child = spawn(command.command, command.args, {
-            stdio: ['ignore', 'pipe', 'pipe'],
-            windowsHide: true,
-            detached: command.detached ?? false,
-        });
-
-        const pid = child.pid;
-        if (!pid) {
-            reject(new Error(`Failed to start ${command.command}`));
-            return;
-        }
-
-        onPid?.(pid);
-
-        const stdout: Buffer[] = [];
-        const stderr: Buffer[] = [];
-        let settled = false;
-
-        const fail = (error: unknown): void => {
-            if (settled) {
-                return;
-            }
-
-            settled = true;
-            reject(toError(error));
-        };
-
-        const succeed = (value: {
-            exitCode: number | null;
-            signal: NodeJS.Signals | null;
-            stdout: string;
-            stderr: string;
-        }): void => {
-            if (settled) {
-                return;
-            }
-
-            settled = true;
-            resolve(value);
-        };
-
-        const handleOutput = (target: Buffer[], chunk: Buffer): void => {
-            if (signal?.aborted) {
-                return;
-            }
-
-            target.push(chunk);
-            onOutput(chunk.toString('utf8'));
-        };
-
-        child.stdout.on('data', (chunk: Buffer) => {
-            handleOutput(stdout, chunk);
-        });
-
-        child.stderr.on('data', (chunk: Buffer) => {
-            handleOutput(stderr, chunk);
-        });
-
-        child.on('error', (error: Error) => {
-            if (signal?.aborted) {
-                fail(createStorageCopyCancelledError());
-                return;
-            }
-
-            fail(error);
-        });
-
-        child.on('close', (exitCode, exitSignal) => {
-            if (signal?.aborted) {
-                fail(createStorageCopyCancelledError());
-                return;
-            }
-
-            const output = {
-                exitCode,
-                signal: exitSignal,
-                stdout: Buffer.concat(stdout).toString('utf8'),
-                stderr: Buffer.concat(stderr).toString('utf8'),
-            };
-
-            const successExitCodes = command.successExitCodes ?? [0];
-
-            if (exitCode !== null && successExitCodes.includes(exitCode)) {
-                succeed(output);
-                return;
-            }
-
-            fail(
-                new Error(
-                    `${command.command} failed with exit code ${exitCode ?? exitSignal}`
-                )
-            );
-        });
-    });
 }
 
 function handleAppSocketCommand(command: AppSocketCommand): void {
@@ -364,7 +206,6 @@ let latestLibraryValidationStatus: ValidationStatusEvent | null = null;
 type StorageCopyQueueItem = StorageCopyItem & {
     requestedSourcePath: string;
     requestedDestination: string | null;
-    command: CopyPathCommand | null;
 };
 
 let storageCopyQueue: StorageCopyQueueItem[] = [];
@@ -481,13 +322,7 @@ function removeStorageCopy(id: string): void {
     if (activeStorageCopyId === id) {
         cancelledStorageCopyIds.add(id);
         activeStorageCopyAbortController?.abort();
-
-        void cancelStorageCopyProcess(id, item).catch((error: unknown) => {
-            logServerError(
-                'Failed to cancel active storage copy during remove:',
-                error
-            );
-        });
+        cancelStorageCopyProcess(id, item);
     }
 
     removeStorageCopyFromState(id);
@@ -505,34 +340,14 @@ function removeStorageCopyLater(id: string): void {
     }, 5000);
 }
 
-async function cancelStorageCopyProcess(
-    id: string,
-    item: StorageCopyItem
-): Promise<void> {
-    const pid = activeStorageCopyId === id ? activeStorageCopyPid : null;
-
-    if (pid === null) {
-        logger.log(
-            'server',
-            `storage copy cancel marked before process start: id=${id}`
-        );
-        return;
-    }
-
-    const cancelCommand = await cancelCopy({
-        pid,
-        context: item.cancelContext,
-    });
-
-    await executeCancelCopyCommand(cancelCommand);
-
+function cancelStorageCopyProcess(id: string, item: StorageCopyItem): void {
     logger.log(
         'server',
-        `storage ${item.operation} cancel completed: ${item.sourcePath} -> ${item.destinationPath}`
+        `storage ${item.operation} stream cancel requested: id=${id} ${item.sourcePath} -> ${item.destinationPath}`
     );
 }
 
-async function cancelStorageCopy(id: string): Promise<void> {
+function cancelStorageCopy(id: string): void {
     const item = storageCopies.find((candidate) => candidate.id === id);
 
     if (!item) {
@@ -555,7 +370,7 @@ async function cancelStorageCopy(id: string): Promise<void> {
     try {
         if (wasActive) {
             activeStorageCopyAbortController?.abort();
-            await cancelStorageCopyProcess(id, item);
+            cancelStorageCopyProcess(id, item);
         }
     } catch (error) {
         logServerError('Failed to cancel storage copy:', error);
@@ -590,7 +405,7 @@ async function handleStorageCopySocketCommand(
             return;
 
         case 'storage.copy.cancel':
-            void cancelStorageCopy(command.id);
+            cancelStorageCopy(command.id);
             return;
 
         case 'storage.copy.remove':
@@ -783,6 +598,121 @@ function calculateStorageCopyByteProgress({
         100,
         Math.max(0, ((completedBytes + currentFileBytes) / totalBytes) * 100)
     );
+}
+
+type StreamCopyProgress = {
+    relativePath: string;
+    fileSizeBytes: number;
+    fileProgress: number;
+    copiedBytes: number;
+};
+
+async function getStreamCopyDestinationPath(
+    sourcePath: string,
+    destinationRoot: string
+): Promise<string> {
+    let resolvedDestinationRoot: string;
+    const isWindowsPath = /^[A-Z]:[\\/]/i.test(destinationRoot);
+    if (isWindowsPath) {
+        const resolvedPath = await resolveReadablePath(destinationRoot).catch(
+            () => null
+        );
+        if (resolvedPath === null) {
+            throw new Error(
+                `Destination is not mounted in WSL: ${destinationRoot}. Mount the drive in WSL or run the server on Windows.`
+            );
+        }
+
+        resolvedDestinationRoot = resolvedPath;
+    } else {
+        try {
+            resolvedDestinationRoot =
+                await resolveReadablePath(destinationRoot);
+        } catch (error) {
+            throw new Error(
+                `Storage destination is not mounted in this runtime: ${destinationRoot}`,
+                { cause: error }
+            );
+        }
+    }
+
+    return path.join(
+        resolvedDestinationRoot,
+        path.basename(sourcePath.replace(/[\\/]+$/, ''))
+    );
+}
+
+async function copyPathWithStreams({
+    sourcePath,
+    destinationPath,
+    files,
+    move,
+    signal,
+    onProgress,
+}: {
+    sourcePath: string;
+    destinationPath: string;
+    files: PathFileSize[];
+    move: boolean;
+    signal: AbortSignal;
+    onProgress: (progress: StreamCopyProgress) => void;
+}): Promise<void> {
+    const sourceInfo = await stat(sourcePath);
+    const sourceRoot = sourceInfo.isDirectory()
+        ? sourcePath
+        : path.dirname(sourcePath);
+
+    if (sourceInfo.isDirectory()) {
+        await mkdir(destinationPath, { recursive: true });
+    } else {
+        await mkdir(path.dirname(destinationPath), { recursive: true });
+    }
+
+    for (const file of files) {
+        if (signal.aborted) {
+            throw createStorageCopyCancelledError();
+        }
+
+        const sourceFilePath = path.join(sourceRoot, file.relativePath);
+        const destinationFilePath = sourceInfo.isDirectory()
+            ? path.join(destinationPath, file.relativePath)
+            : destinationPath;
+        await mkdir(path.dirname(destinationFilePath), { recursive: true });
+
+        let copiedBytes = 0;
+        const readStream = createReadStream(sourceFilePath);
+        readStream.on('data', (chunk: Buffer) => {
+            copiedBytes += chunk.length;
+            onProgress({
+                relativePath: file.relativePath,
+                fileSizeBytes: file.sizeBytes,
+                fileProgress:
+                    file.sizeBytes > 0
+                        ? (copiedBytes / file.sizeBytes) * 100
+                        : 100,
+                copiedBytes,
+            });
+        });
+
+        await pipeline(readStream, createWriteStream(destinationFilePath), {
+            signal,
+        });
+
+        onProgress({
+            relativePath: file.relativePath,
+            fileSizeBytes: file.sizeBytes,
+            fileProgress: 100,
+            copiedBytes: file.sizeBytes,
+        });
+
+        if (move) {
+            await unlink(sourceFilePath);
+        }
+    }
+
+    if (move && sourceInfo.isDirectory()) {
+        await rm(sourcePath, { recursive: true, force: true });
+    }
 }
 
 async function processDownloadQueue(): Promise<void> {
@@ -1194,7 +1124,6 @@ async function queueStorageTransfer(
         totalFiles: null,
         currentSizeBytes: null,
         currentFilePath: null,
-        cancelContext: undefined,
         error: null,
     };
 
@@ -1202,7 +1131,6 @@ async function queueStorageTransfer(
         ...copyItem,
         requestedSourcePath: sourcePath,
         requestedDestination,
-        command: null,
     };
 
     storageCopies = [...storageCopies, copyItem];
@@ -1264,7 +1192,6 @@ async function processStorageCopyQueue(): Promise<void> {
 
     const abortController = new AbortController();
     activeStorageCopyAbortController = abortController;
-    activeStorageCopyPid = null;
 
     nextItem.state = 'copying';
     nextItem.progress = 0;
@@ -1329,12 +1256,6 @@ async function processStorageCopyQueue(): Promise<void> {
             return;
         }
 
-        const sourceFileSizeByPath = new Map(
-            sourceFileSizes.map((file) => [
-                getStorageCopyFileKey(file.relativePath),
-                file.sizeBytes,
-            ])
-        );
         const sourceSizeBytes = sourceStats.sizeBytes;
         const sourceFileCount = sourceStats.fileCount;
         const freeBytes = storageDestination.freeBytes;
@@ -1343,24 +1264,19 @@ async function processStorageCopyQueue(): Promise<void> {
             throw new Error('Not enough free space on destination');
         }
 
-        const command = await copyPath({
-            sourcePath: nextItem.requestedSourcePath,
-            destination: storageDestination,
-            move: nextItem.operation === 'move',
-        });
+        const destinationPath = await getStreamCopyDestinationPath(
+            readableSourcePath,
+            storageDestination.source
+        );
 
         if (shouldStopStorageCopy(nextItem.id)) {
             return;
         }
 
-        const destinationPath = command.args[1] ?? storageDestination.source;
-
-        nextItem.command = command;
         nextItem.destinationPath = destinationPath;
         nextItem.sourceSizeBytes = sourceSizeBytes;
         nextItem.totalFiles = sourceFileCount;
         nextItem.completedFiles = 0;
-        nextItem.cancelContext = command.cancelContext;
         nextItem.message =
             nextItem.operation === 'move' ? 'Moving...' : 'Copying...';
 
@@ -1371,25 +1287,25 @@ async function processStorageCopyQueue(): Promise<void> {
             sourceSizeBytes: nextItem.sourceSizeBytes,
             totalFiles: nextItem.totalFiles,
             completedFiles: nextItem.completedFiles,
-            cancelContext: nextItem.cancelContext,
             message: nextItem.message,
         });
 
         logger.log(
             'server',
-            `storage ${nextItem.operation} started: ${command.command} ${command.args
-                .map((arg) => JSON.stringify(arg))
-                .join(' ')}`
+            `storage ${nextItem.operation} stream started: ${readableSourcePath} -> ${destinationPath}`
         );
 
-        const countedFiles = new Set<string>();
         let completedBytes = 0;
         let currentFilePath: string | null = null;
         let currentFileSizeBytes: number | null = null;
 
-        const result = await executeCopyCommand(
-            command,
-            (text) => {
+        await copyPathWithStreams({
+            sourcePath: readableSourcePath,
+            destinationPath,
+            files: sourceFileSizes,
+            move: nextItem.operation === 'move',
+            signal: abortController.signal,
+            onProgress: (progressUpdate) => {
                 if (
                     cancelledStorageCopyIds.has(nextItem.id) ||
                     !hasStorageCopyItem(nextItem.id) ||
@@ -1398,61 +1314,36 @@ async function processStorageCopyQueue(): Promise<void> {
                     return;
                 }
 
-                const progressUpdate =
-                    command.parseOutput?.(text, {
-                        sourcePath: command.args[0] ?? nextItem.sourcePath,
-                        destinationPath:
-                            command.args[1] ?? nextItem.destinationPath,
-                    }) ?? null;
+                const nextFilePath = getStorageCopyFileKey(
+                    progressUpdate.relativePath
+                );
 
-                if (!progressUpdate) {
-                    return;
+                if (
+                    currentFilePath !== null &&
+                    currentFilePath !== nextFilePath
+                ) {
+                    completedBytes += currentFileSizeBytes ?? 0;
+                    nextItem.completedFiles =
+                        (nextItem.completedFiles ?? 0) + 1;
                 }
 
-                if (progressUpdate.message !== null) {
-                    nextItem.message = progressUpdate.message;
-                }
-
-                if (progressUpdate.currentFilePath !== null) {
-                    const nextFilePath = getStorageCopyFileKey(
-                        progressUpdate.currentFilePath
-                    );
-
-                    if (
-                        currentFilePath !== null &&
-                        currentFilePath !== nextFilePath &&
-                        !countedFiles.has(currentFilePath)
-                    ) {
-                        countedFiles.add(currentFilePath);
-                        completedBytes += currentFileSizeBytes ?? 0;
-                        nextItem.completedFiles =
-                            (nextItem.completedFiles ?? 0) + 1;
-                    }
-
-                    currentFilePath = nextFilePath;
-                    currentFileSizeBytes =
-                        sourceFileSizeByPath.get(nextFilePath) ??
-                        progressUpdate.currentSizeBytes;
-                    nextItem.currentFilePath = progressUpdate.currentFilePath;
-                    nextItem.currentSizeBytes = currentFileSizeBytes;
-                }
-
-                if (progressUpdate.currentSizeBytes !== null) {
-                    currentFileSizeBytes = progressUpdate.currentSizeBytes;
-                    nextItem.currentSizeBytes = currentFileSizeBytes;
-                }
+                currentFilePath = nextFilePath;
+                currentFileSizeBytes = progressUpdate.fileSizeBytes;
+                nextItem.currentFilePath = progressUpdate.relativePath;
+                nextItem.currentSizeBytes = progressUpdate.fileSizeBytes;
+                nextItem.message = progressUpdate.relativePath;
 
                 const nextProgress =
                     calculateStorageCopyByteProgress({
                         completedBytes,
                         currentFileSizeBytes,
-                        currentFileProgress: progressUpdate.progress,
+                        currentFileProgress: progressUpdate.fileProgress,
                         totalBytes: nextItem.sourceSizeBytes,
                     }) ??
                     calculateStorageCopyProgress(
                         nextItem.completedFiles ?? 0,
                         nextItem.totalFiles,
-                        progressUpdate.progress
+                        progressUpdate.fileProgress
                     );
                 if (nextProgress !== null) {
                     nextItem.progress = Math.max(
@@ -1469,11 +1360,7 @@ async function processStorageCopyQueue(): Promise<void> {
                     currentFilePath: nextItem.currentFilePath,
                 });
             },
-            (pid) => {
-                activeStorageCopyPid = pid;
-            },
-            abortController.signal
-        );
+        });
 
         if (
             cancelledStorageCopyIds.has(nextItem.id) ||
@@ -1490,10 +1377,7 @@ async function processStorageCopyQueue(): Promise<void> {
         nextItem.currentFilePath = null;
         nextItem.error = null;
 
-        logger.log(
-            'server',
-            `storage ${nextItem.operation} completed: exit=${result.exitCode ?? 'null'} signal=${result.signal ?? 'null'}`
-        );
+        logger.log('server', `storage ${nextItem.operation} stream completed`);
 
         updateStorageCopy(nextItem.id, {
             state: nextItem.state,
@@ -1529,7 +1413,6 @@ async function processStorageCopyQueue(): Promise<void> {
 
         if (activeStorageCopyId === nextItem.id) {
             activeStorageCopyId = null;
-            activeStorageCopyPid = null;
 
             if (activeStorageCopyAbortController === abortController) {
                 activeStorageCopyAbortController = null;

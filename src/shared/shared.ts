@@ -1,4 +1,3 @@
-import { CopyCancelContext } from './os.js';
 import { TitleKinds } from './titles.js';
 
 export type DownloadQueueState =
@@ -45,7 +44,6 @@ export type StorageCopyItem = {
     totalFiles: number | null;
     currentSizeBytes: number | null;
     currentFilePath: string | null;
-    cancelContext?: CopyCancelContext;
     error: string | null;
 };
 

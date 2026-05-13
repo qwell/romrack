@@ -4,14 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import type {
-    CancelCopyCommand,
-    CancelCopyOptions,
-    CopyPathCommand,
-    CopyPathOptions,
-    Fat32Volume,
-    OsOperations,
-} from './types.js';
+import type { Fat32Volume, OsOperations } from './types.js';
 import * as linux from './linux.js';
 import * as windows from './windows.js';
 
@@ -94,6 +87,39 @@ async function wslpath(args: string[]): Promise<string | null> {
     }
 }
 
+async function getMountedWindowsPath(windowsPath: string): Promise<{
+    path: string;
+    mountTarget: string;
+    fileSystem: string;
+} | null> {
+    const normalizedPath = windows.normalizeWindowsPath(windowsPath);
+    const root = normalizeWindowsDriveRoot(
+        path.win32.parse(normalizedPath).root
+    );
+    if (!root) {
+        return null;
+    }
+
+    const mount =
+        (await linux.listMounts()).find(
+            (candidate) =>
+                isWindowsBackedMount(candidate) &&
+                getMountWindowsPath(candidate) === root
+        ) ?? null;
+    if (!mount) {
+        return null;
+    }
+
+    const relativePath = path.win32.relative(root, normalizedPath);
+    return {
+        path: relativePath
+            ? path.posix.join(mount.target, ...relativePath.split(/[\\/]+/))
+            : mount.target,
+        mountTarget: mount.target,
+        fileSystem: mount.fileSystem,
+    };
+}
+
 function mergeVolumes(
     linuxVolume: Fat32Volume,
     windowsVolume: Fat32Volume
@@ -160,12 +186,18 @@ export async function inspectWslPath(
     sourcePath: string
 ): Promise<WslPathInspection> {
     if (windows.isWindowsPath(sourcePath)) {
+        const convertedPath = await wslpath(['-u', sourcePath]);
+        const mountedPath =
+            convertedPath === null
+                ? await getMountedWindowsPath(sourcePath)
+                : null;
+
         return {
-            path: await wslpath(['-u', sourcePath]),
+            path: convertedPath ?? mountedPath?.path ?? null,
             windowsPath: sourcePath.trim(),
             windowsBacked: true,
-            mountTarget: null,
-            fileSystem: null,
+            mountTarget: mountedPath?.mountTarget ?? null,
+            fileSystem: mountedPath?.fileSystem ?? null,
         };
     }
 
@@ -199,80 +231,6 @@ export async function inspectWslPath(
 
 export const listFat32Volumes = listMountedFat32Volumes;
 
-export function cancelCopy({
-    pid,
-}: CancelCopyOptions): Promise<CancelCopyCommand> {
-    return Promise.resolve({
-        tool: 'kill',
-        command: 'kill',
-        args: ['-TERM', '--', `-${pid}`],
-        reason: 'terminate WSL copy process group',
-        successExitCodes: [0],
-    });
-}
-
-export async function copyPath({
-    sourcePath,
-    destination,
-    move = false,
-}: CopyPathOptions): Promise<CopyPathCommand> {
-    const source = await inspectWslPath(sourcePath);
-    const destinationIsWindowsPath = windows.isWindowsPath(destination.source);
-
-    if (!destinationIsWindowsPath && source.path) {
-        const command = await linux.copyPath({
-            sourcePath,
-            destination,
-            move,
-        });
-
-        return {
-            ...command,
-            detached: true,
-            cancelContext: {
-                runtime: 'linux',
-            },
-        };
-    }
-
-    const destinationWindowsPath =
-        normalizeWindowsDriveRoot(destination.source) ??
-        (await wslpath(['-w', destination.source]));
-    if (destinationWindowsPath) {
-        const sourceWindowsPath =
-            source.windowsPath ?? (await wslpath(['-w', sourcePath]));
-        if (!sourceWindowsPath) {
-            throw new Error(
-                `Failed to convert source path for robocopy: ${sourcePath}`
-            );
-        }
-
-        const command = await windows.copyPath({
-            sourcePath: sourceWindowsPath,
-            destination: {
-                ...destination,
-                source: destinationWindowsPath,
-            },
-            move,
-        });
-
-        return {
-            ...command,
-            detached: true,
-            cancelContext: {
-                runtime: 'windows',
-            },
-            reason: destinationIsWindowsPath
-                ? 'destination is only visible to Windows'
-                : 'source and destination are Windows-backed',
-        };
-    }
-
-    throw new Error('Destination is not accessible from WSL or Windows tools.');
-}
-
 export const wsl2: OsOperations = {
-    cancelCopy,
-    copyPath,
     listFat32Volumes,
 };

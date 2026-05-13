@@ -1,15 +1,7 @@
 import { execFile } from 'node:child_process';
-import path from 'node:path';
 import { promisify } from 'node:util';
 
-import type {
-    CancelCopyCommand,
-    CancelCopyOptions,
-    CopyPathCommand,
-    CopyPathOptions,
-    Fat32Volume,
-    OsOperations,
-} from './types.js';
+import type { Fat32Volume, OsOperations } from './types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -102,54 +94,6 @@ export async function listMountedFat32Volumes(): Promise<Fat32Volume[]> {
 
 export const listFat32Volumes = listMountedFat32Volumes;
 
-function getSourceDirectoryName(sourcePath: string): string {
-    return path.posix.basename(sourcePath.replace(/\/+$/, ''));
-}
-
-export function cancelCopy({
-    pid,
-}: CancelCopyOptions): Promise<CancelCopyCommand> {
-    return Promise.resolve({
-        tool: 'kill',
-        command: 'kill',
-        args: ['-TERM', '--', `-${pid}`],
-        reason: 'terminate rsync process group',
-        successExitCodes: [0],
-    });
-}
-
-export function copyPath({
-    sourcePath,
-    destination,
-    move = false,
-}: CopyPathOptions): Promise<CopyPathCommand> {
-    if (!destination.source) {
-        throw new Error('Destination does not have a macOS path.');
-    }
-
-    const destinationPath = path.posix.join(
-        destination.source,
-        getSourceDirectoryName(sourcePath)
-    );
-
-    return Promise.resolve({
-        tool: 'rsync',
-        command: 'rsync',
-        args: [
-            '-a',
-            '--progress',
-            '--stats',
-            ...(move ? ['--remove-source-files'] : []),
-            `${sourcePath.replace(/\/+$/, '')}/`,
-            `${destinationPath.replace(/\/+$/, '')}/`,
-        ],
-        reason: 'destination is a macOS FAT32 mount',
-        detached: true,
-    });
-}
-
 export const macos: OsOperations = {
-    copyPath,
-    cancelCopy,
     listFat32Volumes: listFat32Volumes,
 };

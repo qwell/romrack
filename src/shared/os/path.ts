@@ -84,17 +84,3 @@ export function resolveStorageDestination(
 
     return null;
 }
-
-export function resolveDefaultStorageDestination(
-    volume: Fat32Volume,
-    destination: string | null
-): Fat32Volume {
-    if (!destination) {
-        return volume;
-    }
-
-    return {
-        ...volume,
-        source: appendStorageDestination(volume.source, destination),
-    };
-}

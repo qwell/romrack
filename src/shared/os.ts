@@ -4,28 +4,10 @@ import { linux } from './os/linux.js';
 import { macos } from './os/macos.js';
 import { windows } from './os/windows.js';
 import { inspectWslPath, wsl2, isWsl2 } from './os/wsl2.js';
-import {
-    resolveDefaultStorageDestination,
-    resolveStorageDestination,
-} from './os/path.js';
-import type {
-    CancelCopyCommand,
-    CancelCopyOptions,
-    CopyPathCommand,
-    CopyPathOptions,
-    Fat32Volume,
-    OsOperations,
-} from './os/types.js';
+import { resolveStorageDestination } from './os/path.js';
+import type { Fat32Volume, OsOperations } from './os/types.js';
 
-export type {
-    CancelCopyCommand,
-    CancelCopyOptions,
-    CopyCancelContext,
-    CopyPathCommand,
-    CopyPathOptions,
-    Fat32Volume,
-    OsOperations,
-} from './os/types.js';
+export type { Fat32Volume, OsOperations } from './os/types.js';
 
 export type RuntimeOs = 'windows' | 'linux' | 'wsl2' | 'macos' | 'unsupported';
 
@@ -46,10 +28,7 @@ export function resolveFat32Destination(
         }
     }
 
-    const volume = volumes[0];
-    return volume
-        ? resolveDefaultStorageDestination(volume, destination)
-        : null;
+    return null;
 }
 
 export async function getRuntimeOs(): Promise<RuntimeOs> {
@@ -94,14 +73,6 @@ async function resolveRuntimeOperations(): Promise<OsOperations | null> {
     }
 }
 
-async function requireRuntimeOperations(): Promise<OsOperations> {
-    const operations = await getRuntimeOperations();
-    if (!operations) {
-        throw new Error(`Unsupported runtime OS: ${os.platform()}`);
-    }
-    return operations;
-}
-
 export async function resolveReadablePath(targetPath: string): Promise<string> {
     if ((await getRuntimeOs()) !== 'wsl2') {
         return targetPath;
@@ -115,21 +86,7 @@ export async function resolveReadablePath(targetPath: string): Promise<string> {
     return inspected.path;
 }
 
-export async function cancelCopy(
-    options: CancelCopyOptions
-): Promise<CancelCopyCommand> {
-    return (await requireRuntimeOperations()).cancelCopy(options);
-}
-
-export async function copyPath(
-    options: CopyPathOptions
-): Promise<CopyPathCommand> {
-    return (await requireRuntimeOperations()).copyPath(options);
-}
-
 export const runtimeOs = {
-    copyPath,
-    cancelCopy,
     getRuntimeOs,
     listFat32Volumes,
     resolveReadablePath,
