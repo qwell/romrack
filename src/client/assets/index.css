@@ -13,6 +13,7 @@
     --unknown: #7b3fb3;
     --vc: #0fa0c8;
     --footer: #d0d0d0;
+    --action-divider: #b8b8b8;
 }
 
 :root[data-theme='dark'] {
@@ -29,6 +30,7 @@
     --unknown: #b07cff;
     --vc: #0fa0c8;
     --footer: #222222;
+    --action-divider: #4a4a4a;
 }
 
 body {
@@ -968,7 +970,12 @@ footer > div:last-child {
 
 .action-bar-details {
     display: grid;
-    gap: 4px;
+    grid-template-columns:
+        6ch 11ch 24px 8ch minmax(8ch, max-content) minmax(18ch, max-content)
+        minmax(18ch, 1fr);
+    column-gap: 8px;
+    row-gap: 4px;
+    align-items: center;
     max-height: 35vh;
     overflow: auto;
     padding: 6px 8px 8px;
@@ -976,14 +983,7 @@ footer > div:last-child {
 }
 
 .action-bar-row {
-    display: grid;
-    grid-template-columns:
-        6ch 11ch 24px 8ch 8ch minmax(18ch, 1fr)
-        minmax(18ch, 1.2fr);
-    column-gap: 5px;
-    align-items: center;
-    min-height: 24px;
-    min-width: 0;
+    display: contents;
 }
 
 .action-bar-current,
@@ -991,9 +991,26 @@ footer > div:last-child {
 .action-bar-files,
 .action-bar-size,
 .action-bar-details-cell {
+    min-height: 24px;
+    line-height: 24px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.action-bar-progress,
+.action-bar-icon,
+.action-bar-state {
+    min-height: 24px;
+    line-height: 24px;
+}
+
+.action-bar-state,
+.action-bar-size,
+.action-bar-title {
+    box-sizing: border-box;
+    border-right: 1px solid var(--action-divider);
+    padding-right: 10px;
 }
 
 .action-bar-progress {
@@ -1006,6 +1023,7 @@ footer > div:last-child {
 
 .action-bar-files,
 .action-bar-size {
+    min-height: 16px;
     text-align: right;
     font-variant-numeric: tabular-nums;
 }
@@ -1045,9 +1063,11 @@ footer > div:last-child {
 
 .action-bar-controls {
     display: flex;
+    align-items: center;
     gap: 4px;
     justify-content: end;
-    justify-self: end;
+    justify-self: stretch;
+    line-height: normal;
     min-width: 0;
     overflow: hidden;
     text-overflow: clip;

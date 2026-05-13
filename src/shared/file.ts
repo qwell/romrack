@@ -10,6 +10,11 @@ export type PathStats = {
     fileCount: number;
 };
 
+export type PathFileSize = {
+    relativePath: string;
+    sizeBytes: number;
+};
+
 export async function getImmediatePathSizeBytes(
     targetPath: string
 ): Promise<number> {
@@ -91,4 +96,51 @@ export async function getPathStats(targetPath: string): Promise<PathStats> {
             fileCount: 0,
         }
     );
+}
+
+export async function getPathFileSizes(
+    targetPath: string
+): Promise<PathFileSize[]> {
+    const info = await stat(targetPath);
+    const root = info.isDirectory() ? targetPath : path.dirname(targetPath);
+    return collectPathFileSizes(root, targetPath);
+}
+
+async function collectPathFileSizes(
+    rootPath: string,
+    targetPath: string
+): Promise<PathFileSize[]> {
+    const info = await stat(targetPath);
+
+    if (info.isFile()) {
+        const relativePath = path.relative(rootPath, targetPath);
+        return [
+            {
+                relativePath: relativePath || path.basename(targetPath),
+                sizeBytes: info.size,
+            },
+        ];
+    }
+
+    if (!info.isDirectory()) {
+        return [];
+    }
+
+    const entries = await readdir(targetPath, { withFileTypes: true });
+    const sizes = await mapConcurrent(
+        entries,
+        DIRECTORY_SIZE_CONCURRENCY,
+        async (entry) => {
+            try {
+                return await collectPathFileSizes(
+                    rootPath,
+                    path.join(targetPath, entry.name)
+                );
+            } catch {
+                return [];
+            }
+        }
+    );
+
+    return sizes.flat();
 }

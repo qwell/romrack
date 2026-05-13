@@ -35,6 +35,7 @@ export type StorageCopyItem = {
     id: string;
     operation: StorageCopyOperation;
     sourcePath: string;
+    titleKind: TitleKinds | null;
     destinationPath: string;
     state: StorageCopyState;
     progress: number | null;

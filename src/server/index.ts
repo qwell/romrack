@@ -24,6 +24,7 @@ import { getCachedImage } from './image-cache.js';
 import {
     findFirstReadableWiiURoot,
     getTitleIconUrl,
+    readWiiUTitleKind,
     scanWiiUTitleRoots,
     validateWiiUTitleRoots,
 } from './wiiu.js';
@@ -49,7 +50,7 @@ import {
     resolveReadablePath,
     resolveFat32Destination,
 } from '../shared/os.js';
-import { getPathStats } from '../shared/file.js';
+import { getPathFileSizes, getPathStats } from '../shared/file.js';
 import logger from '../shared/logger.js';
 import { DownloadQueueItem, StorageCopyItem } from '../shared/shared.js';
 
@@ -59,7 +60,7 @@ const app = express();
 const host = config.host;
 const port = config.port;
 
-const clientDir = path.join(getAppRoot(import.meta.url), 'client');
+const clientDir = path.join(getAppRoot(), 'client');
 
 let activeStorageCopyPid: number | null = null;
 
@@ -341,7 +342,7 @@ function handleAppSocketCommand(command: AppSocketCommand): void {
         case 'storage.copy.retry':
         case 'storage.copy.remove':
         case 'storage.copy.cancel':
-            handleStorageCopySocketCommand(command);
+            void handleStorageCopySocketCommand(command);
             return;
     }
 }
@@ -356,7 +357,6 @@ let activeStorageCopyId: string | null = null;
 let activeStorageCopyAbortController: AbortController | null = null;
 
 const cancelledDownloadIds = new Set<string>();
-const cancelledDownloadKeys = new Set<string>();
 const cancelledStorageCopyIds = new Set<string>();
 
 let latestLibraryValidationStatus: ValidationStatusEvent | null = null;
@@ -573,13 +573,13 @@ function broadcastLibraryValidationStatus(event: ValidationStatusEvent): void {
     broadcastAppSocketEvent(event);
 }
 
-function handleStorageCopySocketCommand(
+async function handleStorageCopySocketCommand(
     command: StorageCopySocketCommand
-): void {
+): Promise<void> {
     switch (command.type) {
         case 'storage.copy.queue':
             try {
-                queueStorageTransfer({
+                await queueStorageTransfer({
                     sourcePath: command.sourcePath ?? null,
                     requestedDestination: command.destinationPath ?? null,
                     move: command.move ?? false,
@@ -733,6 +733,58 @@ function scheduleBroadcastDownloadQueue(): void {
     }, 200);
 }
 
+function calculateStorageCopyProgress(
+    completedFiles: number,
+    totalFiles: number | null,
+    currentFileProgress: number | null
+): number | null {
+    if (totalFiles === null || totalFiles <= 0) {
+        return currentFileProgress;
+    }
+
+    const currentFileFraction =
+        currentFileProgress === null ? 0 : currentFileProgress / 100;
+    const overallProgress =
+        ((completedFiles + currentFileFraction) / totalFiles) * 100;
+
+    return Math.min(100, Math.max(0, overallProgress));
+}
+
+function getStorageCopyFileKey(filePath: string): string {
+    return filePath.replaceAll('\\', '/').replace(/^\/+/, '');
+}
+
+function calculateStorageCopyByteProgress({
+    completedBytes,
+    currentFileSizeBytes,
+    currentFileProgress,
+    totalBytes,
+}: {
+    completedBytes: number;
+    currentFileSizeBytes: number | null;
+    currentFileProgress: number | null;
+    totalBytes: number | null;
+}): number | null {
+    if (
+        totalBytes === null ||
+        totalBytes <= 0 ||
+        currentFileSizeBytes === null ||
+        currentFileProgress === null
+    ) {
+        return null;
+    }
+
+    const currentFileBytes =
+        (currentFileSizeBytes *
+            Math.min(100, Math.max(0, currentFileProgress))) /
+        100;
+
+    return Math.min(
+        100,
+        Math.max(0, ((completedBytes + currentFileBytes) / totalBytes) * 100)
+    );
+}
+
 async function processDownloadQueue(): Promise<void> {
     if (activeDownloadItemId) {
         return;
@@ -790,7 +842,7 @@ async function processDownloadQueue(): Promise<void> {
                 nextItem.totalFiles = progress.totalFiles;
                 nextItem.currentFileName = progress.currentFileName;
 
-                broadcastDownloadQueue();
+                scheduleBroadcastDownloadQueue();
             },
             abortController.signal
         );
@@ -830,7 +882,6 @@ async function processDownloadQueue(): Promise<void> {
         broadcastDownloadQueue();
     } finally {
         cancelledDownloadIds.delete(nextItem.id);
-        cancelledDownloadKeys.delete(getDownloadQueueKey(nextItem));
         activeDownloadAbortControllers.delete(nextItem.id);
 
         if (activeDownloadItemId === nextItem.id) {
@@ -847,8 +898,9 @@ function cancelActiveDownload(item: DownloadQueueItem): void {
         `download cancel requested: ${item.groupName} ${item.label} ${item.titleId}`
     );
 
+    const key = getDownloadQueueKey(item);
+
     cancelledDownloadIds.add(item.id);
-    cancelledDownloadKeys.add(getDownloadQueueKey(item));
 
     const abortController = activeDownloadAbortControllers.get(item.id);
     abortController?.abort();
@@ -858,16 +910,11 @@ function cancelActiveDownload(item: DownloadQueueItem): void {
         `download abort signaled: id=${item.id} signalAborted=${abortController?.signal.aborted ? 'yes' : 'no'}`
     );
 
-    if (activeDownloadItemId === item.id) {
-        activeDownloadItemId = null;
-    }
-
     downloadQueue = downloadQueue.filter(
-        (candidate) => candidate.id !== item.id
+        (candidate) => getDownloadQueueKey(candidate) !== key
     );
 
     broadcastDownloadQueue();
-    void processDownloadQueue();
 }
 
 function handleDownloadSocketCommand(command: DownloadSocketCommand): void {
@@ -878,7 +925,7 @@ function handleDownloadSocketCommand(command: DownloadSocketCommand): void {
                 `download queue requested: ${command.items
                     .map(
                         (item) =>
-                            `${item.id}:${item.groupName}:${item.label}:${item.titleId}`
+                            `${item.id}:${item.groupName}:${item.kind}:${item.label}:${item.titleId}`
                     )
                     .join(',')}`
             );
@@ -892,11 +939,20 @@ function handleDownloadSocketCommand(command: DownloadSocketCommand): void {
             const newItems = command.items.filter((item) => {
                 const key = getDownloadQueueKey(item);
 
-                if (cancelledDownloadKeys.has(key)) {
-                    return false;
-                }
-
                 if (existingKeys.has(key)) {
+                    logger.log(
+                        'server',
+                        `download queue rejected: existing key=${JSON.stringify(key)} existing=${downloadQueue
+                            .filter(
+                                (candidate) =>
+                                    getDownloadQueueKey(candidate) === key
+                            )
+                            .map(
+                                (candidate) =>
+                                    `${candidate.id}:${candidate.kind}:${candidate.titleId}:${candidate.state}`
+                            )
+                            .join(',')}`
+                    );
                     return false;
                 }
 
@@ -968,15 +1024,28 @@ function handleDownloadSocketCommand(command: DownloadSocketCommand): void {
             );
 
             if (!item) {
+                logger.log(
+                    'server',
+                    `download remove ignored: id=${command.id} item=missing`
+                );
                 return;
             }
 
-            if (item.state === 'downloading') {
+            const key = getDownloadQueueKey(item);
+            const activeItem =
+                downloadQueue.find(
+                    (candidate) =>
+                        candidate.state === 'downloading' &&
+                        getDownloadQueueKey(candidate) === key
+                ) ?? null;
+
+            if (activeItem) {
                 logger.log(
                     'server',
-                    `download remove received for active item; cancelling: ${item.groupName} ${item.label} ${item.titleId}`
+                    `download remove received for active item; cancelling: ${activeItem.groupName} ${activeItem.label} ${activeItem.titleId}`
                 );
-                cancelActiveDownload(item);
+
+                cancelActiveDownload(activeItem);
                 return;
             }
 
@@ -986,10 +1055,12 @@ function handleDownloadSocketCommand(command: DownloadSocketCommand): void {
             );
 
             downloadQueue = downloadQueue.filter(
-                (candidate) => candidate.id !== command.id
+                (candidate) => getDownloadQueueKey(candidate) !== key
             );
 
             broadcastDownloadQueue();
+            void processDownloadQueue();
+
             return;
         }
 
@@ -1006,29 +1077,44 @@ function handleDownloadSocketCommand(command: DownloadSocketCommand): void {
                 return;
             }
 
-            if (item.state === 'queued') {
+            const key = getDownloadQueueKey(item);
+            const activeItem =
+                downloadQueue.find(
+                    (candidate) =>
+                        candidate.state === 'downloading' &&
+                        getDownloadQueueKey(candidate) === key
+                ) ?? null;
+
+            if (activeItem) {
+                cancelActiveDownload(activeItem);
+                return;
+            }
+
+            const matchingQueuedItems = downloadQueue.filter(
+                (candidate) =>
+                    candidate.state === 'queued' &&
+                    getDownloadQueueKey(candidate) === key
+            );
+
+            if (matchingQueuedItems.length > 0) {
                 logger.log(
                     'server',
-                    `download queued item removed: ${item.groupName} ${item.label} ${item.titleId}`
+                    `download queued items removed: ${item.groupName} ${item.label} ${item.titleId}`
                 );
 
                 downloadQueue = downloadQueue.filter(
-                    (candidate) => candidate.id !== command.id
+                    (candidate) => getDownloadQueueKey(candidate) !== key
                 );
 
                 broadcastDownloadQueue();
                 return;
             }
 
-            if (item.state !== 'downloading') {
-                logger.log(
-                    'server',
-                    `download cancel ignored: id=${command.id} item=${item.state}:${item.titleId}`
-                );
-                return;
-            }
+            logger.log(
+                'server',
+                `download cancel ignored: id=${command.id} item=${item.state}:${item.titleId}`
+            );
 
-            cancelActiveDownload(item);
             return;
         }
     }
@@ -1075,9 +1161,9 @@ type StorageTransferQueueResult = {
     body: Record<string, unknown>;
 };
 
-function queueStorageTransfer(
+async function queueStorageTransfer(
     input: StorageTransferQueueInput
-): StorageTransferQueueResult {
+): Promise<StorageTransferQueueResult> {
     const sourcePath = input.sourcePath ?? getConfig().wiiuRoots[0];
     if (!sourcePath) {
         return {
@@ -1091,11 +1177,14 @@ function queueStorageTransfer(
     const requestedDestination = input.requestedDestination;
     const move = input.move;
     const copyId = randomUUID();
+    const readableSourcePath = await resolveReadablePath(sourcePath);
+    const titleKind = await readWiiUTitleKind(readableSourcePath);
 
     const copyItem: StorageCopyItem = {
         id: copyId,
         operation: move ? 'move' : 'copy',
-        sourcePath,
+        sourcePath: readableSourcePath,
+        titleKind,
         destinationPath: requestedDestination ?? '',
         state: 'queued',
         progress: null,
@@ -1218,17 +1307,34 @@ async function processStorageCopyQueue(): Promise<void> {
         const readableSourcePath = await resolveReadablePath(
             nextItem.requestedSourcePath
         );
+        const titleKind = await readWiiUTitleKind(readableSourcePath);
+        nextItem.sourcePath = readableSourcePath;
+        nextItem.titleKind = titleKind;
+
+        updateStorageCopy(nextItem.id, {
+            sourcePath: nextItem.sourcePath,
+            titleKind: nextItem.titleKind,
+        });
 
         if (shouldStopStorageCopy(nextItem.id)) {
             return;
         }
 
-        const sourceStats = await getPathStats(readableSourcePath);
+        const [sourceStats, sourceFileSizes] = await Promise.all([
+            getPathStats(readableSourcePath),
+            getPathFileSizes(readableSourcePath),
+        ]);
 
         if (shouldStopStorageCopy(nextItem.id)) {
             return;
         }
 
+        const sourceFileSizeByPath = new Map(
+            sourceFileSizes.map((file) => [
+                getStorageCopyFileKey(file.relativePath),
+                file.sizeBytes,
+            ])
+        );
         const sourceSizeBytes = sourceStats.sizeBytes;
         const sourceFileCount = sourceStats.fileCount;
         const freeBytes = storageDestination.freeBytes;
@@ -1250,7 +1356,6 @@ async function processStorageCopyQueue(): Promise<void> {
         const destinationPath = command.args[1] ?? storageDestination.source;
 
         nextItem.command = command;
-        nextItem.sourcePath = readableSourcePath;
         nextItem.destinationPath = destinationPath;
         nextItem.sourceSizeBytes = sourceSizeBytes;
         nextItem.totalFiles = sourceFileCount;
@@ -1261,6 +1366,7 @@ async function processStorageCopyQueue(): Promise<void> {
 
         updateStorageCopy(nextItem.id, {
             sourcePath: nextItem.sourcePath,
+            titleKind: nextItem.titleKind,
             destinationPath: nextItem.destinationPath,
             sourceSizeBytes: nextItem.sourceSizeBytes,
             totalFiles: nextItem.totalFiles,
@@ -1275,6 +1381,11 @@ async function processStorageCopyQueue(): Promise<void> {
                 .map((arg) => JSON.stringify(arg))
                 .join(' ')}`
         );
+
+        const countedFiles = new Set<string>();
+        let completedBytes = 0;
+        let currentFilePath: string | null = null;
+        let currentFileSizeBytes: number | null = null;
 
         const result = await executeCopyCommand(
             command,
@@ -1298,20 +1409,56 @@ async function processStorageCopyQueue(): Promise<void> {
                     return;
                 }
 
-                if (progressUpdate.progress !== null) {
-                    nextItem.progress = progressUpdate.progress;
-                }
-
                 if (progressUpdate.message !== null) {
                     nextItem.message = progressUpdate.message;
                 }
 
-                nextItem.currentSizeBytes = progressUpdate.currentSizeBytes;
-                nextItem.currentFilePath = progressUpdate.currentFilePath;
+                if (progressUpdate.currentFilePath !== null) {
+                    const nextFilePath = getStorageCopyFileKey(
+                        progressUpdate.currentFilePath
+                    );
 
-                if (progressUpdate.completedFile) {
-                    nextItem.completedFiles =
-                        (nextItem.completedFiles ?? 0) + 1;
+                    if (
+                        currentFilePath !== null &&
+                        currentFilePath !== nextFilePath &&
+                        !countedFiles.has(currentFilePath)
+                    ) {
+                        countedFiles.add(currentFilePath);
+                        completedBytes += currentFileSizeBytes ?? 0;
+                        nextItem.completedFiles =
+                            (nextItem.completedFiles ?? 0) + 1;
+                    }
+
+                    currentFilePath = nextFilePath;
+                    currentFileSizeBytes =
+                        sourceFileSizeByPath.get(nextFilePath) ??
+                        progressUpdate.currentSizeBytes;
+                    nextItem.currentFilePath = progressUpdate.currentFilePath;
+                    nextItem.currentSizeBytes = currentFileSizeBytes;
+                }
+
+                if (progressUpdate.currentSizeBytes !== null) {
+                    currentFileSizeBytes = progressUpdate.currentSizeBytes;
+                    nextItem.currentSizeBytes = currentFileSizeBytes;
+                }
+
+                const nextProgress =
+                    calculateStorageCopyByteProgress({
+                        completedBytes,
+                        currentFileSizeBytes,
+                        currentFileProgress: progressUpdate.progress,
+                        totalBytes: nextItem.sourceSizeBytes,
+                    }) ??
+                    calculateStorageCopyProgress(
+                        nextItem.completedFiles ?? 0,
+                        nextItem.totalFiles,
+                        progressUpdate.progress
+                    );
+                if (nextProgress !== null) {
+                    nextItem.progress = Math.max(
+                        nextItem.progress ?? 0,
+                        nextProgress
+                    );
                 }
 
                 updateStorageCopy(nextItem.id, {
@@ -1505,9 +1652,9 @@ app.get('/api/library/validate', async (_req, res) => {
     }
 });
 
-app.get('/api/storage/copy', (req, res) => {
+app.get('/api/storage/copy', async (req, res) => {
     try {
-        const result = queueStorageTransfer(
+        const result = await queueStorageTransfer(
             getStorageTransferQueueInput(req, false)
         );
         res.status(result.status).json(result.body);
@@ -1519,9 +1666,9 @@ app.get('/api/storage/copy', (req, res) => {
     }
 });
 
-app.get('/api/storage/move', (req, res) => {
+app.get('/api/storage/move', async (req, res) => {
     try {
-        const result = queueStorageTransfer(
+        const result = await queueStorageTransfer(
             getStorageTransferQueueInput(req, true)
         );
         res.status(result.status).json(result.body);

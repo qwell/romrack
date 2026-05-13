@@ -11,6 +11,10 @@ import {
     queueDownloads,
     collectSelectedDownloads,
     renderDownloadMarkers,
+    getDownloadDedupeKey,
+    requestJson,
+    formatDownloadProgress,
+    formatDownloadTitle,
 } from './download.js';
 import {
     StorageCopyActionBarCommand,
@@ -19,6 +23,13 @@ import {
     retryStorageCopy,
     syncStorageCopies,
     renderStorageCopyActionRow,
+    formatStorageCopyDetails,
+    formatStorageCopyFileCount,
+    formatStorageCopyIcon,
+    formatStorageCopyProgress,
+    formatStorageCopySize,
+    formatStorageCopyState,
+    formatStorageCopyTitle,
 } from './storage.js';
 import {
     type LibraryResponse,
@@ -63,10 +74,13 @@ type LibraryControlState = {
     vc: LibraryVcFilter;
     search: string;
 };
+type LibraryContentOptions = {
+    loading?: boolean;
+    onRefresh?: () => void | Promise<void>;
+};
 
 type ActionBarCommand = DownloadActionBarCommand | StorageCopyActionBarCommand;
 
-let refreshLibrary: (() => Promise<void>) | null = null;
 let showAllTitles = false;
 let selectedFamily: string | null = null;
 let currentGroups: TitleGroup[] = [];
@@ -99,6 +113,7 @@ const serverStatusModal = document.querySelector<HTMLDivElement>(
 const settingsRoot = document.querySelector<HTMLDivElement>('#settings-root');
 
 let actionBarRoot: HTMLElement | null = null;
+let actionBarSignature = '';
 let appSocket: WebSocket | null = null;
 let reconnectSocketTimer: number | null = null;
 
@@ -170,6 +185,26 @@ function isActionBarCommand(value: string | null): value is ActionBarCommand {
     }
 }
 
+function getMatchingDownloadIds(itemId: string): string[] {
+    const item = downloadQueue.find((candidate) => candidate.id === itemId);
+
+    if (!item) {
+        return [itemId];
+    }
+
+    const key = getDownloadDedupeKey(item);
+
+    const ids = downloadQueue
+        .filter(
+            (candidate) =>
+                candidate.state !== 'complete' &&
+                getDownloadDedupeKey(candidate) === key
+        )
+        .map((candidate) => candidate.id);
+
+    return ids.length > 0 ? ids : [itemId];
+}
+
 //FIXME
 function handleActionBarCommand(
     action: ActionBarCommand | undefined,
@@ -177,15 +212,15 @@ function handleActionBarCommand(
 ): void {
     switch (action) {
         case 'download.cancel':
-            cancelDownload(itemId);
+            sendDownloadCommandForMatches(itemId, cancelDownload);
             return;
 
         case 'download.remove':
-            removeDownload(itemId);
+            sendDownloadCommandForMatches(itemId, removeDownload);
             return;
 
         case 'download.retry':
-            retryDownload(itemId);
+            sendDownloadCommandForMatches(itemId, retryDownload);
             return;
 
         case 'storage.copy.cancel':
@@ -209,15 +244,6 @@ function updateSettingsStatus(
     settingsStatusMessage = message;
     settingsStatusTone = tone;
     renderSettingsSidebar();
-}
-
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-    const response = await fetch(url, init);
-    if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
-    }
-
-    return (await response.json()) as T;
 }
 
 function formatRegion(region: string | null): {
@@ -369,16 +395,27 @@ export function sendAppSocketCommand(command: AppSocketCommand): void {
     appSocket.send(JSON.stringify(command));
 }
 
+function sendDownloadCommandForMatches(
+    itemId: string,
+    send: (id: string) => void
+): void {
+    for (const id of getMatchingDownloadIds(itemId)) {
+        send(id);
+    }
+}
+
 function handleAppSocketEvent(event: AppSocketEvent): void {
     switch (event.type) {
         case 'app.connected':
             hideServerGoneModal();
+
             syncDownloadQueue(
                 downloadQueue,
                 event.downloads,
                 groupSearchHaystacks,
                 currentGroups
             );
+
             syncStorageCopies(storageCopies, event.storageCopies);
 
             if (event.libraryValidationStatus) {
@@ -394,6 +431,7 @@ function handleAppSocketEvent(event: AppSocketEvent): void {
                 groupSearchHaystacks,
                 currentGroups
             );
+
             return;
 
         case 'storage.copyChanged':
@@ -503,8 +541,166 @@ export function getAvailableSizeBytes(entry: unknown): number | null {
     return maybeNumber((entry as { sizeBytes?: unknown }).sizeBytes);
 }
 
+function getActionBarSignature(): string {
+    const visibleDownloads = downloadQueue.filter(
+        (item) => item.state !== 'complete'
+    );
+
+    const visibleCopies = storageCopies.filter(
+        (item) => item.state !== 'complete'
+    );
+
+    return JSON.stringify({
+        downloads: visibleDownloads.map((item) => ({
+            id: item.id,
+            state: item.state,
+        })),
+        copies: visibleCopies.map((item) => ({
+            id: item.id,
+            state: item.state,
+        })),
+    });
+}
+
+function updateActionBarRowsInPlace(): void {
+    if (!actionBarRoot) {
+        return;
+    }
+
+    for (const item of downloadQueue.filter(
+        (item) => item.state !== 'complete'
+    )) {
+        const row = actionBarRoot.querySelector<HTMLElement>(
+            `[data-download-item-id="${CSS.escape(item.id)}"]`
+        );
+
+        if (!row) {
+            continue;
+        }
+
+        row.className = `action-bar-row action-bar-row-${item.state}`;
+        row.dataset.itemState = item.state;
+        row.dataset.state = item.state;
+
+        const progress = row.querySelector<HTMLElement>(
+            '[data-download-progress]'
+        );
+        const files = row.querySelector<HTMLElement>('[data-download-files]');
+        const icon = row.querySelector<HTMLElement>('[data-download-icon]');
+        const state = row.querySelector<HTMLElement>('[data-download-state]');
+        const title = row.querySelector<HTMLElement>('[data-download-title]');
+        const detail = row.querySelector<HTMLElement>('[data-download-detail]');
+
+        if (progress) {
+            progress.textContent = formatDownloadProgress(item);
+        }
+
+        if (files) {
+            files.textContent =
+                item.completedFiles !== null && item.totalFiles !== null
+                    ? `${item.completedFiles}/${item.totalFiles} files`
+                    : '';
+        }
+
+        if (icon) {
+            icon.textContent = formatDownloadIcon(item.state) || '↓';
+        }
+
+        if (state) {
+            state.textContent =
+                item.state === 'downloading'
+                    ? 'Active'
+                    : item.state === 'queued'
+                      ? 'Queued'
+                      : item.state === 'failed'
+                        ? 'Failed'
+                        : 'Complete';
+        }
+
+        if (title) {
+            const downloadTitle = formatDownloadTitle(item);
+            title.textContent = downloadTitle;
+            title.title = downloadTitle;
+        }
+
+        if (detail) {
+            const detailText =
+                item.error ?? item.currentFileName ?? item.speedText ?? '';
+            detail.textContent = detailText;
+            detail.title = detailText;
+        }
+    }
+
+    for (const item of storageCopies.filter(
+        (item) => item.state !== 'complete'
+    )) {
+        const row = actionBarRoot.querySelector<HTMLElement>(
+            `[data-storage-copy-item-id="${CSS.escape(item.id)}"]`
+        );
+
+        if (!row) {
+            continue;
+        }
+
+        row.className = `action-bar-row action-bar-row-${item.state}`;
+        row.dataset.itemState = item.state;
+        row.dataset.state = item.state;
+
+        const progress = row.querySelector<HTMLElement>(
+            '[data-storage-copy-progress]'
+        );
+        const files = row.querySelector<HTMLElement>(
+            '[data-storage-copy-files]'
+        );
+        const icon = row.querySelector<HTMLElement>('[data-storage-copy-icon]');
+        const state = row.querySelector<HTMLElement>(
+            '[data-storage-copy-state]'
+        );
+        const size = row.querySelector<HTMLElement>('[data-storage-copy-size]');
+        const title = row.querySelector<HTMLElement>(
+            '[data-storage-copy-title]'
+        );
+        const detail = row.querySelector<HTMLElement>(
+            '[data-storage-copy-detail]'
+        );
+
+        if (progress) {
+            progress.textContent = formatStorageCopyProgress(item);
+        }
+
+        if (files) {
+            files.textContent = formatStorageCopyFileCount(item);
+        }
+
+        if (icon) {
+            icon.textContent = formatStorageCopyIcon(item);
+        }
+
+        if (state) {
+            state.textContent = formatStorageCopyState(item);
+        }
+
+        if (size) {
+            size.textContent = formatStorageCopySize(item);
+        }
+
+        if (title) {
+            title.textContent = formatStorageCopyTitle(item);
+            title.title = item.sourcePath;
+        }
+
+        if (detail) {
+            const detailText = formatStorageCopyDetails(item);
+            detail.textContent = detailText;
+            detail.title = detailText;
+        }
+    }
+}
+
 export function updateActionBar(): void {
-    if (!actionBarRoot) return;
+    if (!actionBarRoot) {
+        return;
+    }
 
     const visibleDownloads = downloadQueue.filter(
         (item) => item.state !== 'complete'
@@ -517,10 +713,23 @@ export function updateActionBar(): void {
     actionBarRoot.hidden = isEmpty;
 
     if (isEmpty) {
-        actionBarRoot.replaceChildren();
+        if (actionBarSignature !== '') {
+            actionBarSignature = '';
+            actionBarRoot.replaceChildren();
+        }
+
         return;
     }
 
+    const nextSignature = getActionBarSignature();
+
+    if (nextSignature === actionBarSignature) {
+        updateActionBarRowsInPlace();
+
+        return;
+    }
+
+    actionBarSignature = nextSignature;
     rebuildActionBar();
 }
 
@@ -552,26 +761,27 @@ function rebuildActionBar(): void {
         return;
     }
 
-    const visibleItems = downloadQueue.filter(
+    const incompleteDownloads = downloadQueue.filter(
         (item) => item.state !== 'complete'
     );
-    const visibleCopies = storageCopies.filter(
+    const incompleteCopies = storageCopies.filter(
         (item) => item.state !== 'complete'
     );
 
     const activeCount =
-        visibleItems.filter((item) => item.state === 'downloading').length +
-        visibleCopies.filter((item) => item.state === 'copying').length;
+        incompleteDownloads.filter((item) => item.state === 'downloading')
+            .length +
+        incompleteCopies.filter((item) => item.state === 'copying').length;
     const queuedCount =
-        visibleItems.filter((item) => item.state === 'queued').length +
-        visibleCopies.filter((item) => item.state === 'queued').length;
+        incompleteDownloads.filter((item) => item.state === 'queued').length +
+        incompleteCopies.filter((item) => item.state === 'queued').length;
     const failedCount =
-        visibleItems.filter((item) => item.state === 'failed').length +
-        visibleCopies.filter((item) => item.state === 'failed').length;
+        incompleteDownloads.filter((item) => item.state === 'failed').length +
+        incompleteCopies.filter((item) => item.state === 'failed').length;
 
     actionBarRoot.replaceChildren();
 
-    if (visibleItems.length === 0 && visibleCopies.length === 0) {
+    if (incompleteDownloads.length === 0 && incompleteCopies.length === 0) {
         return;
     }
 
@@ -584,9 +794,9 @@ function rebuildActionBar(): void {
     const current = document.createElement('div');
     current.className = 'action-bar-current';
     current.textContent =
-        visibleItems.length + visibleCopies.length === 1
+        incompleteDownloads.length + incompleteCopies.length === 1
             ? 'One visible action'
-            : `${visibleItems.length + visibleCopies.length} visible actions`;
+            : `${incompleteDownloads.length + incompleteCopies.length} visible actions`;
 
     const size = document.createElement('div');
     size.textContent = '';
@@ -597,11 +807,11 @@ function rebuildActionBar(): void {
     const details = document.createElement('div');
     details.className = 'action-bar-details';
 
-    for (const item of visibleItems) {
+    for (const item of incompleteDownloads) {
         details.append(renderDownloadActionRow(item));
     }
 
-    for (const item of visibleCopies) {
+    for (const item of incompleteCopies) {
         details.append(renderStorageCopyActionRow(item));
     }
 
@@ -1382,13 +1592,11 @@ function buildControls(
     groups: TitleGroup[],
     grid: HTMLDivElement,
     sidebar: HTMLElement,
-    loading = false,
-    initialControlState = libraryControlState
+    controlState: LibraryControlState,
+    options: LibraryContentOptions = {}
 ): HTMLElement {
-    const controlState = normalizeLibraryControlState(
-        groups,
-        initialControlState
-    );
+    const loading = options.loading ?? false;
+    controlState = normalizeLibraryControlState(groups, controlState);
     const controls = document.createElement('div');
     controls.className = 'library-controls';
 
@@ -1565,6 +1773,12 @@ function buildControls(
         );
     };
 
+    const refresh = (): void => {
+        if (options.onRefresh) {
+            void options.onRefresh();
+        }
+    };
+
     searchInput.addEventListener('input', update);
     regionSelect.addEventListener('change', update);
     statusSelect.addEventListener('change', update);
@@ -1572,14 +1786,15 @@ function buildControls(
 
     titleCheckbox.addEventListener('change', () => {
         showAllTitles = titleCheckbox.checked;
-        if (refreshLibrary) {
-            void refreshLibrary();
+
+        if (options.onRefresh) {
+            refresh();
         }
     });
 
     refreshButton.addEventListener('click', () => {
-        if (!refreshButton.disabled && refreshLibrary) {
-            void refreshLibrary();
+        if (!refreshButton.disabled) {
+            refresh();
         }
     });
 
@@ -1691,9 +1906,10 @@ function buildViewControl(grid: HTMLDivElement): HTMLDivElement {
 
 function buildLibraryContent(
     groups: TitleGroup[],
-    loading = false,
-    controlState = libraryControlState
+    controlState: LibraryControlState,
+    options: LibraryContentOptions = {}
 ): DocumentFragment {
+    const loading = options.loading ?? false;
     const fragment = document.createDocumentFragment();
 
     const grid = document.createElement('div');
@@ -1701,12 +1917,16 @@ function buildLibraryContent(
 
     const sidebar = buildDetailSidebar();
 
+    const normalizedControlState = normalizeLibraryControlState(
+        groups,
+        controlState
+    );
     const controls = buildControls(
         groups,
         grid,
         sidebar,
-        loading,
-        controlState
+        normalizedControlState,
+        options
     );
 
     const loadingLine = document.createElement('div');
@@ -1760,12 +1980,16 @@ function updateLibraryStatusLine(): void {
 async function loadLibrary(output: HTMLElement): Promise<void> {
     const requestId = ++activeLibraryRequestId;
     const nextControlState = { ...libraryControlState };
-    const loadingGroups = currentGroups.length > 0 ? currentGroups : [];
+
     libraryLoading = true;
     resetDetailSidebars();
+
     output.replaceChildren(
-        buildLibraryContent(loadingGroups, true, nextControlState)
+        buildLibraryContent([], nextControlState, {
+            loading: true,
+        })
     );
+
     updateValidationButtonState();
 
     try {
@@ -1789,8 +2013,12 @@ async function loadLibrary(output: HTMLElement): Promise<void> {
         );
 
         output.replaceChildren(
-            buildLibraryContent(groups, false, libraryControlState)
+            buildLibraryContent(groups, libraryControlState, {
+                loading: false,
+                onRefresh: () => loadLibrary(output),
+            })
         );
+
         updateValidationButtonState();
     } catch (error) {
         if (requestId !== activeLibraryRequestId) {
@@ -1812,7 +2040,7 @@ async function loadLibrary(output: HTMLElement): Promise<void> {
     }
 }
 
-refreshLibrary = async (): Promise<void> => {
+async function refreshLibrary(): Promise<void> {
     const output = document.querySelector<HTMLElement>('#output');
 
     if (!output) {
@@ -1820,7 +2048,7 @@ refreshLibrary = async (): Promise<void> => {
     }
 
     await loadLibrary(output);
-};
+}
 
 function buildSettingsRootRow(value: string): HTMLDivElement {
     const row = document.createElement('div');
@@ -1952,7 +2180,7 @@ async function saveSettingsConfig(sidebar: HTMLElement): Promise<void> {
             : 'Settings saved.';
         settingsStatusTone = 'success';
 
-        if (previousRoots !== nextRoots && refreshLibrary) {
+        if (previousRoots !== nextRoots) {
             void refreshLibrary();
         }
     } catch (error) {

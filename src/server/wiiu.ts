@@ -159,6 +159,18 @@ function classifyTitleId(titleId: string): {
     }
 }
 
+export async function readWiiUTitleKind(
+    titlePath: string
+): Promise<TitleKinds | null> {
+    const tmd = await readTmd(titlePath);
+    if (!tmd) {
+        return null;
+    }
+
+    const titleId = Buffer.from(tmd.header.titleId).toString('hex');
+    return classifyTitleId(titleId).kind;
+}
+
 function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
     const json = JSON.parse(jsonText) as RawTitleDatabaseEntry[];
 
@@ -317,11 +329,7 @@ function parseGameTdbDetails(game: GameTdbGame): TitleDetails {
 }
 
 async function readGameTdb(): Promise<Map<string, TitleDetails>> {
-    const filePath = path.join(
-        getAppRoot(import.meta.url),
-        'titles',
-        'wiiutdb.json'
-    );
+    const filePath = path.join(getAppRoot(), 'titles', 'wiiutdb.json');
 
     try {
         const text = await readFile(filePath, 'utf8');
@@ -363,7 +371,7 @@ async function readTitleDatabaseFile(
 }
 
 async function readTitleDatabase(): Promise<Map<string, TitleDatabaseEntry>> {
-    const titlesDir = path.join(getAppRoot(import.meta.url), 'titles');
+    const titlesDir = path.join(getAppRoot(), 'titles');
     const titlesJsonPath = path.join(titlesDir, 'titles.json');
     const extraJsonPath = path.join(titlesDir, 'extra.json');
 

@@ -1,4 +1,5 @@
 import { formatSize, StorageCopyItem } from '../shared/shared.js';
+import { TitleKinds } from '../shared/titles.js';
 import {
     createActionBarCell,
     createActionButton,
@@ -20,7 +21,7 @@ export function syncStorageCopies(
     updateActionBar();
 }
 
-function formatStorageCopyProgress(item: StorageCopyItem): string {
+export function formatStorageCopyProgress(item: StorageCopyItem): string {
     if (item.state === 'queued') {
         return '0%';
     }
@@ -36,19 +37,35 @@ function formatStorageCopyProgress(item: StorageCopyItem): string {
     return item.progress !== null ? `${Math.round(item.progress)}%` : '0%';
 }
 
-function formatStorageCopyFileCount(item: StorageCopyItem): string {
-    return item.completedFiles !== null && item.totalFiles !== null
-        ? `${item.completedFiles}/${item.totalFiles} files`
-        : '';
+export function formatStorageCopyFileCount(item: StorageCopyItem): string {
+    if (item.completedFiles !== null && item.totalFiles !== null) {
+        return `${item.completedFiles}/${item.totalFiles} files`;
+    }
+
+    return item.state === 'copying' ? '-' : '';
 }
 
-function formatStorageCopySize(item: StorageCopyItem): string {
+export function formatStorageCopySize(item: StorageCopyItem): string {
     return item.sourceSizeBytes !== null
         ? formatSize(item.sourceSizeBytes)
-        : '';
+        : '-';
 }
 
-function formatStorageCopyState(item: StorageCopyItem): string {
+function formatStorageCopyKind(kind: TitleKinds | null): string | null {
+    if (kind === null) {
+        return null;
+    }
+
+    return kind === TitleKinds.Base ? 'Game' : kind;
+}
+
+export function formatStorageCopyTitle(item: StorageCopyItem): string {
+    const title = getPathDisplayName(item.sourcePath);
+    const kind = formatStorageCopyKind(item.titleKind);
+    return kind ? `${title} [${kind}]` : title;
+}
+
+export function formatStorageCopyState(item: StorageCopyItem): string {
     switch (item.state) {
         case 'copying':
             return item.operation === 'move' ? 'Moving' : 'Copying';
@@ -61,7 +78,7 @@ function formatStorageCopyState(item: StorageCopyItem): string {
     }
 }
 
-function formatStorageCopyIcon(item: StorageCopyItem): string {
+export function formatStorageCopyIcon(item: StorageCopyItem): string {
     switch (item.state) {
         case 'copying':
             return item.operation === 'move' ? '→' : '⇄';
@@ -76,7 +93,7 @@ function formatStorageCopyIcon(item: StorageCopyItem): string {
     }
 }
 
-function formatStorageCopyDetails(item: StorageCopyItem): string {
+export function formatStorageCopyDetails(item: StorageCopyItem): string {
     if (item.error) {
         return item.error;
     }
@@ -95,33 +112,45 @@ export function renderStorageCopyActionRow(item: StorageCopyItem): HTMLElement {
     row.className = `action-bar-row action-bar-row-${item.state}`;
     row.dataset.itemId = item.id;
     row.dataset.itemState = item.state;
+    row.dataset.storageCopyItemId = item.id;
+    row.dataset.state = item.state;
 
     const progress = createActionBarCell(
         'action-bar-progress',
         formatStorageCopyProgress(item)
     );
+    progress.dataset.storageCopyProgress = 'true';
+
     const files = createActionBarCell(
         'action-bar-files',
         formatStorageCopyFileCount(item)
     );
+    files.dataset.storageCopyFiles = 'true';
+
     const icon = createActionBarCell(
         'action-bar-icon',
         formatStorageCopyIcon(item)
     );
+    icon.dataset.storageCopyIcon = 'true';
+
     const state = createActionBarCell(
         'action-bar-state',
         formatStorageCopyState(item)
     );
+    state.dataset.storageCopyState = 'true';
+
     const size = createActionBarCell(
         'action-bar-size',
         formatStorageCopySize(item)
     );
+    size.dataset.storageCopySize = 'true';
 
     const title = createActionBarCell(
         'action-bar-title',
-        getPathDisplayName(item.sourcePath)
+        formatStorageCopyTitle(item)
     );
     title.title = item.sourcePath;
+    title.dataset.storageCopyTitle = 'true';
 
     const detailsCell = renderStorageCopyControls(item);
 
@@ -160,6 +189,7 @@ function renderStorageCopyControls(item: StorageCopyItem): HTMLDivElement {
         detailsTextElement.className = 'action-bar-control-text';
         detailsTextElement.title = detailsText;
         detailsTextElement.textContent = detailsText;
+        detailsTextElement.dataset.storageCopyDetail = 'true';
 
         detailsCell.append(
             detailsTextElement,

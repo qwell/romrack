@@ -33,6 +33,18 @@ export function getDownloadState(
     return getDownloadItem(queue, family, kind)?.state ?? null;
 }
 
+export async function requestJson<T>(
+    url: string,
+    init?: RequestInit
+): Promise<T> {
+    const response = await fetch(url, init);
+    if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+    }
+
+    return (await response.json()) as T;
+}
+
 function getDownloadItem(
     queue: DownloadQueueItem[],
     family: string,
@@ -65,7 +77,7 @@ export function formatDownloadIcon(state: DownloadQueueState | null): string {
     }
 }
 
-function formatDownloadProgress(item: DownloadQueueItem): string {
+export function formatDownloadProgress(item: DownloadQueueItem): string {
     if (item.state === 'failed') {
         return `${Math.round(item.progress)}%`;
     }
@@ -106,6 +118,14 @@ function formatDownloadState(item: DownloadQueueItem): string {
     }
 }
 
+function formatDownloadKind(kind: TitleKinds): string {
+    return kind === TitleKinds.Base ? 'Game' : kind;
+}
+
+export function formatDownloadTitle(item: DownloadQueueItem): string {
+    return `${item.groupName} [${formatDownloadKind(item.kind)}]`;
+}
+
 function formatDownloadDetails(item: DownloadQueueItem): string {
     if (item.error) {
         return item.error;
@@ -114,8 +134,8 @@ function formatDownloadDetails(item: DownloadQueueItem): string {
     return item.currentFileName ?? item.speedText ?? '';
 }
 
-function getDownloadDedupeKey(item: DownloadQueueItem): string {
-    return `${item.family}:${item.kind}:${item.titleId}`;
+export function getDownloadDedupeKey(item: DownloadQueueItem): string {
+    return `${item.family}\0${item.kind}\0${item.titleId}`;
 }
 
 export function syncDownloadQueue(
@@ -124,22 +144,6 @@ export function syncDownloadQueue(
     haystacks: WeakMap<TitleGroup, string>,
     groups: TitleGroup[]
 ): void {
-    const seen = new Set<string>();
-
-    for (const item of nextQueue) {
-        const key = getDownloadDedupeKey(item);
-
-        if (seen.has(key)) {
-            console.warn('[download.queue] duplicate item from server', {
-                key,
-                item,
-                queue: nextQueue,
-            });
-        }
-
-        seen.add(key);
-    }
-
     const previousById = new Map(queue.map((item) => [item.id, item]));
     const shouldReconcileCompleted = previousById.size === 0;
 
@@ -167,30 +171,42 @@ export function renderDownloadActionRow(item: DownloadQueueItem): HTMLElement {
     row.className = `action-bar-row action-bar-row-${item.state}`;
     row.dataset.itemId = item.id;
     row.dataset.itemState = item.state;
+    row.dataset.downloadItemId = item.id;
+    row.dataset.state = item.state;
 
     const progress = createActionBarCell(
         'action-bar-progress',
         formatDownloadProgress(item)
     );
+    progress.dataset.downloadProgress = 'true';
+
     const files = createActionBarCell(
         'action-bar-files',
         formatDownloadFileCount(item)
     );
+    files.dataset.downloadFiles = 'true';
+
     const icon = createActionBarCell(
         'action-bar-icon',
         formatDownloadIcon(item.state) || '↓'
     );
+    icon.dataset.downloadIcon = 'true';
+
     const state = createActionBarCell(
         'action-bar-state',
         formatDownloadState(item)
     );
+    state.dataset.downloadState = 'true';
+
     const size = createActionBarCell(
         'action-bar-size',
         formatDownloadSize(item)
     );
 
-    const title = createActionBarCell('action-bar-title', item.groupName);
-    title.title = item.groupName;
+    const downloadTitle = formatDownloadTitle(item);
+    const title = createActionBarCell('action-bar-title', downloadTitle);
+    title.title = downloadTitle;
+    title.dataset.downloadTitle = 'true';
 
     const detailsCell = renderDownloadControls(item);
 
@@ -228,6 +244,7 @@ function renderDownloadControls(item: DownloadQueueItem): HTMLDivElement {
         detailsTextElement.className = 'action-bar-control-text';
         detailsTextElement.title = detailsText;
         detailsTextElement.textContent = detailsText;
+        detailsTextElement.dataset.downloadDetail = 'true';
 
         detailsCell.append(
             detailsTextElement,
