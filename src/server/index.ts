@@ -209,6 +209,7 @@ type StorageCopyQueueItem = StorageCopyItem & {
 };
 
 let storageCopyQueue: StorageCopyQueueItem[] = [];
+let broadcastStorageCopiesTimer: ReturnType<typeof setTimeout> | null = null;
 
 function sendAppSocketEvent(socket: WebSocket, event: AppSocketEvent): void {
     if (socket.readyState !== WebSocket.OPEN) {
@@ -244,10 +245,26 @@ function hasDownloadQueueItem(id: string): boolean {
 }
 
 function broadcastStorageCopies(): void {
+    if (broadcastStorageCopiesTimer !== null) {
+        clearTimeout(broadcastStorageCopiesTimer);
+        broadcastStorageCopiesTimer = null;
+    }
+
     broadcastAppSocketEvent({
         type: 'storage.copyChanged',
         items: storageCopies,
     });
+}
+
+function scheduleBroadcastStorageCopies(): void {
+    if (broadcastStorageCopiesTimer !== null) {
+        return;
+    }
+
+    broadcastStorageCopiesTimer = setTimeout(() => {
+        broadcastStorageCopiesTimer = null;
+        broadcastStorageCopies();
+    }, 200);
 }
 
 function updateStorageCopy(
@@ -258,6 +275,16 @@ function updateStorageCopy(
         item.id === id ? { ...item, ...update } : item
     );
     broadcastStorageCopies();
+}
+
+function updateStorageCopyProgress(
+    id: string,
+    update: Partial<Omit<StorageCopyItem, 'id'>>
+): void {
+    storageCopies = storageCopies.map((item) =>
+        item.id === id ? { ...item, ...update } : item
+    );
+    scheduleBroadcastStorageCopies();
 }
 
 function hasStorageCopyItem(id: string): boolean {
@@ -522,6 +549,7 @@ function parseSocketCommand(data: RawData): AppSocketCommand | null {
 type DownloadTitleResult = {
     name: string | null;
     titleVersion: number | null;
+    outputDir: string;
     sizeBytes: number;
 };
 
@@ -607,30 +635,48 @@ type StreamCopyProgress = {
     copiedBytes: number;
 };
 
+function getStorageInstallRoot(destinationRoot: string): string {
+    const usesWindowsPath = /^[A-Z]:(?:[\\/]|$)/i.test(destinationRoot);
+    const pathApi = usesWindowsPath ? path.win32 : path.posix;
+    const normalizedRoot = usesWindowsPath
+        ? path.win32.normalize(
+              /^[A-Z]:$/i.test(destinationRoot)
+                  ? `${destinationRoot}\\`
+                  : destinationRoot
+          )
+        : destinationRoot.replace(/[\\/]+$/, '');
+
+    if (pathApi.basename(normalizedRoot).toLowerCase() === 'install') {
+        return normalizedRoot;
+    }
+
+    return pathApi.join(normalizedRoot, 'install');
+}
+
 async function getStreamCopyDestinationPath(
     sourcePath: string,
     destinationRoot: string
 ): Promise<string> {
     let resolvedDestinationRoot: string;
-    const isWindowsPath = /^[A-Z]:[\\/]/i.test(destinationRoot);
+    const installRoot = getStorageInstallRoot(destinationRoot);
+    const isWindowsPath = /^[A-Z]:(?:[\\/]|$)/i.test(installRoot);
     if (isWindowsPath) {
-        const resolvedPath = await resolveReadablePath(destinationRoot).catch(
+        const resolvedPath = await resolveReadablePath(installRoot).catch(
             () => null
         );
         if (resolvedPath === null) {
             throw new Error(
-                `Destination is not mounted in WSL: ${destinationRoot}. Mount the drive in WSL or run the server on Windows.`
+                `Destination is not mounted in WSL: ${installRoot}. Mount the drive in WSL or run the server on Windows.`
             );
         }
 
         resolvedDestinationRoot = resolvedPath;
     } else {
         try {
-            resolvedDestinationRoot =
-                await resolveReadablePath(destinationRoot);
+            resolvedDestinationRoot = await resolveReadablePath(installRoot);
         } catch (error) {
             throw new Error(
-                `Storage destination is not mounted in this runtime: ${destinationRoot}`,
+                `Storage destination is not mounted in this runtime: ${installRoot}`,
                 { cause: error }
             );
         }
@@ -743,6 +789,7 @@ async function processDownloadQueue(): Promise<void> {
     nextItem.installedSizeBytes = null;
     nextItem.installedVersion = null;
     nextItem.installedTitleName = null;
+    nextItem.installedSourcePath = null;
 
     scheduleBroadcastDownloadQueue();
 
@@ -796,6 +843,7 @@ async function processDownloadQueue(): Promise<void> {
         nextItem.installedSizeBytes = result.sizeBytes;
         nextItem.installedVersion = result.titleVersion;
         nextItem.installedTitleName = result.name;
+        nextItem.installedSourcePath = result.outputDir;
 
         broadcastDownloadQueue();
     } catch (error) {
@@ -909,6 +957,7 @@ function handleDownloadSocketCommand(command: DownloadSocketCommand): void {
                     installedSizeBytes: null,
                     installedVersion: null,
                     installedTitleName: null,
+                    installedSourcePath: null,
                 }))
             );
 
@@ -942,6 +991,7 @@ function handleDownloadSocketCommand(command: DownloadSocketCommand): void {
             item.installedSizeBytes = null;
             item.installedVersion = null;
             item.installedTitleName = null;
+            item.installedSourcePath = null;
 
             broadcastDownloadQueue();
             void processDownloadQueue();
@@ -1091,9 +1141,39 @@ type StorageTransferQueueResult = {
     body: Record<string, unknown>;
 };
 
+function isInvalidStorageSourcePath(sourcePath: string): boolean {
+    return sourcePath === 'undefined' || sourcePath === 'null';
+}
+
+function getStorageTransferKey({
+    sourcePath,
+    requestedDestination,
+    operation,
+}: {
+    sourcePath: string;
+    requestedDestination: string | null;
+    operation: StorageCopyItem['operation'];
+}): string {
+    return [operation, sourcePath, requestedDestination?.trim() ?? ''].join(
+        '\0'
+    );
+}
+
 async function queueStorageTransfer(
     input: StorageTransferQueueInput
 ): Promise<StorageTransferQueueResult> {
+    if (
+        input.sourcePath !== null &&
+        isInvalidStorageSourcePath(input.sourcePath)
+    ) {
+        return {
+            status: 400,
+            body: {
+                error: `Invalid storage source path: ${input.sourcePath}`,
+            },
+        };
+    }
+
     const sourcePath = input.sourcePath ?? getConfig().wiiuRoots[0];
     if (!sourcePath) {
         return {
@@ -1108,11 +1188,42 @@ async function queueStorageTransfer(
     const move = input.move;
     const copyId = randomUUID();
     const readableSourcePath = await resolveReadablePath(sourcePath);
+    const operation = move ? 'move' : 'copy';
+    const transferKey = getStorageTransferKey({
+        sourcePath: readableSourcePath,
+        requestedDestination,
+        operation,
+    });
+    const existingItem =
+        storageCopyQueue.find(
+            (item) =>
+                (item.state === 'queued' || item.state === 'copying') &&
+                getStorageTransferKey({
+                    sourcePath: item.sourcePath,
+                    requestedDestination: item.requestedDestination,
+                    operation: item.operation,
+                }) === transferKey
+        ) ?? null;
+
+    if (existingItem) {
+        return {
+            status: 200,
+            body: {
+                copyId: existingItem.id,
+                item: existingItem,
+                sourcePath,
+                requestedDestination,
+                move,
+                duplicate: true,
+            },
+        };
+    }
+
     const titleKind = await readWiiUTitleKind(readableSourcePath);
 
     const copyItem: StorageCopyItem = {
         id: copyId,
-        operation: move ? 'move' : 'copy',
+        operation,
         sourcePath: readableSourcePath,
         titleKind,
         destinationPath: requestedDestination ?? '',
@@ -1352,7 +1463,7 @@ async function processStorageCopyQueue(): Promise<void> {
                     );
                 }
 
-                updateStorageCopy(nextItem.id, {
+                updateStorageCopyProgress(nextItem.id, {
                     progress: nextItem.progress,
                     message: nextItem.message,
                     completedFiles: nextItem.completedFiles,
@@ -1561,6 +1672,18 @@ app.get('/api/storage/move', async (req, res) => {
             includeDetails: true,
         });
     }
+});
+
+app.get('/api/storage/delete', (req, res) => {
+    const titleId = getStringQuery(req, 'titleId');
+    logger.log(
+        'server',
+        `storage delete requested but not implemented: ${titleId ?? 'missing titleId'}`
+    );
+    res.status(202).json({
+        status: 'not implemented',
+        titleId,
+    });
 });
 
 app.get('/api/storage/list-fat32', async (_req, res) => {

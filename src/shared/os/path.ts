@@ -62,7 +62,7 @@ function getContainedStorageDestination(
     const normalizedRoot = normalizePath(root) ?? root;
     const normalizedDestination = normalizePath(destination) ?? destination;
     if (normalizedDestination.toLowerCase() === normalizedRoot.toLowerCase()) {
-        return normalizedRoot;
+        return root;
     }
 
     const relativeDestination = normalizedDestination.slice(

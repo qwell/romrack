@@ -26,6 +26,7 @@ export type DownloadQueueItem = {
     installedSizeBytes: number | null;
     installedVersion: number | null;
     installedTitleName: string | null;
+    installedSourcePath: string | null;
 };
 
 export type StorageCopyOperation = 'copy' | 'move';

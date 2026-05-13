@@ -111,6 +111,7 @@ export type TitleDatabaseEntry = {
 
 export type TitleEntry = {
     titleId: string;
+    sourcePath: string;
     version: number;
     titleName: string;
     region: string | null;

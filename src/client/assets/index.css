@@ -929,6 +929,25 @@ footer > div:last-child {
     margin: 0;
 }
 
+.title-storage-copy-actions {
+    display: grid;
+    grid-template-columns: minmax(8rem, 1fr) max-content max-content;
+    justify-content: stretch;
+    align-items: center;
+    gap: 6px;
+}
+
+.title-storage-copy-content {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.title-storage-copy-destination {
+    min-height: 22px;
+    min-width: 0;
+    width: 100%;
+    font-size: 12px;
+}
+
 .title-download-actions button,
 .action-bar-button {
     min-height: 22px;

@@ -416,6 +416,7 @@ async function readTitleEntry(
 
     return {
         titleId,
+        sourcePath: dirPath,
         version: tmd.header.titleVersion,
         titleName: getTitleName(dirname, databaseEntry?.name ?? null),
         region: normalizeRegion(
@@ -549,6 +550,7 @@ export async function scanWiiUTitles(
 
         const publicEntry: TitleEntry = {
             titleId: entry.titleId,
+            sourcePath: entry.sourcePath,
             version: entry.version,
             titleName: entry.titleName,
             region: entry.region,

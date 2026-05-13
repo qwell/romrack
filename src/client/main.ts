@@ -49,6 +49,7 @@ import {
     formatSize,
     StorageCopyItem,
 } from '../shared/shared.js';
+import { type Fat32Volume } from '../shared/os.js';
 import { AppSocketCommand, AppSocketEvent } from '../shared/socket.js';
 import {
     type AppConfig,
@@ -78,12 +79,17 @@ type LibraryContentOptions = {
     loading?: boolean;
     onRefresh?: () => void | Promise<void>;
 };
+type Fat32ListResponse = {
+    runtimeOs: string;
+    volumes: Fat32Volume[];
+};
 
 type ActionBarCommand = DownloadActionBarCommand | StorageCopyActionBarCommand;
 
 let showAllTitles = false;
 let selectedFamily: string | null = null;
 let currentGroups: TitleGroup[] = [];
+let fat32ListPromise: Promise<Fat32ListResponse> | null = null;
 let libraryControlState: LibraryControlState = {
     region: 'all',
     status: 'all',
@@ -328,24 +334,114 @@ function renderDetailRow(label: string, value: string | null): HTMLElement {
     return row;
 }
 
-function renderAvailabilityRow(
-    label: string,
-    titleId: string,
-    size: string | null = null
-): HTMLElement {
-    const row = document.createElement('div');
-    row.className = 'title-availability-row';
+function renderDownloadedCopyRow(entry: TitleEntry): HTMLElement {
+    const row = document.createElement('label');
+    row.className = 'title-download-row';
+    const sourcePath =
+        typeof entry.sourcePath === 'string' ? entry.sourcePath : '';
 
-    const labelElement = document.createElement('div');
-    labelElement.className = 'title-availability-label';
-    labelElement.textContent = label;
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'title-storage-copy-checkbox';
+    checkbox.value = sourcePath;
+    checkbox.dataset.sourcePath = sourcePath;
+    checkbox.dataset.titleId = entry.titleId;
+    checkbox.disabled = sourcePath.length === 0;
 
-    const titleIdElement = document.createElement('div');
-    titleIdElement.className = 'title-availability-title-id';
-    titleIdElement.textContent = size ? `${titleId} (${size})` : titleId;
+    const slot = document.createElement('span');
+    slot.className = 'title-download-slot';
+    slot.textContent = `${entry.kind} v${entry.version}`;
 
-    row.append(labelElement, titleIdElement);
+    const titleId = document.createElement('span');
+    titleId.className = 'title-download-id';
+    titleId.textContent = entry.titleId;
+
+    const size = document.createElement('span');
+    size.className = 'title-download-size';
+    size.textContent = formatSize(entry.sizeBytes);
+
+    row.append(checkbox, slot, titleId, size);
     return row;
+}
+
+function getSelectedDownloadedSources(
+    root: HTMLElement,
+    selectedOnly: boolean
+): string[] {
+    const selector = selectedOnly
+        ? '.title-storage-copy-checkbox:checked'
+        : '.title-storage-copy-checkbox';
+
+    return Array.from(root.querySelectorAll<HTMLInputElement>(selector))
+        .map((checkbox) => checkbox.dataset.sourcePath ?? '')
+        .filter((sourcePath) => sourcePath.length > 0);
+}
+
+function getSelectedDownloadedTitleIds(
+    root: HTMLElement,
+    selectedOnly: boolean
+): string[] {
+    const selector = selectedOnly
+        ? '.title-storage-copy-checkbox:checked'
+        : '.title-storage-copy-checkbox';
+
+    return Array.from(root.querySelectorAll<HTMLInputElement>(selector))
+        .map((checkbox) => checkbox.dataset.titleId ?? '')
+        .filter((titleId) => titleId.length > 0);
+}
+
+function formatFat32VolumeOption(volume: Fat32Volume): string {
+    const label = volume.label ? `${volume.label} - ` : '';
+    const size =
+        volume.freeBytes === null
+            ? ''
+            : ` (${formatSize(volume.freeBytes)} free)`;
+    return `${label}${volume.source}${size}`;
+}
+
+function getFat32Devices(): Promise<Fat32ListResponse> {
+    fat32ListPromise ??= requestJson<Fat32ListResponse>(
+        '/api/storage/list-fat32'
+    ).catch((error) => {
+        fat32ListPromise = null;
+        throw error;
+    });
+
+    return fat32ListPromise;
+}
+
+async function populateFat32DeviceSelect(
+    select: HTMLSelectElement,
+    button: HTMLButtonElement
+): Promise<void> {
+    try {
+        const response = await getFat32Devices();
+
+        select.replaceChildren();
+        for (const volume of response.volumes) {
+            const option = document.createElement('option');
+            option.value = volume.source;
+            option.textContent = formatFat32VolumeOption(volume);
+            select.append(option);
+        }
+
+        const hasVolumes = response.volumes.length > 0;
+        select.disabled = !hasVolumes;
+        button.disabled = !hasVolumes;
+
+        if (!hasVolumes) {
+            const option = document.createElement('option');
+            option.textContent = 'No FAT32 devices found';
+            select.append(option);
+        }
+    } catch {
+        select.replaceChildren();
+        const option = document.createElement('option');
+        option.textContent = 'Failed to load FAT32 devices';
+        select.append(option);
+        select.disabled = true;
+        button.disabled = true;
+    }
 }
 
 function formatValidationStatus(event: AppSocketEvent): string | null {
@@ -1138,23 +1234,121 @@ function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
 
     if (group.entries.length > 0) {
         const localList = document.createElement('div');
-        localList.className = 'title-availability-list';
+        localList.className = 'title-download-list';
 
         const localEntries = [...group.entries].sort(
             (a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind)
         );
 
         for (const entry of localEntries) {
-            localList.append(
-                renderAvailabilityRow(
-                    `${entry.kind} v${entry.version}`,
-                    entry.titleId,
-                    formatSize(entry.sizeBytes)
-                )
-            );
+            localList.append(renderDownloadedCopyRow(entry));
         }
 
-        availability.append(renderDetailSection('Downloaded'), localList);
+        const actions = document.createElement('div');
+        actions.className = 'title-download-actions title-storage-copy-actions';
+
+        const destinationSelect = document.createElement('select');
+        destinationSelect.className = 'title-storage-copy-destination';
+        destinationSelect.disabled = true;
+        const loadingOption = document.createElement('option');
+        loadingOption.textContent = 'Loading FAT32 devices...';
+        destinationSelect.append(loadingOption);
+
+        const copyButton = document.createElement('button');
+        copyButton.type = 'button';
+        copyButton.disabled = true;
+
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+
+        const updateDownloadedButtons = (): void => {
+            const checkedCount = localList.querySelectorAll(
+                '.title-storage-copy-checkbox:checked'
+            ).length;
+
+            copyButton.textContent =
+                checkedCount === 0 ? 'Copy all to SD' : 'Copy selected to SD';
+            deleteButton.textContent =
+                checkedCount === 0 ? 'Delete all' : 'Delete selected';
+        };
+
+        updateDownloadedButtons();
+        localList.addEventListener('change', updateDownloadedButtons);
+        void populateFat32DeviceSelect(destinationSelect, copyButton);
+
+        copyButton.addEventListener('click', () => {
+            void (async () => {
+                const hasSelection =
+                    localList.querySelectorAll(
+                        '.title-storage-copy-checkbox:checked'
+                    ).length > 0;
+                const sources = getSelectedDownloadedSources(
+                    localList,
+                    hasSelection
+                );
+                const destination = destinationSelect.value;
+
+                if (sources.length === 0 || !destination) {
+                    return;
+                }
+
+                copyButton.disabled = true;
+                try {
+                    await Promise.all(
+                        sources.map((source) => {
+                            const params = new URLSearchParams({
+                                source,
+                                dest: destination,
+                            });
+                            return requestJson(`/api/storage/copy?${params}`);
+                        })
+                    );
+                } finally {
+                    copyButton.disabled = destinationSelect.disabled;
+                }
+            })();
+        });
+
+        deleteButton.addEventListener('click', () => {
+            void (async () => {
+                const hasSelection =
+                    localList.querySelectorAll(
+                        '.title-storage-copy-checkbox:checked'
+                    ).length > 0;
+                const titleIds = getSelectedDownloadedTitleIds(
+                    localList,
+                    hasSelection
+                );
+
+                if (titleIds.length === 0) {
+                    return;
+                }
+
+                deleteButton.disabled = true;
+                try {
+                    await Promise.all(
+                        titleIds.map((titleId) => {
+                            const params = new URLSearchParams({ titleId });
+                            return requestJson(`/api/storage/delete?${params}`);
+                        })
+                    );
+                } finally {
+                    deleteButton.disabled = false;
+                }
+            })();
+        });
+
+        actions.append(destinationSelect, copyButton, deleteButton);
+
+        const downloadedContent = document.createElement('div');
+        downloadedContent.className =
+            'title-download-content title-storage-copy-content';
+        downloadedContent.append(localList, actions);
+
+        availability.append(
+            renderDetailSection('Downloaded'),
+            downloadedContent
+        );
     }
 
     const availableEntries = group.availableEntries
@@ -2461,6 +2655,10 @@ function hideServerGoneModal(): void {
     serverStatusModal?.setAttribute('hidden', '');
 }
 
+async function loadInitialData(): Promise<void> {
+    await Promise.all([getFat32Devices(), refreshLibrary()]);
+}
+
 window.addEventListener('pageshow', resetDetailSidebars);
 
 mountActionBar();
@@ -2472,4 +2670,4 @@ setupSidebars();
 setupVersion();
 void setupTheme();
 
-void refreshLibrary();
+void loadInitialData();

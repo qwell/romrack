@@ -348,10 +348,16 @@ function markDownloadComplete(
     const installedSizeBytes = item.installedSizeBytes ?? item.totalBytes ?? 0;
     const installedVersion = item.installedVersion ?? 0;
     const installedTitleName = item.installedTitleName ?? group.name;
+    const installedSourcePath = item.installedSourcePath ?? null;
 
     if (!alreadyDownloaded) {
+        if (!installedSourcePath) {
+            return;
+        }
+
         group.entries.push({
             titleId: item.titleId,
+            sourcePath: installedSourcePath,
             version: installedVersion,
             titleName: installedTitleName,
             region: group.region,
@@ -376,6 +382,9 @@ function markDownloadComplete(
             existingEntry.version = installedVersion;
             existingEntry.titleName = installedTitleName;
             existingEntry.sizeBytes = installedSizeBytes;
+            if (installedSourcePath) {
+                existingEntry.sourcePath = installedSourcePath;
+            }
             haystacks.delete(group);
         }
     }
@@ -499,6 +508,7 @@ export function collectSelectedDownloads(
             installedSizeBytes: null,
             installedVersion: null,
             installedTitleName: null,
+            installedSourcePath: null,
         })
     );
 }
