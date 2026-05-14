@@ -112,13 +112,16 @@ function assertConfig(value: unknown): asserts value is AppConfig {
 
     if (
         'wiiuRoots' in value &&
-        (!Array.isArray(value.wiiuRoots) ||
-            !value.wiiuRoots.every(
-                (root) => typeof root === 'string' && root.length > 0
-            ))
+        !(
+            (Array.isArray(value.wiiuRoots) &&
+                value.wiiuRoots.every(
+                    (root) => typeof root === 'string' && root.length > 0
+                )) ||
+            (typeof value.wiiuRoots === 'string' && value.wiiuRoots.length > 0)
+        )
     ) {
         throw new Error(
-            'Config.wiiuRoots must be an array of non-empty strings.'
+            'Config.wiiuRoots must be a non-empty string or an array of non-empty strings.'
         );
     }
 }
@@ -137,10 +140,14 @@ function readWiiURoots(
             }
 
             const trimmedRoot = root.trim();
-            if (trimmedRoot.length === 0) {
-                continue;
+            if (trimmedRoot.length > 0) {
+                roots.push(normalizeWiiURoot(trimmedRoot));
             }
+        }
+    } else if (typeof config.wiiuRoots === 'string') {
+        const trimmedRoot = config.wiiuRoots.trim();
 
+        if (trimmedRoot.length > 0) {
             roots.push(normalizeWiiURoot(trimmedRoot));
         }
     }
