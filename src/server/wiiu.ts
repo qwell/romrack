@@ -160,16 +160,19 @@ function classifyTitleId(titleId: string): {
     }
 }
 
-export async function readWiiUTitleKind(
+export async function readWiiUTitleIdentity(
     titlePath: string
-): Promise<TitleKinds | null> {
+): Promise<{ titleId: string; kind: TitleKinds } | null> {
     const tmd = await readTmd(titlePath);
     if (!tmd) {
         return null;
     }
 
     const titleId = Buffer.from(tmd.header.titleId).toString('hex');
-    return classifyTitleId(titleId).kind;
+    return {
+        titleId,
+        kind: classifyTitleId(titleId).kind,
+    };
 }
 
 function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {

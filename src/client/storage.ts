@@ -1,4 +1,8 @@
-import { formatSize, StorageCopyItem } from '../shared/shared.js';
+import {
+    formatSize,
+    StorageCopyItem,
+    StorageDeleteItem,
+} from '../shared/shared.js';
 import { TitleKinds } from '../shared/titles.js';
 import {
     createActionBarCell,
@@ -7,16 +11,26 @@ import {
     updateActionBar,
 } from './main.js';
 
-export type StorageCopyActionBarCommand =
+export type StorageActionBarCommand =
     | 'storage.copy.cancel'
     | 'storage.copy.remove'
-    | 'storage.copy.retry';
+    | 'storage.copy.retry'
+    | 'storage.delete.remove'
+    | 'storage.delete.retry';
 
 export function syncStorageCopies(
     copies: StorageCopyItem[],
     nextCopies: StorageCopyItem[]
 ): void {
     copies.splice(0, copies.length, ...nextCopies);
+    updateActionBar();
+}
+
+export function syncStorageDeletes(
+    deletes: StorageDeleteItem[],
+    nextDeletes: StorageDeleteItem[]
+): void {
+    deletes.splice(0, deletes.length, ...nextDeletes);
     updateActionBar();
 }
 
@@ -50,7 +64,7 @@ export function formatStorageCopySize(item: StorageCopyItem): string {
         : '-';
 }
 
-function formatStorageCopyKind(kind: TitleKinds | null): string | null {
+function formatStorageTitleKind(kind: TitleKinds | null): string | null {
     if (kind === null) {
         return null;
     }
@@ -60,8 +74,8 @@ function formatStorageCopyKind(kind: TitleKinds | null): string | null {
 
 export function formatStorageCopyTitle(item: StorageCopyItem): string {
     const title = item.sourceName;
-    const kind = formatStorageCopyKind(item.titleKind);
-    return kind ? `${title} [${kind}]` : title;
+    const kind = formatStorageTitleKind(item.titleKind);
+    return kind && !title.includes(`[${kind}]`) ? `${title} [${kind}]` : title;
 }
 
 export function formatStorageCopyState(item: StorageCopyItem): string {
@@ -218,6 +232,151 @@ export function removeStorageCopy(itemId: string): void {
 export function cancelStorageCopy(itemId: string): void {
     sendAppSocketCommand({
         type: 'storage.copy.cancel',
+        id: itemId,
+    });
+}
+
+export function formatStorageDeleteProgress(item: StorageDeleteItem): string {
+    if (item.state === 'complete') {
+        return 'Done';
+    }
+
+    if (item.totalCount !== null && item.totalCount > 0) {
+        return `${item.deletedCount}/${item.totalCount}`;
+    }
+
+    return item.state === 'queued' ? '0' : '-';
+}
+
+export function formatStorageDeleteTitle(item: StorageDeleteItem): string {
+    const title = item.titleName ?? item.titleId;
+    const kind = formatStorageTitleKind(item.titleKind);
+    return kind ? `${title} [${kind}]` : title;
+}
+
+export function formatStorageDeleteState(item: StorageDeleteItem): string {
+    switch (item.state) {
+        case 'deleting':
+            return 'Deleting';
+        case 'queued':
+            return 'Queued';
+        case 'failed':
+            return 'Failed';
+        case 'complete':
+            return 'Complete';
+    }
+}
+
+export function formatStorageDeleteIcon(item: StorageDeleteItem): string {
+    switch (item.state) {
+        case 'deleting':
+            return '⌫';
+        case 'queued':
+            return '○';
+        case 'complete':
+            return '✓';
+        case 'failed':
+            return '!';
+    }
+}
+
+export function formatStorageDeleteDetails(item: StorageDeleteItem): string {
+    if (item.error) {
+        return item.error;
+    }
+
+    return item.message ?? formatStorageDeleteState(item);
+}
+
+export function renderStorageDeleteActionRow(
+    item: StorageDeleteItem
+): HTMLElement {
+    const row = document.createElement('div');
+    row.className = `action-bar-row action-bar-row-${item.state}`;
+    row.dataset.itemId = item.id;
+    row.dataset.itemState = item.state;
+    row.dataset.storageDeleteItemId = item.id;
+    row.dataset.state = item.state;
+
+    const progress = createActionBarCell(
+        'action-bar-progress',
+        formatStorageDeleteProgress(item)
+    );
+    progress.dataset.storageDeleteProgress = 'true';
+
+    const files = createActionBarCell('action-bar-files', '');
+    files.dataset.storageDeleteFiles = 'true';
+
+    const icon = createActionBarCell(
+        'action-bar-icon',
+        formatStorageDeleteIcon(item)
+    );
+    icon.dataset.storageDeleteIcon = 'true';
+
+    const state = createActionBarCell(
+        'action-bar-state',
+        formatStorageDeleteState(item)
+    );
+    state.dataset.storageDeleteState = 'true';
+
+    const size = createActionBarCell('action-bar-size', '');
+    size.dataset.storageDeleteSize = 'true';
+
+    const title = createActionBarCell(
+        'action-bar-title',
+        formatStorageDeleteTitle(item)
+    );
+    title.title = formatStorageDeleteTitle(item);
+    title.dataset.storageDeleteTitle = 'true';
+
+    const detailsCell = renderStorageDeleteControls(item);
+
+    row.append(progress, files, icon, state, size, title, detailsCell);
+    return row;
+}
+
+function renderStorageDeleteControls(item: StorageDeleteItem): HTMLDivElement {
+    const detailsCell = document.createElement('div');
+    detailsCell.className = 'action-bar-details-cell';
+
+    if (item.state === 'failed') {
+        detailsCell.classList.add('action-bar-controls');
+        detailsCell.title = item.error ?? '';
+        detailsCell.append(
+            createActionButton('Retry', 'storage.delete.retry', item.id),
+            createActionButton('Remove', 'storage.delete.remove', item.id)
+        );
+        return detailsCell;
+    }
+
+    if (item.state === 'queued' || item.state === 'complete') {
+        detailsCell.classList.add('action-bar-controls');
+        detailsCell.append(
+            createActionButton('Remove', 'storage.delete.remove', item.id)
+        );
+        return detailsCell;
+    }
+
+    const detailsText = formatStorageDeleteDetails(item);
+    const detailsTextElement = document.createElement('span');
+    detailsTextElement.className = 'action-bar-control-text';
+    detailsTextElement.title = detailsText;
+    detailsTextElement.textContent = detailsText;
+    detailsTextElement.dataset.storageDeleteDetail = 'true';
+    detailsCell.append(detailsTextElement);
+    return detailsCell;
+}
+
+export function retryStorageDelete(itemId: string): void {
+    sendAppSocketCommand({
+        type: 'storage.delete.retry',
+        id: itemId,
+    });
+}
+
+export function removeStorageDelete(itemId: string): void {
+    sendAppSocketCommand({
+        type: 'storage.delete.remove',
         id: itemId,
     });
 }

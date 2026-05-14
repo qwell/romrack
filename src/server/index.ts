@@ -2,7 +2,7 @@ import express, { type Request, type Response } from 'express';
 import open from 'open';
 import { randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, rm, stat, unlink } from 'node:fs/promises';
+import { mkdir, realpath, rm, stat, unlink } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { pipeline } from 'node:stream/promises';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
@@ -27,7 +27,7 @@ import {
     findFirstReadableWiiURoot,
     findWiiUTitleSourcePaths,
     getTitleIconUrl,
-    readWiiUTitleKind,
+    readWiiUTitleIdentity,
     scanWiiUTitleRoots,
     validateWiiUTitleRoots,
 } from './wiiu.js';
@@ -36,6 +36,7 @@ import {
     AppSocketEvent,
     DownloadSocketCommand,
     StorageCopySocketCommand,
+    StorageDeleteSocketCommand,
     ValidationStatusEvent,
 } from '../shared/socket.js';
 import {
@@ -55,7 +56,12 @@ import {
     type PathFileSize,
 } from '../shared/file.js';
 import logger from '../shared/logger.js';
-import { DownloadQueueItem, StorageCopyItem } from '../shared/shared.js';
+import {
+    DownloadQueueItem,
+    StorageCopyItem,
+    StorageDeleteItem,
+} from '../shared/shared.js';
+import { TitleGroup, TitleKinds } from '../shared/titles.js';
 
 const config = loadConfig();
 
@@ -74,6 +80,31 @@ type TitleIdQueryResult =
           ok: false;
           error: string;
       };
+
+let libraryGroups: TitleGroup[] = [];
+
+function getLibraryCacheEntry(
+    titleId: string
+): { name: string; kind: TitleKinds } | null {
+    for (const group of libraryGroups) {
+        const entry = group.entries.find((e) => e.titleId === titleId);
+        if (entry) return { name: group.name, kind: entry.kind };
+    }
+    return null;
+}
+
+function getTitleKindDisplayName(kind: TitleKinds): string {
+    return kind === TitleKinds.Base ? 'Game' : kind;
+}
+
+function formatTitleDisplayName(
+    name: string | null,
+    titleId: string,
+    kind: TitleKinds | null
+): string {
+    const label = name ?? titleId;
+    return kind ? `${label} [${getTitleKindDisplayName(kind)}]` : label;
+}
 
 function getConfigRootBodyValue(body: unknown): string {
     if (
@@ -170,8 +201,19 @@ function createStorageCopyCancelledError(): Error {
     return error;
 }
 
+function formatSocketCommandArgs(command: AppSocketCommand): string {
+    return JSON.stringify(
+        Object.fromEntries(
+            Object.entries(command).filter(([key]) => key !== 'type')
+        )
+    );
+}
+
 function handleAppSocketCommand(command: AppSocketCommand): void {
-    logger.log('server', `socket command dispatch: ${command.type}`);
+    logger.log(
+        'server',
+        `socket command dispatch: ${command.type} args=${formatSocketCommandArgs(command)}`
+    );
 
     switch (command.type) {
         case 'download.queue':
@@ -186,11 +228,17 @@ function handleAppSocketCommand(command: AppSocketCommand): void {
         case 'storage.copy.cancel':
             handleStorageCopySocketCommand(command);
             return;
+
+        case 'storage.delete.retry':
+        case 'storage.delete.remove':
+            handleStorageDeleteSocketCommand(command);
+            return;
     }
 }
 
 let downloadQueue: DownloadQueueItem[] = [];
 let storageCopies: StorageCopyItem[] = [];
+let storageDeletes: StorageDeleteItem[] = [];
 
 let activeDownloadItemId: string | null = null;
 const activeDownloadAbortControllers = new Map<string, AbortController>();
@@ -204,16 +252,24 @@ const cancelledStorageCopyIds = new Set<string>();
 let latestLibraryValidationStatus: ValidationStatusEvent | null = null;
 
 type StorageCopyQueueItem = StorageCopyItem & {
-    sourcePath: string;
+    sourcePath: string | null;
     destinationPath: string;
     currentFilePath: string | null;
-    requestedSourcePath: string;
+    requestedSourcePath: string | null;
     requestedDestination: string | null;
+    requestedTitleId: string | null;
     duplicateSourcePaths: string[];
 };
 
+type StorageDeleteQueueItem = StorageDeleteItem & {
+    sourcePaths: string[];
+};
+
 let storageCopyQueue: StorageCopyQueueItem[] = [];
+let storageDeleteQueue: StorageDeleteQueueItem[] = [];
 let broadcastStorageCopiesTimer: ReturnType<typeof setTimeout> | null = null;
+let broadcastStorageDeletesTimer: ReturnType<typeof setTimeout> | null = null;
+let activeStorageDeleteId: string | null = null;
 
 function sendAppSocketEvent(socket: WebSocket, event: AppSocketEvent): void {
     if (socket.readyState !== WebSocket.OPEN) {
@@ -271,6 +327,29 @@ function scheduleBroadcastStorageCopies(): void {
     }, 200);
 }
 
+function broadcastStorageDeletes(): void {
+    if (broadcastStorageDeletesTimer !== null) {
+        clearTimeout(broadcastStorageDeletesTimer);
+        broadcastStorageDeletesTimer = null;
+    }
+
+    broadcastAppSocketEvent({
+        type: 'storage.deleteChanged',
+        items: storageDeletes,
+    });
+}
+
+function scheduleBroadcastStorageDeletes(): void {
+    if (broadcastStorageDeletesTimer !== null) {
+        return;
+    }
+
+    broadcastStorageDeletesTimer = setTimeout(() => {
+        broadcastStorageDeletesTimer = null;
+        broadcastStorageDeletes();
+    }, 200);
+}
+
 function updateStorageCopy(
     id: string,
     update: Partial<Omit<StorageCopyItem, 'id'>>
@@ -293,6 +372,26 @@ function updateStorageCopyProgress(
 
 function hasStorageCopyItem(id: string): boolean {
     return storageCopies.some((item) => item.id === id);
+}
+
+function updateStorageDelete(
+    id: string,
+    update: Partial<Omit<StorageDeleteItem, 'id'>>
+): void {
+    storageDeletes = storageDeletes.map((item) =>
+        item.id === id ? { ...item, ...update } : item
+    );
+    broadcastStorageDeletes();
+}
+
+function updateStorageDeleteProgress(
+    id: string,
+    update: Partial<Omit<StorageDeleteItem, 'id'>>
+): void {
+    storageDeletes = storageDeletes.map((item) =>
+        item.id === id ? { ...item, ...update } : item
+    );
+    scheduleBroadcastStorageDeletes();
 }
 
 function retryStorageCopy(id: string): void {
@@ -446,6 +545,64 @@ function handleStorageCopySocketCommand(
     }
 }
 
+function removeStorageDeleteFromState(id: string): StorageDeleteItem | null {
+    const item =
+        storageDeletes.find((candidate) => candidate.id === id) ?? null;
+
+    storageDeletes = storageDeletes.filter((candidate) => candidate.id !== id);
+    storageDeleteQueue = storageDeleteQueue.filter(
+        (candidate) => candidate.id !== id
+    );
+
+    return item;
+}
+
+function removeStorageDelete(id: string): void {
+    const item = removeStorageDeleteFromState(id);
+    if (!item) {
+        logger.log('server', `storage delete remove ignored: missing id=${id}`);
+    }
+    broadcastStorageDeletes();
+}
+
+function retryStorageDelete(id: string): void {
+    const item = storageDeleteQueue.find((candidate) => candidate.id === id);
+    if (!item || item.state !== 'failed') {
+        return;
+    }
+
+    logger.log('server', `storage delete retry queued: ${item.titleId}`);
+
+    item.state = 'queued';
+    item.error = null;
+    item.message = 'Queued';
+    item.deletedCount = 0;
+    item.totalCount =
+        item.sourcePaths.length > 0 ? item.sourcePaths.length : null;
+    updateStorageDelete(id, {
+        state: item.state,
+        error: item.error,
+        message: item.message,
+        deletedCount: item.deletedCount,
+        totalCount: item.totalCount,
+    });
+    void processStorageDeleteQueue();
+}
+
+function handleStorageDeleteSocketCommand(
+    command: StorageDeleteSocketCommand
+): void {
+    switch (command.type) {
+        case 'storage.delete.remove':
+            removeStorageDelete(command.id);
+            return;
+
+        case 'storage.delete.retry':
+            retryStorageDelete(command.id);
+            return;
+    }
+}
+
 function parseSocketCommand(data: RawData): AppSocketCommand | null {
     let parsed: unknown;
     try {
@@ -504,7 +661,9 @@ function parseSocketCommand(data: RawData): AppSocketCommand | null {
         case 'download.cancel':
         case 'storage.copy.remove':
         case 'storage.copy.retry':
-        case 'storage.copy.cancel': {
+        case 'storage.copy.cancel':
+        case 'storage.delete.remove':
+        case 'storage.delete.retry': {
             const id = (command as { id?: unknown }).id;
             if (typeof id !== 'string' || id.length === 0) {
                 return null;
@@ -663,6 +822,116 @@ async function getStreamCopyDestinationPath(
 function getStorageCopyDisplayName(filePath: string): string {
     const normalized = filePath.replace(/[\\/]+$/, '');
     return path.basename(normalized) || normalized;
+}
+
+function getStorageCopySourceName(filePath: string): string {
+    const displayName = getStorageCopyDisplayName(filePath);
+    return (
+        displayName
+            .replace(/\s*\[[0-9a-f]{16}\]/gi, '')
+            .replace(
+                /\s*\[(Game|Base|Update|DLC|Demo|FCT|System App|System Data|System Applet|vWii|Unknown)\]/gi,
+                ''
+            )
+            .trim() || displayName
+    );
+}
+
+function isSameOrNestedPath(left: string, right: string): boolean {
+    const relative = path.relative(left, right);
+    return (
+        relative === '' ||
+        (!relative.startsWith('..') && !path.isAbsolute(relative))
+    );
+}
+
+async function getSafeLocalDeletePaths(
+    sourcePaths: string[]
+): Promise<string[]> {
+    const rootPaths = await Promise.all(
+        getConfig().wiiuRoots.map(async (root) => {
+            const readableRoot = await resolveReadablePath(root);
+            return realpath(readableRoot);
+        })
+    );
+
+    const deletePaths: string[] = [];
+
+    for (const sourcePath of sourcePaths) {
+        const readableSourcePath = await resolveReadablePath(sourcePath);
+        const realSourcePath = await realpath(readableSourcePath);
+        const containingRoot = rootPaths.find((rootPath) =>
+            isSameOrNestedPath(rootPath, realSourcePath)
+        );
+
+        if (!containingRoot) {
+            throw new Error(
+                `Refusing to delete path outside configured Wii U roots: ${sourcePath}`
+            );
+        }
+
+        if (path.relative(containingRoot, realSourcePath) === '') {
+            throw new Error(
+                `Refusing to delete configured Wii U root: ${sourcePath}`
+            );
+        }
+
+        deletePaths.push(realSourcePath);
+    }
+
+    return [...new Set(deletePaths)];
+}
+
+async function deleteLocalTitleSourcePaths(
+    sourcePaths: string[],
+    onProgress?: (deletedCount: number) => void
+): Promise<number> {
+    const deletePaths = await getSafeLocalDeletePaths(sourcePaths);
+    let deletedCount = 0;
+
+    for (const deletePath of deletePaths) {
+        await rm(deletePath, {
+            recursive: true,
+            force: true,
+        });
+        deletedCount += 1;
+        onProgress?.(deletedCount);
+    }
+
+    return deletedCount;
+}
+
+async function hasConflictingStorageCopyPath(
+    sourcePaths: string[]
+): Promise<boolean> {
+    const deletePaths = await getSafeLocalDeletePaths(sourcePaths);
+
+    for (const item of storageCopyQueue) {
+        if (item.state !== 'queued' && item.state !== 'copying') {
+            continue;
+        }
+
+        if (item.sourcePath === null) {
+            continue;
+        }
+
+        const itemPath = await realpath(item.sourcePath).catch(() => null);
+        if (itemPath === null) {
+            continue;
+        }
+
+        if (
+            deletePaths.some(
+                (deletePath) =>
+                    isSameOrNestedPath(deletePath, itemPath) ||
+                    isSameOrNestedPath(itemPath, deletePath)
+            )
+        ) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 async function copyPathWithStreams({
@@ -1125,67 +1394,35 @@ function isInvalidStorageSourcePath(sourcePath: string): boolean {
 
 function getStorageTransferKey({
     sourcePath,
+    titleId,
     requestedDestination,
     operation,
 }: {
-    sourcePath: string;
+    sourcePath: string | null;
+    titleId: string | null;
     requestedDestination: string | null;
     operation: StorageCopyItem['operation'];
 }): string {
-    return [operation, sourcePath, requestedDestination?.trim() ?? ''].join(
-        '\0'
-    );
+    return [
+        operation,
+        sourcePath ?? '',
+        titleId?.toLowerCase() ?? '',
+        requestedDestination?.trim() ?? '',
+    ].join('\0');
 }
 
-async function queueStorageTransfer(
+function queueStorageTransfer(
     input: StorageTransferQueueInput
-): Promise<StorageTransferQueueResult> {
-    if (
-        input.sourcePath !== null &&
-        isInvalidStorageSourcePath(input.sourcePath)
-    ) {
-        return {
-            status: 400,
-            body: {
-                error: `Invalid storage source path: ${input.sourcePath}`,
-            },
-        };
-    }
-
-    let duplicateSourcePaths: string[] = [];
-    let sourcePath = input.sourcePath;
-
-    if (sourcePath === null && input.titleId !== null) {
-        const sourcePaths = await findWiiUTitleSourcePaths(
-            getConfig().wiiuRoots,
-            input.titleId
-        );
-        sourcePath = sourcePaths[0] ?? null;
-        duplicateSourcePaths = sourcePaths.slice(1);
-    }
-
-    if (sourcePath === null && input.titleId === null) {
-        sourcePath = getConfig().wiiuRoots[0] ?? null;
-    }
-    if (!sourcePath) {
-        return {
-            status: 400,
-            body: {
-                error:
-                    input.titleId === null
-                        ? 'No Wii U root configured'
-                        : `No local title found for ${input.titleId}`,
-            },
-        };
-    }
-
+): StorageTransferQueueResult {
     const requestedDestination = input.requestedDestination;
     const move = input.move;
     const copyId = randomUUID();
-    const readableSourcePath = await resolveReadablePath(sourcePath);
+    const sourcePath = input.sourcePath;
+    const titleId = input.titleId?.toLowerCase() ?? null;
     const operation = move ? 'move' : 'copy';
     const transferKey = getStorageTransferKey({
-        sourcePath: readableSourcePath,
+        sourcePath,
+        titleId,
         requestedDestination,
         operation,
     });
@@ -1195,6 +1432,7 @@ async function queueStorageTransfer(
                 (item.state === 'queued' || item.state === 'copying') &&
                 getStorageTransferKey({
                     sourcePath: item.sourcePath,
+                    titleId: item.requestedTitleId,
                     requestedDestination: item.requestedDestination,
                     operation: item.operation,
                 }) === transferKey
@@ -1207,6 +1445,7 @@ async function queueStorageTransfer(
                 copyId: existingItem.id,
                 item: existingItem,
                 sourcePath,
+                titleId,
                 requestedDestination,
                 move,
                 duplicate: true,
@@ -1214,13 +1453,21 @@ async function queueStorageTransfer(
         };
     }
 
-    const titleKind = await readWiiUTitleKind(readableSourcePath);
+    const cached = titleId ? getLibraryCacheEntry(titleId) : null;
+    const sourceName = sourcePath
+        ? getStorageCopySourceName(sourcePath)
+        : cached
+          ? formatTitleDisplayName(cached.name, titleId!, cached.kind)
+          : titleId
+            ? 'Loading...'
+            : 'Wii U root';
 
     const copyItem: StorageCopyItem = {
         id: copyId,
         operation,
-        sourceName: getStorageCopyDisplayName(readableSourcePath),
-        titleKind,
+        titleId,
+        sourceName,
+        titleKind: null,
         destinationName: requestedDestination
             ? getStorageCopyDisplayName(requestedDestination)
             : '',
@@ -1237,12 +1484,13 @@ async function queueStorageTransfer(
 
     const queueItem: StorageCopyQueueItem = {
         ...copyItem,
-        sourcePath: readableSourcePath,
+        sourcePath,
         destinationPath: requestedDestination ?? '',
         currentFilePath: null,
         requestedSourcePath: sourcePath,
         requestedDestination,
-        duplicateSourcePaths,
+        requestedTitleId: titleId,
+        duplicateSourcePaths: [],
     };
 
     storageCopies = [...storageCopies, copyItem];
@@ -1257,6 +1505,7 @@ async function queueStorageTransfer(
             copyId,
             item: copyItem,
             sourcePath,
+            titleId,
             requestedDestination,
             move,
         },
@@ -1272,6 +1521,76 @@ function getStorageTransferQueueInput(
         titleId: getStringQuery(req, 'titleId'),
         requestedDestination: getStringQuery(req, 'dest'),
         move,
+    };
+}
+
+function queueStorageDelete(titleId: string): StorageTransferQueueResult {
+    if (!/^[0-9a-f]{16}$/i.test(titleId)) {
+        return {
+            status: 400,
+            body: {
+                error: 'titleId query parameter must be 16 hexadecimal characters',
+            },
+        };
+    }
+
+    const normalizedTitleId = titleId.toLowerCase();
+    const existingItem =
+        storageDeleteQueue.find(
+            (item) =>
+                (item.state === 'queued' || item.state === 'deleting') &&
+                item.titleId === normalizedTitleId
+        ) ?? null;
+
+    if (existingItem) {
+        return {
+            status: 200,
+            body: {
+                deleteId: existingItem.id,
+                item: existingItem,
+                duplicate: true,
+            },
+        };
+    }
+
+    const deleteId = randomUUID();
+    const deleteItem: StorageDeleteItem = {
+        id: deleteId,
+        titleId: normalizedTitleId,
+        titleName: (() => {
+            const cached = getLibraryCacheEntry(normalizedTitleId);
+            return cached
+                ? formatTitleDisplayName(
+                      cached.name,
+                      normalizedTitleId,
+                      cached.kind
+                  )
+                : 'Loading...';
+        })(),
+        titleKind: null,
+        state: 'queued',
+        message: 'Queued',
+        deletedCount: 0,
+        totalCount: null,
+        error: null,
+    };
+    const queueItem: StorageDeleteQueueItem = {
+        ...deleteItem,
+        sourcePaths: [],
+    };
+
+    storageDeletes = [...storageDeletes, deleteItem];
+    storageDeleteQueue = [...storageDeleteQueue, queueItem];
+
+    broadcastStorageDeletes();
+    void processStorageDeleteQueue();
+
+    return {
+        status: 202,
+        body: {
+            deleteId,
+            item: deleteItem,
+        },
     };
 }
 
@@ -1344,18 +1663,84 @@ async function processStorageCopyQueue(): Promise<void> {
             );
         }
 
-        const readableSourcePath = await resolveReadablePath(
-            nextItem.requestedSourcePath
-        );
-        const titleKind = await readWiiUTitleKind(readableSourcePath);
+        if (
+            nextItem.requestedSourcePath !== null &&
+            isInvalidStorageSourcePath(nextItem.requestedSourcePath)
+        ) {
+            throw new Error(
+                `Invalid storage source path: ${nextItem.requestedSourcePath}`
+            );
+        }
+
+        let sourcePath = nextItem.requestedSourcePath;
+        let duplicateSourcePaths: string[] = [];
+
+        if (sourcePath === null && nextItem.requestedTitleId !== null) {
+            const sourcePaths = await findWiiUTitleSourcePaths(
+                getConfig().wiiuRoots,
+                nextItem.requestedTitleId
+            );
+            sourcePath = sourcePaths[0] ?? null;
+            duplicateSourcePaths = sourcePaths.slice(1);
+        }
+
+        if (sourcePath === null && nextItem.requestedTitleId === null) {
+            sourcePath = getConfig().wiiuRoots[0] ?? null;
+        }
+
+        if (!sourcePath) {
+            throw new Error(
+                nextItem.requestedTitleId === null
+                    ? 'No Wii U root configured'
+                    : `No local title found for ${nextItem.requestedTitleId}`
+            );
+        }
+
+        const readableSourcePath = await resolveReadablePath(sourcePath);
+        const titleIdentity = await readWiiUTitleIdentity(readableSourcePath);
         nextItem.sourcePath = readableSourcePath;
-        nextItem.sourceName = getStorageCopyDisplayName(readableSourcePath);
-        nextItem.titleKind = titleKind;
+        nextItem.requestedSourcePath = sourcePath;
+        nextItem.duplicateSourcePaths = duplicateSourcePaths;
+        nextItem.titleId =
+            nextItem.requestedTitleId ?? titleIdentity?.titleId ?? null;
+        const resolvedTitleId =
+            nextItem.requestedTitleId ?? titleIdentity?.titleId ?? null;
+        nextItem.titleId = resolvedTitleId;
+        nextItem.titleKind = titleIdentity?.kind ?? null;
+        const copyCached = nextItem.titleId
+            ? getLibraryCacheEntry(nextItem.titleId)
+            : null;
+        nextItem.sourceName = nextItem.titleId
+            ? formatTitleDisplayName(
+                  copyCached?.name ?? null,
+                  nextItem.titleId,
+                  nextItem.titleKind
+              )
+            : getStorageCopySourceName(readableSourcePath);
 
         updateStorageCopy(nextItem.id, {
+            titleId: nextItem.titleId,
             sourceName: nextItem.sourceName,
             titleKind: nextItem.titleKind,
         });
+
+        if (resolvedTitleId) {
+            const copyId = nextItem.id;
+            const kind = nextItem.titleKind;
+            void downloadNusTitleMetadata(resolvedTitleId)
+                .then((metadata) => {
+                    if (!metadata?.name || shouldStopStorageCopy(copyId)) {
+                        return;
+                    }
+                    const namedSourceName = formatTitleDisplayName(
+                        metadata.name,
+                        resolvedTitleId,
+                        kind
+                    );
+                    updateStorageCopy(copyId, { sourceName: namedSourceName });
+                })
+                .catch(() => {});
+        }
 
         if (shouldStopStorageCopy(nextItem.id)) {
             return;
@@ -1497,12 +1882,7 @@ async function processStorageCopyQueue(): Promise<void> {
         nextItem.error = null;
 
         if (nextItem.operation === 'move') {
-            for (const duplicateSourcePath of nextItem.duplicateSourcePaths) {
-                await rm(duplicateSourcePath, {
-                    recursive: true,
-                    force: true,
-                });
-            }
+            await deleteLocalTitleSourcePaths(nextItem.duplicateSourcePaths);
         }
 
         logger.log('server', `storage ${nextItem.operation} stream completed`);
@@ -1548,6 +1928,144 @@ async function processStorageCopyQueue(): Promise<void> {
         }
 
         void processStorageCopyQueue();
+    }
+}
+
+async function processStorageDeleteQueue(): Promise<void> {
+    if (activeStorageDeleteId) {
+        return;
+    }
+
+    const nextItem = storageDeleteQueue.find((item) => item.state === 'queued');
+
+    if (!nextItem) {
+        broadcastStorageDeletes();
+        return;
+    }
+
+    activeStorageDeleteId = nextItem.id;
+    nextItem.state = 'deleting';
+    nextItem.message =
+        nextItem.sourcePaths.length > 0
+            ? 'Deleting...'
+            : 'Finding local copies...';
+    nextItem.error = null;
+    nextItem.deletedCount = 0;
+    nextItem.totalCount =
+        nextItem.sourcePaths.length > 0 ? nextItem.sourcePaths.length : null;
+
+    updateStorageDelete(nextItem.id, {
+        state: nextItem.state,
+        message: nextItem.message,
+        error: nextItem.error,
+        deletedCount: nextItem.deletedCount,
+        totalCount: nextItem.totalCount,
+    });
+
+    try {
+        if (nextItem.sourcePaths.length === 0) {
+            const sourcePaths = await findWiiUTitleSourcePaths(
+                getConfig().wiiuRoots,
+                nextItem.titleId
+            );
+
+            if (sourcePaths.length === 0) {
+                throw new Error(`No local title found for ${nextItem.titleId}`);
+            }
+
+            const safeSourcePaths = await getSafeLocalDeletePaths(sourcePaths);
+            if (safeSourcePaths.length === 0) {
+                throw new Error(`No local title found for ${nextItem.titleId}`);
+            }
+
+            const titleIdentity = await readWiiUTitleIdentity(
+                safeSourcePaths[0]
+            ).catch(() => null);
+
+            nextItem.sourcePaths = safeSourcePaths;
+            nextItem.totalCount = safeSourcePaths.length;
+
+            nextItem.titleKind = titleIdentity?.kind ?? null;
+            const deleteCached = getLibraryCacheEntry(nextItem.titleId);
+            nextItem.titleName = formatTitleDisplayName(
+                deleteCached?.name ?? null,
+                nextItem.titleId,
+                nextItem.titleKind
+            );
+
+            void downloadNusTitleMetadata(nextItem.titleId)
+                .then((metadata) => {
+                    if (!metadata?.name) {
+                        return;
+                    }
+                    const namedTitleName = formatTitleDisplayName(
+                        metadata.name,
+                        nextItem.titleId,
+                        nextItem.titleKind
+                    );
+                    updateStorageDelete(nextItem.id, {
+                        titleName: namedTitleName,
+                    });
+                })
+                .catch(() => {});
+            nextItem.message = 'Deleting...';
+
+            updateStorageDelete(nextItem.id, {
+                titleName: nextItem.titleName,
+                titleKind: nextItem.titleKind,
+                totalCount: nextItem.totalCount,
+                message: nextItem.message,
+            });
+        }
+
+        if (await hasConflictingStorageCopyPath(nextItem.sourcePaths)) {
+            throw new Error(
+                `Cannot delete ${nextItem.titleId} while it is queued or copying`
+            );
+        }
+
+        const deletedCount = await deleteLocalTitleSourcePaths(
+            nextItem.sourcePaths,
+            (nextDeletedCount) => {
+                nextItem.deletedCount = nextDeletedCount;
+                nextItem.message = `Deleted ${nextDeletedCount}/${nextItem.totalCount ?? nextDeletedCount}`;
+                updateStorageDeleteProgress(nextItem.id, {
+                    deletedCount: nextItem.deletedCount,
+                    message: nextItem.message,
+                });
+            }
+        );
+
+        nextItem.state = 'complete';
+        nextItem.deletedCount = deletedCount;
+        nextItem.message = 'Deleted';
+        nextItem.error = null;
+
+        updateStorageDelete(nextItem.id, {
+            state: nextItem.state,
+            deletedCount: nextItem.deletedCount,
+            message: nextItem.message,
+            error: nextItem.error,
+        });
+    } catch (error) {
+        nextItem.state = 'failed';
+        nextItem.error = error instanceof Error ? error.message : String(error);
+        nextItem.message = nextItem.error;
+
+        logServerError('Storage delete failed:', error);
+
+        updateStorageDelete(nextItem.id, {
+            state: nextItem.state,
+            error: nextItem.error,
+            message: nextItem.message,
+            deletedCount: nextItem.deletedCount,
+        });
+    } finally {
+        if (activeStorageDeleteId === nextItem.id) {
+            activeStorageDeleteId = null;
+        }
+
+        void processStorageDeleteQueue();
     }
 }
 
@@ -1608,6 +2126,7 @@ app.get('/api/library', async (req, res) => {
             includeAll,
         });
 
+        libraryGroups = groups;
         res.json({
             groups,
         });
@@ -1663,9 +2182,9 @@ app.get('/api/library/validate', async (_req, res) => {
     }
 });
 
-app.get('/api/storage/copy', async (req, res) => {
+app.get('/api/storage/copy', (req, res) => {
     try {
-        const result = await queueStorageTransfer(
+        const result = queueStorageTransfer(
             getStorageTransferQueueInput(req, false)
         );
         res.status(result.status).json(result.body);
@@ -1677,9 +2196,9 @@ app.get('/api/storage/copy', async (req, res) => {
     }
 });
 
-app.get('/api/storage/move', async (req, res) => {
+app.get('/api/storage/move', (req, res) => {
     try {
-        const result = await queueStorageTransfer(
+        const result = queueStorageTransfer(
             getStorageTransferQueueInput(req, true)
         );
         res.status(result.status).json(result.body);
@@ -1693,14 +2212,22 @@ app.get('/api/storage/move', async (req, res) => {
 
 app.get('/api/storage/delete', (req, res) => {
     const titleId = getStringQuery(req, 'titleId');
-    logger.log(
-        'server',
-        `storage delete requested but not implemented: ${titleId ?? 'missing titleId'}`
-    );
-    res.status(202).json({
-        status: 'not implemented',
-        titleId,
-    });
+    if (!titleId) {
+        res.status(400).json({
+            error: 'Missing titleId query parameter',
+        });
+        return;
+    }
+
+    try {
+        const result = queueStorageDelete(titleId);
+        res.status(result.status).json(result.body);
+    } catch (error) {
+        logServerError('Failed to queue storage delete:', error);
+        sendServerError(res, 'Failed to queue storage delete', error, {
+            includeDetails: true,
+        });
+    }
 });
 
 app.get('/api/storage/list-fat32', async (_req, res) => {
@@ -1904,6 +2431,7 @@ socketServer.on('connection', (socket) => {
         type: 'app.connected',
         downloads: downloadQueue,
         storageCopies,
+        storageDeletes,
         libraryValidationStatus: latestLibraryValidationStatus,
     });
 

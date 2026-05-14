@@ -1,9 +1,14 @@
-import { DownloadQueueItem, StorageCopyItem } from './shared.js';
+import {
+    DownloadQueueItem,
+    StorageCopyItem,
+    StorageDeleteItem,
+} from './shared.js';
 
 export type AppConnectedEvent = {
     type: 'app.connected';
     downloads: DownloadQueueItem[];
     storageCopies: StorageCopyItem[];
+    storageDeletes: StorageDeleteItem[];
     libraryValidationStatus?: ValidationStatusEvent | null;
 };
 
@@ -35,6 +40,11 @@ export type StorageCopySocketEvent = {
     items: StorageCopyItem[];
 };
 
+export type StorageDeleteSocketEvent = {
+    type: 'storage.deleteChanged';
+    items: StorageDeleteItem[];
+};
+
 export type StorageCopySocketCommand =
     | {
           type: 'storage.copy.retry';
@@ -46,6 +56,16 @@ export type StorageCopySocketCommand =
       }
     | {
           type: 'storage.copy.cancel';
+          id: string;
+      };
+
+export type StorageDeleteSocketCommand =
+    | {
+          type: 'storage.delete.retry';
+          id: string;
+      }
+    | {
+          type: 'storage.delete.remove';
           id: string;
       };
 
@@ -69,10 +89,14 @@ export type ValidationStatusEvent = {
     error?: string;
 };
 
-export type AppSocketCommand = DownloadSocketCommand | StorageCopySocketCommand;
+export type AppSocketCommand =
+    | DownloadSocketCommand
+    | StorageCopySocketCommand
+    | StorageDeleteSocketCommand;
 
 export type AppSocketEvent =
     | AppConnectedEvent
     | DownloadSocketEvent
     | StorageCopySocketEvent
+    | StorageDeleteSocketEvent
     | ValidationStatusEvent;

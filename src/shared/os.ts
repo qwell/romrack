@@ -4,7 +4,7 @@ import { linux } from './os/linux.js';
 import { macos } from './os/macos.js';
 import { windows } from './os/windows.js';
 import { inspectWslPath, wsl2, isWsl2 } from './os/wsl2.js';
-import { normalizePath, resolveStorageDestination } from './os/path.js';
+import { resolveStorageDestination } from './os/path.js';
 import type { Fat32Volume, OsOperations } from './os/types.js';
 
 export type { Fat32Volume, OsOperations } from './os/types.js';

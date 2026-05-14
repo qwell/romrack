@@ -17,12 +17,16 @@ import {
     formatDownloadTitle,
 } from './download.js';
 import {
-    StorageCopyActionBarCommand,
+    StorageActionBarCommand,
     cancelStorageCopy,
     removeStorageCopy,
+    removeStorageDelete,
     retryStorageCopy,
+    retryStorageDelete,
     syncStorageCopies,
+    syncStorageDeletes,
     renderStorageCopyActionRow,
+    renderStorageDeleteActionRow,
     formatStorageCopyDetails,
     formatStorageCopyFileCount,
     formatStorageCopyIcon,
@@ -30,11 +34,17 @@ import {
     formatStorageCopySize,
     formatStorageCopyState,
     formatStorageCopyTitle,
+    formatStorageDeleteDetails,
+    formatStorageDeleteIcon,
+    formatStorageDeleteProgress,
+    formatStorageDeleteState,
+    formatStorageDeleteTitle,
 } from './storage.js';
 import {
     type LibraryResponse,
     type TitleGroup,
     type TitleEntry,
+    type AvailableTitleEntry,
     type TitleGroupStatus,
     type TitleDetails,
     type TitleInputControl,
@@ -48,6 +58,7 @@ import {
     DownloadQueueItem,
     formatSize,
     StorageCopyItem,
+    StorageDeleteItem,
 } from '../shared/shared.js';
 import { type Fat32Volume } from '../shared/os.js';
 import { AppSocketCommand, AppSocketEvent } from '../shared/socket.js';
@@ -84,7 +95,7 @@ type Fat32ListResponse = {
     volumes: Fat32Volume[];
 };
 
-type ActionBarCommand = DownloadActionBarCommand | StorageCopyActionBarCommand;
+type ActionBarCommand = DownloadActionBarCommand | StorageActionBarCommand;
 
 let showAllTitles = false;
 let selectedFamily: string | null = null;
@@ -110,6 +121,7 @@ let settingsCheckingRoot = false;
 
 const downloadQueue: DownloadQueueItem[] = [];
 const storageCopies: StorageCopyItem[] = [];
+const storageDeletes: StorageDeleteItem[] = [];
 
 let iconObserver: IntersectionObserver | null = null;
 
@@ -185,6 +197,8 @@ function isActionBarCommand(value: string | null): value is ActionBarCommand {
         case 'storage.copy.cancel':
         case 'storage.copy.remove':
         case 'storage.copy.retry':
+        case 'storage.delete.remove':
+        case 'storage.delete.retry':
             return true;
         default:
             return false;
@@ -239,6 +253,14 @@ function handleActionBarCommand(
 
         case 'storage.copy.retry':
             retryStorageCopy(itemId);
+            return;
+
+        case 'storage.delete.remove':
+            removeStorageDelete(itemId);
+            return;
+
+        case 'storage.delete.retry':
+            retryStorageDelete(itemId);
             return;
     }
 }
@@ -382,6 +404,128 @@ function getSelectedDownloadedTitleIds(
         .filter((titleId) => titleId.length > 0);
 }
 
+function isAvailableEntryKind(
+    kind: TitleKinds
+): kind is AvailableTitleEntry['kind'] {
+    return (
+        kind === TitleKinds.Base ||
+        kind === TitleKinds.Update ||
+        kind === TitleKinds.DLC
+    );
+}
+
+function restoreDeletedEntryAvailability(
+    group: TitleGroup,
+    entry: TitleEntry
+): void {
+    if (!group.titleInDatabase || !isAvailableEntryKind(entry.kind)) {
+        return;
+    }
+
+    const hasAvailableEntry = group.availableEntries.some(
+        (candidate) =>
+            candidate.kind === entry.kind && candidate.titleId === entry.titleId
+    );
+
+    if (hasAvailableEntry) {
+        return;
+    }
+
+    group.availableEntries.push({
+        kind: entry.kind,
+        titleId: entry.titleId,
+        versions: entry.version > 0 ? [entry.version] : [],
+        availableOnCdn: true,
+    });
+}
+
+function markStorageTitleIdsRemoved(
+    haystacks: WeakMap<TitleGroup, string>,
+    group: TitleGroup,
+    completedTitleIds: Set<string>
+): void {
+    const deletedEntries = group.entries.filter((entry) =>
+        completedTitleIds.has(entry.titleId)
+    );
+
+    if (deletedEntries.length === 0) {
+        return;
+    }
+
+    group.entries = group.entries.filter(
+        (entry) => !completedTitleIds.has(entry.titleId)
+    );
+    for (const entry of deletedEntries) {
+        restoreDeletedEntryAvailability(group, entry);
+    }
+
+    haystacks.delete(group);
+    updateGroupStatusFromSlots(group);
+    updateRenderedTitleGroup(group);
+    refreshOpenDetailSidebarForGroup(group);
+}
+
+function markStorageCopyComplete(
+    haystacks: WeakMap<TitleGroup, string>,
+    group: TitleGroup,
+    completedMoveTitleIds: Set<string>
+): void {
+    markStorageTitleIdsRemoved(haystacks, group, completedMoveTitleIds);
+}
+
+function markStorageDeleteComplete(
+    haystacks: WeakMap<TitleGroup, string>,
+    group: TitleGroup,
+    completedTitleIds: Set<string>
+): void {
+    markStorageTitleIdsRemoved(haystacks, group, completedTitleIds);
+}
+
+function markStorageCopiesComplete(items: StorageCopyItem[]): void {
+    const completedMoveTitleIds = new Set(
+        items
+            .filter(
+                (item) =>
+                    item.state === 'complete' &&
+                    item.operation === 'move' &&
+                    item.titleId !== null
+            )
+            .map((item) => item.titleId as string)
+    );
+
+    if (completedMoveTitleIds.size === 0) {
+        return;
+    }
+
+    for (const group of currentGroups) {
+        markStorageCopyComplete(
+            groupSearchHaystacks,
+            group,
+            completedMoveTitleIds
+        );
+    }
+}
+
+function markStorageDeletesComplete(items: StorageDeleteItem[]): void {
+    const completedTitleIds = new Set(
+        items
+            .filter((item) => item.state === 'complete')
+            .map((item) => item.titleId)
+    );
+
+    if (completedTitleIds.size === 0) {
+        return;
+    }
+
+    for (const group of currentGroups) {
+        markStorageDeleteComplete(
+            groupSearchHaystacks,
+            group,
+            completedTitleIds
+        );
+    }
+}
+
 function formatFat32VolumeOption(volume: Fat32Volume): string {
     const label = volume.label ? `${volume.label} - ` : '';
     const size =
@@ -505,6 +649,9 @@ function handleAppSocketEvent(event: AppSocketEvent): void {
             );
 
             syncStorageCopies(storageCopies, event.storageCopies);
+            markStorageCopiesComplete(event.storageCopies);
+            syncStorageDeletes(storageDeletes, event.storageDeletes);
+            markStorageDeletesComplete(event.storageDeletes);
 
             if (event.libraryValidationStatus) {
                 handleAppSocketEvent(event.libraryValidationStatus);
@@ -525,6 +672,13 @@ function handleAppSocketEvent(event: AppSocketEvent): void {
         case 'storage.copyChanged':
             hideServerGoneModal();
             syncStorageCopies(storageCopies, event.items);
+            markStorageCopiesComplete(event.items);
+            return;
+
+        case 'storage.deleteChanged':
+            hideServerGoneModal();
+            syncStorageDeletes(storageDeletes, event.items);
+            markStorageDeletesComplete(event.items);
             return;
 
         case 'library.validationStatus': {
@@ -638,12 +792,20 @@ function getActionBarSignature(): string {
         (item) => item.state !== 'complete'
     );
 
+    const visibleDeletes = storageDeletes.filter(
+        (item) => item.state !== 'complete'
+    );
+
     return JSON.stringify({
         downloads: visibleDownloads.map((item) => ({
             id: item.id,
             state: item.state,
         })),
         copies: visibleCopies.map((item) => ({
+            id: item.id,
+            state: item.state,
+        })),
+        deletes: visibleDeletes.map((item) => ({
             id: item.id,
             state: item.state,
         })),
@@ -783,6 +945,59 @@ function updateActionBarRowsInPlace(): void {
             detail.title = detailText;
         }
     }
+
+    for (const item of storageDeletes) {
+        const row = actionBarRoot.querySelector<HTMLElement>(
+            `[data-storage-delete-item-id="${CSS.escape(item.id)}"]`
+        );
+
+        if (!row) {
+            continue;
+        }
+
+        row.className = `action-bar-row action-bar-row-${item.state}`;
+        row.dataset.itemState = item.state;
+        row.dataset.state = item.state;
+
+        const progress = row.querySelector<HTMLElement>(
+            '[data-storage-delete-progress]'
+        );
+        const icon = row.querySelector<HTMLElement>(
+            '[data-storage-delete-icon]'
+        );
+        const state = row.querySelector<HTMLElement>(
+            '[data-storage-delete-state]'
+        );
+        const title = row.querySelector<HTMLElement>(
+            '[data-storage-delete-title]'
+        );
+        const detail = row.querySelector<HTMLElement>(
+            '[data-storage-delete-detail]'
+        );
+
+        if (progress) {
+            progress.textContent = formatStorageDeleteProgress(item);
+        }
+
+        if (icon) {
+            icon.textContent = formatStorageDeleteIcon(item);
+        }
+
+        if (state) {
+            state.textContent = formatStorageDeleteState(item);
+        }
+
+        if (title) {
+            title.textContent = formatStorageDeleteTitle(item);
+            title.title = formatStorageDeleteTitle(item);
+        }
+
+        if (detail) {
+            const detailText = formatStorageDeleteDetails(item);
+            detail.textContent = detailText;
+            detail.title = detailText;
+        }
+    }
 }
 
 export function updateActionBar(): void {
@@ -796,8 +1011,14 @@ export function updateActionBar(): void {
     const visibleCopies = storageCopies.filter(
         (item) => item.state !== 'complete'
     );
+    const visibleDeletes = storageDeletes.filter(
+        (item) => item.state !== 'complete'
+    );
 
-    const isEmpty = visibleDownloads.length === 0 && visibleCopies.length === 0;
+    const isEmpty =
+        visibleDownloads.length === 0 &&
+        visibleCopies.length === 0 &&
+        visibleDeletes.length === 0;
     actionBarRoot.hidden = isEmpty;
 
     if (isEmpty) {
@@ -855,21 +1076,31 @@ function rebuildActionBar(): void {
     const incompleteCopies = storageCopies.filter(
         (item) => item.state !== 'complete'
     );
+    const visibleDeletes = storageDeletes.filter(
+        (item) => item.state !== 'complete'
+    );
 
     const activeCount =
         incompleteDownloads.filter((item) => item.state === 'downloading')
             .length +
-        incompleteCopies.filter((item) => item.state === 'copying').length;
+        incompleteCopies.filter((item) => item.state === 'copying').length +
+        visibleDeletes.filter((item) => item.state === 'deleting').length;
     const queuedCount =
         incompleteDownloads.filter((item) => item.state === 'queued').length +
-        incompleteCopies.filter((item) => item.state === 'queued').length;
+        incompleteCopies.filter((item) => item.state === 'queued').length +
+        visibleDeletes.filter((item) => item.state === 'queued').length;
     const failedCount =
         incompleteDownloads.filter((item) => item.state === 'failed').length +
-        incompleteCopies.filter((item) => item.state === 'failed').length;
+        incompleteCopies.filter((item) => item.state === 'failed').length +
+        visibleDeletes.filter((item) => item.state === 'failed').length;
 
     actionBarRoot.replaceChildren();
 
-    if (incompleteDownloads.length === 0 && incompleteCopies.length === 0) {
+    if (
+        incompleteDownloads.length === 0 &&
+        incompleteCopies.length === 0 &&
+        visibleDeletes.length === 0
+    ) {
         return;
     }
 
@@ -881,10 +1112,14 @@ function rebuildActionBar(): void {
 
     const current = document.createElement('div');
     current.className = 'action-bar-current';
+    const visibleActionCount =
+        incompleteDownloads.length +
+        incompleteCopies.length +
+        visibleDeletes.length;
     current.textContent =
-        incompleteDownloads.length + incompleteCopies.length === 1
+        visibleActionCount === 1
             ? 'One visible action'
-            : `${incompleteDownloads.length + incompleteCopies.length} visible actions`;
+            : `${visibleActionCount} visible actions`;
 
     const size = document.createElement('div');
     size.textContent = '';
@@ -901,6 +1136,10 @@ function rebuildActionBar(): void {
 
     for (const item of incompleteCopies) {
         details.append(renderStorageCopyActionRow(item));
+    }
+
+    for (const item of visibleDeletes) {
+        details.append(renderStorageDeleteActionRow(item));
     }
 
     actionBarRoot.append(details);
@@ -1004,12 +1243,7 @@ export function markSlotBadgeComplete(family: string, kind: TitleKinds): void {
             continue;
         }
 
-        badge.classList.remove(
-            'title-slot-badge-incomplete',
-            'title-slot-badge-na',
-            'title-slot-badge-unknown'
-        );
-        badge.classList.add('title-slot-badge-complete');
+        setSlotBadgeState(badge, 'complete');
 
         const marker = badge.querySelector<HTMLElement>(
             '.title-slot-badge-download'
@@ -1021,6 +1255,31 @@ export function markSlotBadgeComplete(family: string, kind: TitleKinds): void {
         }
 
         badge.dataset.downloadState = '';
+    }
+}
+
+function setSlotBadgeState(badge: HTMLElement, state: SlotBadgeState): void {
+    badge.classList.remove(
+        'title-slot-badge-complete',
+        'title-slot-badge-incomplete',
+        'title-slot-badge-na',
+        'title-slot-badge-unavailable',
+        'title-slot-badge-unknown'
+    );
+    badge.classList.add(`title-slot-badge-${state}`);
+}
+
+function updateRenderedSlotBadge(
+    root: HTMLElement,
+    kind: TitleKinds,
+    state: SlotBadgeState
+): void {
+    const badge = root.querySelector<HTMLElement>(
+        `.title-slot-badge[data-kind="${CSS.escape(kind)}"]`
+    );
+
+    if (badge) {
+        setSlotBadgeState(badge, state);
     }
 }
 
@@ -1042,6 +1301,18 @@ export function updateRenderedTitleGroup(group: TitleGroup): void {
     );
 
     element.classList.add(`title-group-${group.status}`);
+
+    updateRenderedSlotBadge(element, TitleKinds.Base, getGameBadgeState(group));
+    updateRenderedSlotBadge(
+        element,
+        TitleKinds.Update,
+        getSlotBadgeState(group, TitleKinds.Update)
+    );
+    updateRenderedSlotBadge(
+        element,
+        TitleKinds.DLC,
+        getSlotBadgeState(group, TitleKinds.DLC)
+    );
 }
 
 export function refreshOpenDetailSidebarForGroup(group: TitleGroup): void {
@@ -1313,6 +1584,16 @@ function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
                 );
 
                 if (titleIds.length === 0) {
+                    return;
+                }
+
+                const titleCount = titleIds.length;
+                const confirmed = window.confirm(
+                    titleCount === 1
+                        ? 'Delete this local title?'
+                        : `Delete these ${titleCount} local titles?`
+                );
+                if (!confirmed) {
                     return;
                 }
 

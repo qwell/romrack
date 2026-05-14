@@ -34,6 +34,7 @@ export type StorageCopyState = 'queued' | 'copying' | 'failed' | 'complete';
 export type StorageCopyItem = {
     id: string;
     operation: StorageCopyOperation;
+    titleId: string | null;
     sourceName: string;
     titleKind: TitleKinds | null;
     destinationName: string;
@@ -45,6 +46,19 @@ export type StorageCopyItem = {
     totalFiles: number | null;
     currentSizeBytes: number | null;
     currentFileName: string | null;
+    error: string | null;
+};
+
+export type StorageDeleteState = 'queued' | 'deleting' | 'failed' | 'complete';
+export type StorageDeleteItem = {
+    id: string;
+    titleId: string;
+    titleName: string | null;
+    titleKind: TitleKinds | null;
+    state: StorageDeleteState;
+    message: string | null;
+    deletedCount: number;
+    totalCount: number | null;
     error: string | null;
 };
 
