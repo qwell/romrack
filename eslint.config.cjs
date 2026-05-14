@@ -1,10 +1,10 @@
-import { defineConfig } from 'eslint/config';
-import js from '@eslint/js';
-import tseslint from 'typescript-eslint';
-import prettierRecommended from 'eslint-plugin-prettier/recommended';
-import globals from 'globals';
+const { defineConfig } = require('eslint/config');
+const js = require('@eslint/js');
+const tseslint = require('typescript-eslint');
+const prettierRecommended = require('eslint-plugin-prettier/recommended');
+const globals = require('globals');
 
-export default defineConfig(
+module.exports = defineConfig(
     {
         ignores: [
             '**/dist/',
@@ -34,13 +34,13 @@ export default defineConfig(
                 projectService: {
                     allowDefaultProject: ['vitest.config.ts'],
                 },
-                tsconfigRootDir: import.meta.dirname,
+                tsconfigRootDir: __dirname,
             },
         },
     },
 
     {
-        files: ['eslint.config.js', 'vitest.config.ts'],
+        files: ['**/eslint.config.cjs', '**/vitest.config.ts'],
         languageOptions: {
             globals: {
                 ...globals.node,
