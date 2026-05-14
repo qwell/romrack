@@ -3,7 +3,6 @@ import { TitleKinds } from '../shared/titles.js';
 import {
     createActionBarCell,
     createActionButton,
-    getPathDisplayName,
     sendAppSocketCommand,
     updateActionBar,
 } from './main.js';
@@ -60,7 +59,7 @@ function formatStorageCopyKind(kind: TitleKinds | null): string | null {
 }
 
 export function formatStorageCopyTitle(item: StorageCopyItem): string {
-    const title = getPathDisplayName(item.sourcePath);
+    const title = item.sourceName;
     const kind = formatStorageCopyKind(item.titleKind);
     return kind ? `${title} [${kind}]` : title;
 }
@@ -98,13 +97,13 @@ export function formatStorageCopyDetails(item: StorageCopyItem): string {
         return item.error;
     }
 
-    if (!item.currentFilePath) {
+    if (!item.currentFileName) {
         return item.message ?? formatStorageCopyState(item);
     }
 
     return item.currentSizeBytes !== null
-        ? `${item.currentFilePath} (${formatSize(item.currentSizeBytes)})`
-        : item.currentFilePath;
+        ? `${item.currentFileName} (${formatSize(item.currentSizeBytes)})`
+        : item.currentFileName;
 }
 
 export function renderStorageCopyActionRow(item: StorageCopyItem): HTMLElement {
@@ -149,7 +148,7 @@ export function renderStorageCopyActionRow(item: StorageCopyItem): HTMLElement {
         'action-bar-title',
         formatStorageCopyTitle(item)
     );
-    title.title = item.sourcePath;
+    title.title = formatStorageCopyTitle(item);
     title.dataset.storageCopyTitle = 'true';
 
     const detailsCell = renderStorageCopyControls(item);
@@ -161,7 +160,7 @@ export function renderStorageCopyActionRow(item: StorageCopyItem): HTMLElement {
 function renderStorageCopyControls(item: StorageCopyItem): HTMLDivElement {
     const detailsCell = document.createElement('div');
     detailsCell.className = 'action-bar-details-cell';
-    detailsCell.title = item.destinationPath;
+    detailsCell.title = item.destinationName;
 
     if (item.state === 'failed') {
         detailsCell.classList.add('action-bar-controls');

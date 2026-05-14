@@ -74,8 +74,9 @@ type GameTdbFile = {
     games?: GameTdbGame[];
 };
 
-type LocalTitleEntry = TitleEntry & {
+type LocalTitleEntry = Omit<TitleEntry, 'copyCount'> & {
     family: string;
+    sourcePath: string;
 };
 
 const LIBRARY_SCAN_CONCURRENCY = 8;
@@ -548,9 +549,24 @@ export async function scanWiiUTitles(
             groups.set(entry.family, group);
         }
 
+        const existingEntry = group.entries.find(
+            (candidate) => candidate.titleId === entry.titleId
+        );
+
+        if (existingEntry) {
+            existingEntry.copyCount += 1;
+            if (entry.version > existingEntry.version) {
+                existingEntry.version = entry.version;
+                existingEntry.titleName = entry.titleName;
+                existingEntry.region = entry.region;
+                existingEntry.iconUrl = entry.iconUrl;
+                existingEntry.sizeBytes = entry.sizeBytes;
+            }
+            continue;
+        }
+
         const publicEntry: TitleEntry = {
             titleId: entry.titleId,
-            sourcePath: entry.sourcePath,
             version: entry.version,
             titleName: entry.titleName,
             region: entry.region,
@@ -558,6 +574,7 @@ export async function scanWiiUTitles(
             iconUrl: entry.iconUrl,
             kind: entry.kind,
             sizeBytes: entry.sizeBytes,
+            copyCount: 1,
         };
         group.entries.push(publicEntry);
     }
@@ -633,7 +650,25 @@ function mergeTitleGroups(groups: TitleGroup[]): TitleGroup[] {
             continue;
         }
 
-        existing.entries.push(...group.entries);
+        for (const entry of group.entries) {
+            const existingEntry = existing.entries.find(
+                (candidate) => candidate.titleId === entry.titleId
+            );
+
+            if (!existingEntry) {
+                existing.entries.push(entry);
+                continue;
+            }
+
+            existingEntry.copyCount += entry.copyCount;
+            if (entry.version > existingEntry.version) {
+                existingEntry.version = entry.version;
+                existingEntry.titleName = entry.titleName;
+                existingEntry.region = entry.region;
+                existingEntry.iconUrl = entry.iconUrl;
+                existingEntry.sizeBytes = entry.sizeBytes;
+            }
+        }
 
         if (existing.status === 'missing' && group.status !== 'missing') {
             existing.name = group.name;
@@ -678,6 +713,40 @@ export async function scanWiiUTitleRoots(
     return mergeTitleGroups(scannedGroups).filter(
         (group) => options.includeAll || group.entries.length > 0
     );
+}
+
+export async function findWiiUTitleSourcePaths(
+    roots: string[],
+    titleId: string
+): Promise<string[]> {
+    const normalizedTitleId = titleId.toLowerCase();
+    const sourcePaths: string[] = [];
+    const titleDatabase = await readTitleDatabase();
+
+    for (const root of roots) {
+        try {
+            await assertReadableDirectory(root);
+            const directories = await findTitleDirs(root);
+            const entries = (
+                await mapConcurrent(
+                    directories,
+                    LIBRARY_SCAN_CONCURRENCY,
+                    async (dirname) =>
+                        readTitleEntry(root, dirname, titleDatabase)
+                )
+            ).filter((entry): entry is LocalTitleEntry => entry !== null);
+
+            sourcePaths.push(
+                ...entries
+                    .filter((entry) => entry.titleId === normalizedTitleId)
+                    .map((entry) => entry.sourcePath)
+            );
+        } catch {
+            logger.warn('wiiu', `skipping Wii U root ${root}`);
+        }
+    }
+
+    return sourcePaths;
 }
 
 export async function findFirstReadableWiiURoot(

@@ -111,7 +111,6 @@ export type TitleDatabaseEntry = {
 
 export type TitleEntry = {
     titleId: string;
-    sourcePath: string;
     version: number;
     titleName: string;
     region: string | null;
@@ -119,6 +118,7 @@ export type TitleEntry = {
     iconUrl: string | null;
     kind: TitleKinds;
     sizeBytes: number;
+    copyCount: number;
 };
 
 export type TitleInputControl = {

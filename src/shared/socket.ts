@@ -37,12 +37,6 @@ export type StorageCopySocketEvent = {
 
 export type StorageCopySocketCommand =
     | {
-          type: 'storage.copy.queue';
-          sourcePath?: string;
-          destinationPath?: string | null;
-          move?: boolean;
-      }
-    | {
           type: 'storage.copy.retry';
           id: string;
       }

@@ -34,9 +34,9 @@ export type StorageCopyState = 'queued' | 'copying' | 'failed' | 'complete';
 export type StorageCopyItem = {
     id: string;
     operation: StorageCopyOperation;
-    sourcePath: string;
+    sourceName: string;
     titleKind: TitleKinds | null;
-    destinationPath: string;
+    destinationName: string;
     state: StorageCopyState;
     progress: number | null;
     message: string | null;
@@ -44,7 +44,7 @@ export type StorageCopyItem = {
     completedFiles: number | null;
     totalFiles: number | null;
     currentSizeBytes: number | null;
-    currentFilePath: string | null;
+    currentFileName: string | null;
     error: string | null;
 };
 

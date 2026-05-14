@@ -334,47 +334,39 @@ function renderDetailRow(label: string, value: string | null): HTMLElement {
     return row;
 }
 
+function formatTitleKindLabel(kind: TitleKinds): string {
+    return kind === TitleKinds.Base ? 'Game' : kind;
+}
+
 function renderDownloadedCopyRow(entry: TitleEntry): HTMLElement {
     const row = document.createElement('label');
     row.className = 'title-download-row';
-    const sourcePath =
-        typeof entry.sourcePath === 'string' ? entry.sourcePath : '';
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.className = 'title-storage-copy-checkbox';
-    checkbox.value = sourcePath;
-    checkbox.dataset.sourcePath = sourcePath;
+    checkbox.value = entry.titleId;
     checkbox.dataset.titleId = entry.titleId;
-    checkbox.disabled = sourcePath.length === 0;
 
     const slot = document.createElement('span');
     slot.className = 'title-download-slot';
-    slot.textContent = `${entry.kind} v${entry.version}`;
+    slot.textContent = `${formatTitleKindLabel(entry.kind)} v${entry.version}`;
 
     const titleId = document.createElement('span');
     titleId.className = 'title-download-id';
     titleId.textContent = entry.titleId;
 
+    const copyCount = document.createElement('span');
+    copyCount.className = 'title-download-copy-count';
+    copyCount.textContent =
+        entry.copyCount > 1 ? `(${entry.copyCount} copies)` : '';
+
     const size = document.createElement('span');
     size.className = 'title-download-size';
     size.textContent = formatSize(entry.sizeBytes);
 
-    row.append(checkbox, slot, titleId, size);
+    row.append(checkbox, slot, titleId, copyCount, size);
     return row;
-}
-
-function getSelectedDownloadedSources(
-    root: HTMLElement,
-    selectedOnly: boolean
-): string[] {
-    const selector = selectedOnly
-        ? '.title-storage-copy-checkbox:checked'
-        : '.title-storage-copy-checkbox';
-
-    return Array.from(root.querySelectorAll<HTMLInputElement>(selector))
-        .map((checkbox) => checkbox.dataset.sourcePath ?? '')
-        .filter((sourcePath) => sourcePath.length > 0);
 }
 
 function getSelectedDownloadedTitleIds(
@@ -782,7 +774,7 @@ function updateActionBarRowsInPlace(): void {
 
         if (title) {
             title.textContent = formatStorageCopyTitle(item);
-            title.title = item.sourcePath;
+            title.title = formatStorageCopyTitle(item);
         }
 
         if (detail) {
@@ -1282,22 +1274,22 @@ function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
                     localList.querySelectorAll(
                         '.title-storage-copy-checkbox:checked'
                     ).length > 0;
-                const sources = getSelectedDownloadedSources(
+                const titleIds = getSelectedDownloadedTitleIds(
                     localList,
                     hasSelection
                 );
                 const destination = destinationSelect.value;
 
-                if (sources.length === 0 || !destination) {
+                if (titleIds.length === 0 || !destination) {
                     return;
                 }
 
                 copyButton.disabled = true;
                 try {
                     await Promise.all(
-                        sources.map((source) => {
+                        titleIds.map((titleId) => {
                             const params = new URLSearchParams({
-                                source,
+                                titleId,
                                 dest: destination,
                             });
                             return requestJson(`/api/storage/copy?${params}`);
