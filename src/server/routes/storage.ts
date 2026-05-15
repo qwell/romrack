@@ -31,19 +31,29 @@ import {
     formatTitleDisplayName,
     getStringQuery,
 } from '../../shared/shared.js';
-import type {
-    StorageCopyItem,
-    StorageCopyQueueItem,
-    StorageDeleteItem,
-    StorageDeleteQueueItem,
-    StorageTransferQueueInput,
-    StorageTransferQueueResult,
+import {
+    type ApiErrorResponse,
+    type Fat32ListResponse,
+    type StorageDeleteQueuedResponse,
+    type StorageTransferQueuedResponse,
+} from '../../shared/api.js';
+import {
+    type StorageCopyItem,
+    type StorageCopyQueueItem,
+    type StorageDeleteItem,
+    type StorageDeleteQueueItem,
+    type StorageTransferQueueInput,
 } from '../../shared/storage.js';
-import type {
-    StorageCopySocketCommand,
-    StorageDeleteSocketCommand,
+import {
+    type StorageCopySocketCommand,
+    type StorageDeleteSocketCommand,
 } from '../../shared/socket.js';
 import { getLibraryCacheEntry } from '../../shared/wiiu.js';
+
+type RouteResult<TBody> = {
+    status: number;
+    body: TBody;
+};
 
 export function createStorageRouter(): Router {
     const router = Router();
@@ -112,10 +122,11 @@ export function createStorageRouter(): Router {
                 listFat32Volumes(),
             ]);
 
-            res.json({
+            const response: Fat32ListResponse = {
                 runtimeOs,
                 volumes,
-            });
+            };
+            res.json(response);
         } catch (error) {
             logger.warn(
                 'server',
@@ -133,7 +144,7 @@ export function createStorageRouter(): Router {
 
 function queueStorageTransfer(
     input: StorageTransferQueueInput
-): StorageTransferQueueResult {
+): RouteResult<StorageTransferQueuedResponse> {
     const requestedDestination = input.requestedDestination;
     const move = input.move;
     const copyId = randomUUID();
@@ -264,7 +275,9 @@ function getStorageTransferKey({
     ].join('\0');
 }
 
-function queueStorageDelete(titleId: string): StorageTransferQueueResult {
+function queueStorageDelete(
+    titleId: string
+): RouteResult<StorageDeleteQueuedResponse | ApiErrorResponse> {
     if (!/^[0-9a-f]{16}$/i.test(titleId)) {
         return {
             status: 400,

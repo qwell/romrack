@@ -1,10 +1,6 @@
 import { renderDownloadMarkers } from './download.js';
-import {
-    getLibrary,
-    listFat32Volumes,
-    type Fat32ListResponse,
-    validateLibrary,
-} from './api.js';
+import { getLibrary, listFat32Volumes, validateLibrary } from './api.js';
+import { type Fat32ListResponse } from '../shared/api.js';
 import { StorageCopyItem, StorageDeleteItem } from '../shared/storage.js';
 import { createActionBarCommandHandler, mountActionBar } from './action-bar.js';
 import {

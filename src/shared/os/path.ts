@@ -1,4 +1,4 @@
-import type { Fat32Volume } from './types.js';
+import { type Fat32Volume } from './types.js';
 
 function normalizePathGlyphs(value: string): string {
     return value.replaceAll('\uf03a', ':').replaceAll('\uf05c', '\\');

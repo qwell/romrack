@@ -3,6 +3,10 @@ import { Router } from 'express';
 import { sendServerError } from '../routes.js';
 import { broadcastAppSocketEvent } from '../socket.js';
 import { scanWiiUTitleRoots, validateWiiUTitleRoots } from '../wiiu.js';
+import {
+    type LibraryResponse,
+    type LibraryValidationResponse,
+} from '../../shared/api.js';
 import { getConfig } from '../../shared/config.js';
 import logger from '../../shared/logger.js';
 import { formatLogError } from '../../shared/shared.js';
@@ -31,9 +35,10 @@ export function createLibraryRouter(): Router {
             });
 
             setLibraryCacheGroups(groups);
-            res.json({
+            const response: LibraryResponse = {
                 groups,
-            });
+            };
+            res.json(response);
         } catch (error) {
             logger.warn(
                 'server',
@@ -70,12 +75,13 @@ export function createLibraryRouter(): Router {
                 failed,
             });
 
-            res.json({
+            const response: LibraryValidationResponse = {
                 status: failed === 0 ? 'ok' : 'failed',
                 total: titles.length,
                 failed,
                 titles,
-            });
+            };
+            res.json(response);
         } catch (error) {
             const message =
                 error instanceof Error ? error.message : String(error);

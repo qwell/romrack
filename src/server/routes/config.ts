@@ -1,10 +1,13 @@
 import { Router } from 'express';
 import {
-    AppConfigResponse,
-    AppConfigUpdate,
-    AppConfigValidateRootResponse,
+    type ConfigResponse,
+    type ConfigValidateRootResponse,
+} from '../../shared/api.js';
+import {
+    getConfig,
+    saveConfig,
+    type AppConfigUpdate,
 } from '../../shared/config.js';
-import { getConfig, saveConfig } from '../../shared/config.js';
 import { validateWiiURoot } from '../../shared/wiiu.js';
 import logger from '../../shared/logger.js';
 import { formatLogError } from '../../shared/shared.js';
@@ -27,7 +30,7 @@ export function createConfigRouter(): Router {
     const router = Router();
 
     router.get('/', (_req, res) => {
-        const response: AppConfigResponse = {
+        const response: ConfigResponse = {
             config: getConfig(),
             restartRequired: false,
         };
@@ -38,7 +41,7 @@ export function createConfigRouter(): Router {
     router.post('/validate-root', async (req, res) => {
         try {
             const root = getConfigRootBodyValue(req.body as unknown);
-            const response: AppConfigValidateRootResponse =
+            const response: ConfigValidateRootResponse =
                 await validateWiiURoot(root);
             res.json(response);
         } catch (error) {
@@ -54,7 +57,7 @@ export function createConfigRouter(): Router {
 
     router.post('/', (req, res) => {
         try {
-            const response: AppConfigResponse = saveConfig(
+            const response: ConfigResponse = saveConfig(
                 req.body as AppConfigUpdate
             );
             logger.log('server', `config saved: ${JSON.stringify(response)}`);

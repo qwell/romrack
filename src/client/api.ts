@@ -1,25 +1,13 @@
 import {
-    type AppConfigUpdate,
-    type AppConfigResponse,
-    type AppConfigValidateRootResponse,
-} from '../shared/config.js';
-import { type Fat32Volume, type RuntimeOs } from '../shared/os.js';
-import { TitleGroup } from '../shared/titles.js';
-
-export type Fat32ListResponse = {
-    runtimeOs: RuntimeOs;
-    volumes: Fat32Volume[];
-};
-
-export type LibraryValidationResponse = {
-    status: 'ok' | 'failed';
-    total: number;
-    failed: number;
-};
-
-export type LibraryResponse = {
-    groups: TitleGroup[];
-};
+    type ConfigResponse,
+    type ConfigValidateRootResponse,
+    type Fat32ListResponse,
+    type LibraryResponse,
+    type LibraryValidationResponse,
+    type StorageDeleteQueuedResponse,
+    type StorageTransferQueuedResponse,
+} from '../shared/api.js';
+import { type AppConfigUpdate } from '../shared/config.js';
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     const response = await fetch(url, init);
@@ -47,7 +35,7 @@ export function listFat32Volumes(): Promise<Fat32ListResponse> {
 export function queueStorageCopy(
     titleId: string,
     destination: string
-): Promise<unknown> {
+): Promise<StorageTransferQueuedResponse> {
     const params = new URLSearchParams({
         titleId,
         dest: destination,
@@ -55,18 +43,18 @@ export function queueStorageCopy(
     return requestJson(`/api/storage/copy?${params}`);
 }
 
-export function queueStorageDelete(titleId: string): Promise<unknown> {
+export function queueStorageDelete(
+    titleId: string
+): Promise<StorageDeleteQueuedResponse> {
     const params = new URLSearchParams({ titleId });
     return requestJson(`/api/storage/delete?${params}`);
 }
 
-export function getConfig(): Promise<AppConfigResponse> {
+export function getConfig(): Promise<ConfigResponse> {
     return requestJson('/api/config');
 }
 
-export function saveConfig(
-    update: AppConfigUpdate
-): Promise<AppConfigResponse> {
+export function saveConfig(update: AppConfigUpdate): Promise<ConfigResponse> {
     return requestJson('/api/config', {
         method: 'POST',
         headers: {
@@ -78,7 +66,7 @@ export function saveConfig(
 
 export function validateConfigRoot(
     root: string
-): Promise<AppConfigValidateRootResponse> {
+): Promise<ConfigValidateRootResponse> {
     return requestJson('/api/config/validate-root', {
         method: 'POST',
         headers: {

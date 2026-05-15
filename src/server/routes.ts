@@ -1,4 +1,5 @@
 import { type Response } from 'express';
+import { type ApiErrorResponse } from '../shared/api.js';
 
 export function sendServerError(
     res: Response,
@@ -6,11 +7,7 @@ export function sendServerError(
     error: unknown,
     options: { includeDetails?: boolean } = {}
 ): void {
-    const body: {
-        error: string;
-        message?: string;
-        stage?: string | null;
-    } = {
+    const body: ApiErrorResponse = {
         error: publicError,
     };
 

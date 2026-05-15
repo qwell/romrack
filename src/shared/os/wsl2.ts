@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-import type { Fat32Volume, OsOperations } from './types.js';
+import { type Fat32Volume, type OsOperations } from './types.js';
 import * as linux from './linux.js';
 import * as windows from './windows.js';
 

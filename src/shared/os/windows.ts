@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 
 import path from 'node:path';
 
-import type { Fat32Volume, OsOperations } from './types.js';
+import { type Fat32Volume, type OsOperations } from './types.js';
 import { isWindowsPath, normalizePath } from './path.js';
 import { toArray } from '../shared.js';
 import { nullableNumber, nullableString } from '../value.js';

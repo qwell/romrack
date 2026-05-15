@@ -9,6 +9,10 @@ import {
 } from '../metadata.js';
 import { sendServerError } from '../routes.js';
 import { findFirstReadableWiiURoot } from '../wiiu.js';
+import {
+    type TitleDownloadResponse,
+    type TitleResponse,
+} from '../../shared/api.js';
 import { getConfig } from '../../shared/config.js';
 import logger from '../../shared/logger.js';
 import { formatLogError } from '../../shared/shared.js';
@@ -22,13 +26,6 @@ type TitleIdQueryResult =
           ok: false;
           error: string;
       };
-
-type DownloadTitleResult = {
-    name: string | null;
-    titleVersion: number | null;
-    outputDir: string;
-    sizeBytes: number;
-};
 
 function getTitleIdQuery(req: Request): TitleIdQueryResult {
     const { titleId } = req.query;
@@ -69,7 +66,7 @@ export async function downloadTitle(
     titleId: string,
     onProgress?: (progress: TitleDownloadProgress) => void,
     signal?: AbortSignal
-): Promise<DownloadTitleResult> {
+): Promise<TitleDownloadResponse> {
     const romRoot = await findFirstReadableWiiURoot(getConfig().wiiuRoots);
 
     return generateTitleInstallFiles(titleId, romRoot, {
@@ -101,7 +98,7 @@ export function createTitleRouter(): Router {
                 return;
             }
 
-            res.json({
+            const response: TitleResponse = {
                 titleId: metadata.titleId,
                 name: metadata.name,
                 region: metadata.region,
@@ -124,7 +121,8 @@ export function createTitleRouter(): Router {
                     dlcMetadata.exists && dlcMetadata.titleVersion !== null
                         ? [dlcMetadata.titleVersion]
                         : [],
-            });
+            };
+            res.json(response);
         } catch (error) {
             logger.warn(
                 'server',
@@ -143,7 +141,9 @@ export function createTitleRouter(): Router {
         }
 
         try {
-            res.json(await downloadTitle(titleId));
+            const response: TitleDownloadResponse =
+                await downloadTitle(titleId);
+            res.json(response);
         } catch (error) {
             logger.warn(
                 'server',

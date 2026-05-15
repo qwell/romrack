@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFile, statfs } from 'node:fs/promises';
 import { promisify } from 'node:util';
 
-import type { Fat32Volume, OsOperations } from './types.js';
+import { type Fat32Volume, type OsOperations } from './types.js';
 
 const execFileAsync = promisify(execFile);
 

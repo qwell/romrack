@@ -1,4 +1,4 @@
-import type { TitleKinds } from './titles.js';
+import { type TitleKinds } from './titles.js';
 
 export type StorageCopyOperation = 'copy' | 'move';
 export type StorageCopyState = 'queued' | 'copying' | 'failed' | 'complete';
@@ -49,11 +49,6 @@ export type StorageTransferQueueInput = {
     titleId: string | null;
     requestedDestination: string | null;
     move: boolean;
-};
-
-export type StorageTransferQueueResult = {
-    status: number;
-    body: Record<string, unknown>;
 };
 
 export type StorageCopyQueueItem = StorageCopyItem & {

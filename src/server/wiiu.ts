@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import type { Dirent } from 'node:fs';
+import { type Dirent } from 'node:fs';
 import path from 'node:path';
 import { normalizeRegion } from '../shared/regions.js';
 import {
