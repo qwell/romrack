@@ -14,6 +14,7 @@ import {
     getDownloadDedupeKey,
     requestJson,
     formatDownloadProgress,
+    formatDownloadState,
     formatDownloadTitle,
 } from './download.js';
 import {
@@ -60,7 +61,8 @@ import {
     StorageCopyItem,
     StorageDeleteItem,
 } from '../shared/shared.js';
-import { type Fat32Volume } from '../shared/os.js';
+import { type Fat32Volume, type RuntimeOs } from '../shared/os.js';
+import { isWindowsPath } from '../shared/os/path.js';
 import { AppSocketCommand, AppSocketEvent } from '../shared/socket.js';
 import {
     type AppConfig,
@@ -91,7 +93,7 @@ type LibraryContentOptions = {
     onRefresh?: () => void | Promise<void>;
 };
 type Fat32ListResponse = {
-    runtimeOs: string;
+    runtimeOs: RuntimeOs;
     volumes: Fat32Volume[];
 };
 
@@ -404,6 +406,11 @@ function getSelectedDownloadedTitleIds(
         .filter((titleId) => titleId.length > 0);
 }
 
+function formatDeleteConfirmationEntry(entry: TitleEntry): string {
+    const copyText = entry.copyCount > 1 ? ` (${entry.copyCount} copies)` : '';
+    return `${entry.titleName} v${entry.version} [${formatTitleKindLabel(entry.kind)}] ${entry.titleId}${copyText}`;
+}
+
 function isAvailableEntryKind(
     kind: TitleKinds
 ): kind is AvailableTitleEntry['kind'] {
@@ -526,7 +533,21 @@ function markStorageDeletesComplete(items: StorageDeleteItem[]): void {
     }
 }
 
-function formatFat32VolumeOption(volume: Fat32Volume): string {
+function isWindowsOnlyFat32Volume(
+    volume: Fat32Volume,
+    runtimeOs: RuntimeOs
+): boolean {
+    return runtimeOs === 'wsl2' && isWindowsPath(volume.source);
+}
+
+function formatFat32VolumeOption(
+    volume: Fat32Volume,
+    runtimeOs: RuntimeOs
+): string {
+    if (isWindowsOnlyFat32Volume(volume, runtimeOs)) {
+        return `${volume.source} (Windows only)`;
+    }
+
     const label = volume.label ? `${volume.label} - ` : '';
     const size =
         volume.freeBytes === null
@@ -555,15 +576,34 @@ async function populateFat32DeviceSelect(
 
         select.replaceChildren();
         for (const volume of response.volumes) {
+            const isWindowsOnly = isWindowsOnlyFat32Volume(
+                volume,
+                response.runtimeOs
+            );
             const option = document.createElement('option');
-            option.value = volume.source;
-            option.textContent = formatFat32VolumeOption(volume);
+            option.value = isWindowsOnly ? '' : volume.source;
+            option.textContent = formatFat32VolumeOption(
+                volume,
+                response.runtimeOs
+            );
+            option.disabled = isWindowsOnly;
             select.append(option);
         }
 
         const hasVolumes = response.volumes.length > 0;
+        const hasUsableVolumes = response.volumes.some(
+            (volume) => !isWindowsOnlyFat32Volume(volume, response.runtimeOs)
+        );
         select.disabled = !hasVolumes;
-        button.disabled = !hasVolumes;
+        button.disabled = !hasUsableVolumes;
+
+        if (hasUsableVolumes && !select.value) {
+            select.value =
+                response.volumes.find(
+                    (volume) =>
+                        !isWindowsOnlyFat32Volume(volume, response.runtimeOs)
+                )?.source ?? '';
+        }
 
         if (!hasVolumes) {
             const option = document.createElement('option');
@@ -784,28 +824,16 @@ export function getAvailableSizeBytes(entry: unknown): number | null {
 }
 
 function getActionBarSignature(): string {
-    const visibleDownloads = downloadQueue.filter(
-        (item) => item.state !== 'complete'
-    );
-
-    const visibleCopies = storageCopies.filter(
-        (item) => item.state !== 'complete'
-    );
-
-    const visibleDeletes = storageDeletes.filter(
-        (item) => item.state !== 'complete'
-    );
-
     return JSON.stringify({
-        downloads: visibleDownloads.map((item) => ({
+        downloads: downloadQueue.map((item) => ({
             id: item.id,
             state: item.state,
         })),
-        copies: visibleCopies.map((item) => ({
+        copies: storageCopies.map((item) => ({
             id: item.id,
             state: item.state,
         })),
-        deletes: visibleDeletes.map((item) => ({
+        deletes: storageDeletes.map((item) => ({
             id: item.id,
             state: item.state,
         })),
@@ -817,9 +845,7 @@ function updateActionBarRowsInPlace(): void {
         return;
     }
 
-    for (const item of downloadQueue.filter(
-        (item) => item.state !== 'complete'
-    )) {
+    for (const item of downloadQueue) {
         const row = actionBarRoot.querySelector<HTMLElement>(
             `[data-download-item-id="${CSS.escape(item.id)}"]`
         );
@@ -857,14 +883,7 @@ function updateActionBarRowsInPlace(): void {
         }
 
         if (state) {
-            state.textContent =
-                item.state === 'downloading'
-                    ? 'Active'
-                    : item.state === 'queued'
-                      ? 'Queued'
-                      : item.state === 'failed'
-                        ? 'Failed'
-                        : 'Complete';
+            state.textContent = formatDownloadState(item);
         }
 
         if (title) {
@@ -881,9 +900,7 @@ function updateActionBarRowsInPlace(): void {
         }
     }
 
-    for (const item of storageCopies.filter(
-        (item) => item.state !== 'complete'
-    )) {
+    for (const item of storageCopies) {
         const row = actionBarRoot.querySelector<HTMLElement>(
             `[data-storage-copy-item-id="${CSS.escape(item.id)}"]`
         );
@@ -1005,20 +1022,10 @@ export function updateActionBar(): void {
         return;
     }
 
-    const visibleDownloads = downloadQueue.filter(
-        (item) => item.state !== 'complete'
-    );
-    const visibleCopies = storageCopies.filter(
-        (item) => item.state !== 'complete'
-    );
-    const visibleDeletes = storageDeletes.filter(
-        (item) => item.state !== 'complete'
-    );
-
     const isEmpty =
-        visibleDownloads.length === 0 &&
-        visibleCopies.length === 0 &&
-        visibleDeletes.length === 0;
+        downloadQueue.length === 0 &&
+        storageCopies.length === 0 &&
+        storageDeletes.length === 0;
     actionBarRoot.hidden = isEmpty;
 
     if (isEmpty) {
@@ -1070,36 +1077,29 @@ function rebuildActionBar(): void {
         return;
     }
 
-    const incompleteDownloads = downloadQueue.filter(
-        (item) => item.state !== 'complete'
-    );
-    const incompleteCopies = storageCopies.filter(
-        (item) => item.state !== 'complete'
-    );
-    const visibleDeletes = storageDeletes.filter(
-        (item) => item.state !== 'complete'
-    );
-
     const activeCount =
-        incompleteDownloads.filter((item) => item.state === 'downloading')
-            .length +
-        incompleteCopies.filter((item) => item.state === 'copying').length +
-        visibleDeletes.filter((item) => item.state === 'deleting').length;
+        downloadQueue.filter((item) => item.state === 'downloading').length +
+        storageCopies.filter((item) => item.state === 'copying').length +
+        storageDeletes.filter((item) => item.state === 'deleting').length;
     const queuedCount =
-        incompleteDownloads.filter((item) => item.state === 'queued').length +
-        incompleteCopies.filter((item) => item.state === 'queued').length +
-        visibleDeletes.filter((item) => item.state === 'queued').length;
+        downloadQueue.filter((item) => item.state === 'queued').length +
+        storageCopies.filter((item) => item.state === 'queued').length +
+        storageDeletes.filter((item) => item.state === 'queued').length;
     const failedCount =
-        incompleteDownloads.filter((item) => item.state === 'failed').length +
-        incompleteCopies.filter((item) => item.state === 'failed').length +
-        visibleDeletes.filter((item) => item.state === 'failed').length;
+        downloadQueue.filter((item) => item.state === 'failed').length +
+        storageCopies.filter((item) => item.state === 'failed').length +
+        storageDeletes.filter((item) => item.state === 'failed').length;
+    const finishedCount =
+        downloadQueue.filter((item) => item.state === 'complete').length +
+        storageCopies.filter((item) => item.state === 'complete').length +
+        storageDeletes.filter((item) => item.state === 'complete').length;
 
     actionBarRoot.replaceChildren();
 
     if (
-        incompleteDownloads.length === 0 &&
-        incompleteCopies.length === 0 &&
-        visibleDeletes.length === 0
+        downloadQueue.length === 0 &&
+        storageCopies.length === 0 &&
+        storageDeletes.length === 0
     ) {
         return;
     }
@@ -1108,14 +1108,12 @@ function rebuildActionBar(): void {
     summary.className = 'action-bar-summary';
 
     const counts = document.createElement('div');
-    counts.textContent = `Actions: ${activeCount} active, ${queuedCount} queued, ${failedCount} failed`;
+    counts.textContent = `Actions: ${activeCount} active, ${queuedCount} queued, ${failedCount} failed, ${finishedCount} finished`;
 
     const current = document.createElement('div');
     current.className = 'action-bar-current';
     const visibleActionCount =
-        incompleteDownloads.length +
-        incompleteCopies.length +
-        visibleDeletes.length;
+        downloadQueue.length + storageCopies.length + storageDeletes.length;
     current.textContent =
         visibleActionCount === 1
             ? 'One visible action'
@@ -1130,15 +1128,15 @@ function rebuildActionBar(): void {
     const details = document.createElement('div');
     details.className = 'action-bar-details';
 
-    for (const item of incompleteDownloads) {
+    for (const item of downloadQueue) {
         details.append(renderDownloadActionRow(item));
     }
 
-    for (const item of incompleteCopies) {
+    for (const item of storageCopies) {
         details.append(renderStorageCopyActionRow(item));
     }
 
-    for (const item of visibleDeletes) {
+    for (const item of storageDeletes) {
         details.append(renderStorageDeleteActionRow(item));
     }
 
@@ -1587,11 +1585,17 @@ function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
                     return;
                 }
 
-                const titleCount = titleIds.length;
+                const selectedTitleIds = new Set(titleIds);
+                const selectedEntries = localEntries.filter((entry) =>
+                    selectedTitleIds.has(entry.titleId)
+                );
+                const selectedText = selectedEntries
+                    .map(formatDeleteConfirmationEntry)
+                    .join('\n');
                 const confirmed = window.confirm(
-                    titleCount === 1
-                        ? 'Delete this local title?'
-                        : `Delete these ${titleCount} local titles?`
+                    selectedEntries.length === 1
+                        ? `Delete this local title?\n\n${selectedText}`
+                        : `Delete these ${selectedEntries.length} local titles?\n\n${selectedText}`
                 );
                 if (!confirmed) {
                     return;

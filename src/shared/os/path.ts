@@ -18,6 +18,10 @@ function getPathSeparator(value: string): '/' | '\\' {
     return /^[A-Z]:/i.test(value) || value.includes('\\') ? '\\' : '/';
 }
 
+export function isWindowsPath(value: string): boolean {
+    return /^[A-Z]:[\\/]/i.test(value) || /^\\\\/.test(value);
+}
+
 function appendStorageDestination(root: string, destination: string): string {
     const normalizedRoot = normalizePath(root) ?? root;
     const normalizedDestination = normalizePathGlyphs(destination).replace(

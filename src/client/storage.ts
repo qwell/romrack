@@ -76,7 +76,7 @@ export function formatStorageCopyState(item: StorageCopyItem): string {
         case 'failed':
             return 'Failed';
         case 'complete':
-            return 'Complete';
+            return item.operation === 'move' ? 'Moved' : 'Copied';
     }
 }
 
@@ -183,6 +183,14 @@ function renderStorageCopyControls(item: StorageCopyItem): HTMLDivElement {
         return detailsCell;
     }
 
+    if (item.state === 'complete') {
+        detailsCell.classList.add('action-bar-controls');
+        detailsCell.append(
+            createActionButton('Remove', 'storage.copy.remove', item.id)
+        );
+        return detailsCell;
+    }
+
     if (item.state === 'copying') {
         detailsCell.classList.add('action-bar-controls');
 
@@ -250,7 +258,7 @@ export function formatStorageDeleteState(item: StorageDeleteItem): string {
         case 'failed':
             return 'Failed';
         case 'complete':
-            return 'Complete';
+            return 'Deleted';
     }
 }
 

@@ -474,13 +474,6 @@ function removeStorageCopy(id: string): void {
     }
 }
 
-function removeStorageCopyLater(id: string): void {
-    setTimeout(() => {
-        removeStorageCopyFromState(id);
-        broadcastStorageCopies();
-    }, 5000);
-}
-
 function cancelStorageCopyProcess(id: string, item: StorageCopyItem): void {
     logger.log(
         'server',
@@ -1899,8 +1892,6 @@ async function processStorageCopyQueue(): Promise<void> {
             currentFileName: nextItem.currentFileName,
             error: nextItem.error,
         });
-
-        removeStorageCopyLater(nextItem.id);
     } catch (error) {
         if (
             cancelledStorageCopyIds.has(nextItem.id) ||
@@ -2089,10 +2080,12 @@ app.use(
 );
 
 app.get('/api/config', (_req, res) => {
-    res.json({
+    const response: AppConfigResponse = {
         config: getConfig(),
         restartRequired: false,
-    });
+    };
+    logger.log('server', `config loaded: ${JSON.stringify(response)}`);
+    res.json(response);
 });
 
 app.post('/api/config/validate-root', async (req, res) => {
@@ -2114,6 +2107,7 @@ app.post('/api/config', (req, res) => {
         const response: AppConfigResponse = saveConfig(
             req.body as AppConfigUpdate
         );
+        logger.log('server', `config saved: ${JSON.stringify(response)}`);
         res.json(response);
     } catch (error) {
         logServerError('Failed to save config:', error);

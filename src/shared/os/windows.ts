@@ -4,7 +4,7 @@ import { promisify } from 'node:util';
 import path from 'node:path';
 
 import type { Fat32Volume, OsOperations } from './types.js';
-import { normalizePath } from './path.js';
+import { isWindowsPath, normalizePath } from './path.js';
 import { toArray } from '../shared.js';
 import { nullableNumber, nullableString } from '../value.js';
 
@@ -28,9 +28,7 @@ export function normalizeWindowsPath(value: string): string {
     return path.win32.normalize(value.trim());
 }
 
-export function isWindowsPath(value: string): boolean {
-    return /^[A-Z]:[\\/]/i.test(value) || /^\\\\/.test(value);
-}
+export { isWindowsPath };
 
 function parseWindowsVolume(value: unknown): Fat32Volume | null {
     if (!value || typeof value !== 'object') {

@@ -998,7 +998,10 @@ footer > div:last-child {
 .action-bar-details {
     display: grid;
     grid-template-columns:
-        6ch 11ch 24px 8ch minmax(8ch, max-content) minmax(18ch, max-content)
+        6ch 11ch 24px minmax(8ch, max-content) minmax(8ch, max-content) minmax(
+            18ch,
+            max-content
+        )
         minmax(18ch, 1fr);
     column-gap: 8px;
     row-gap: 4px;

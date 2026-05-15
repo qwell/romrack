@@ -105,16 +105,16 @@ function formatDownloadSize(item: DownloadQueueItem): string {
         : (item.sizeText ?? '');
 }
 
-function formatDownloadState(item: DownloadQueueItem): string {
+export function formatDownloadState(item: DownloadQueueItem): string {
     switch (item.state) {
         case 'downloading':
-            return 'Active';
+            return 'Downloading';
         case 'queued':
             return 'Queued';
         case 'failed':
             return 'Failed';
         case 'complete':
-            return 'Complete';
+            return 'Downloaded';
     }
 }
 
@@ -229,6 +229,14 @@ function renderDownloadControls(item: DownloadQueueItem): HTMLDivElement {
     }
 
     if (item.state === 'queued') {
+        detailsCell.classList.add('action-bar-controls');
+        detailsCell.append(
+            createActionButton('Remove', 'download.remove', item.id)
+        );
+        return detailsCell;
+    }
+
+    if (item.state === 'complete') {
         detailsCell.classList.add('action-bar-controls');
         detailsCell.append(
             createActionButton('Remove', 'download.remove', item.id)
