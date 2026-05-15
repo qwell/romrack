@@ -1,66 +1,5 @@
+import { Request } from 'express';
 import { TitleKinds } from './titles.js';
-
-export type DownloadQueueState =
-    | 'queued'
-    | 'downloading'
-    | 'failed'
-    | 'complete';
-export type DownloadQueueItem = {
-    id: string;
-    family: string;
-    groupName: string;
-    kind: TitleKinds;
-    label: string;
-    titleId: string;
-    sizeText: string | null;
-    totalBytes: number | null;
-    state: DownloadQueueState;
-    error: string | null;
-
-    progress: number;
-    downloadedBytes: number | null;
-    speedText: string | null;
-    completedFiles: number | null;
-    totalFiles: number | null;
-    currentFileName: string | null;
-    installedSizeBytes: number | null;
-    installedVersion: number | null;
-    installedTitleName: string | null;
-    installedSourcePath: string | null;
-};
-
-export type StorageCopyOperation = 'copy' | 'move';
-export type StorageCopyState = 'queued' | 'copying' | 'failed' | 'complete';
-export type StorageCopyItem = {
-    id: string;
-    operation: StorageCopyOperation;
-    titleId: string | null;
-    sourceName: string;
-    titleKind: TitleKinds | null;
-    destinationName: string;
-    state: StorageCopyState;
-    progress: number | null;
-    message: string | null;
-    sourceSizeBytes: number | null;
-    completedFiles: number | null;
-    totalFiles: number | null;
-    currentSizeBytes: number | null;
-    currentFileName: string | null;
-    error: string | null;
-};
-
-export type StorageDeleteState = 'queued' | 'deleting' | 'failed' | 'complete';
-export type StorageDeleteItem = {
-    id: string;
-    titleId: string;
-    titleName: string | null;
-    titleKind: TitleKinds | null;
-    state: StorageDeleteState;
-    message: string | null;
-    deletedCount: number;
-    totalCount: number | null;
-    error: string | null;
-};
 
 export function toArray<T>(value: T | readonly T[] | null | undefined): T[] {
     if (value == null) {
@@ -70,6 +9,10 @@ export function toArray<T>(value: T | readonly T[] | null | undefined): T[] {
     return Array.isArray(value)
         ? Array.from(value as readonly T[])
         : [value as T];
+}
+
+export function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
 }
 
 export function formatSize(sizeBytes: number | null): string {
@@ -116,4 +59,40 @@ export async function mapConcurrent<T, U>(
 
     await Promise.all(workers);
     return results;
+}
+
+export function formatLogError(error: unknown): string {
+    if (!(error instanceof Error)) {
+        return String(error);
+    }
+
+    const cause = 'cause' in error ? error.cause : undefined;
+    if (cause === undefined) {
+        return error.message;
+    }
+
+    return `${error.message}; cause: ${formatLogError(cause)}`;
+}
+
+export function getStringQuery(req: Request, name: string): string | null {
+    const value = req.query[name];
+    if (typeof value !== 'string') {
+        return null;
+    }
+
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+}
+
+export function formatTitleDisplayName(
+    name: string | null,
+    titleId: string,
+    kind: TitleKinds | null
+): string {
+    const label = name ?? titleId;
+    return kind ? `${label} [${getTitleKindDisplayName(kind)}]` : label;
+}
+
+function getTitleKindDisplayName(kind: TitleKinds): string {
+    return kind === TitleKinds.Base ? 'Game' : kind;
 }

@@ -1,9 +1,6 @@
-import { DownloadQueueItem } from '../shared/download.js';
 import { StorageCopyItem, StorageDeleteItem } from '../shared/storage.js';
-import {
-    type AppSocketCommand,
-    type AppSocketEvent,
-} from '../shared/socket.js';
+import { DownloadQueueItem } from '../shared/download.js';
+import { type AppSocketEvent } from '../shared/socket.js';
 import { TitleGroup } from '../shared/titles.js';
 import { syncDownloadQueue } from './download.js';
 import {
@@ -11,16 +8,13 @@ import {
     markStorageDeletesComplete,
 } from './library-state.js';
 import { syncStorageCopies, syncStorageDeletes } from './storage.js';
-import { getSocketUrl } from './socket.js';
 
-export type LibraryStatusTone = 'info' | 'success' | 'error';
+export function getSocketUrl(): string {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${location.host}/api/socket`;
+}
 
-type AppSocketOptions = {
-    reconnectMs: number;
-    onAvailable: () => void;
-    onGone: () => void;
-    onEvent: (event: AppSocketEvent) => void;
-};
+export type LibraryStatusSeverity = 'info' | 'success' | 'error';
 
 type AppEventOptions = {
     downloads: DownloadQueueItem[];
@@ -31,80 +25,11 @@ type AppEventOptions = {
     onServerAvailable: () => void;
     onGroupChanged: (group: TitleGroup) => void;
     onValidationStateChanged: (validating: boolean) => void;
-    onLibraryStatusChanged: (message: string, tone: LibraryStatusTone) => void;
+    onLibraryStatusChanged: (
+        message: string,
+        severity: LibraryStatusSeverity
+    ) => void;
 };
-
-let appSocket: WebSocket | null = null;
-let reconnectSocketTimer: number | null = null;
-let appSocketOptions: AppSocketOptions | null = null;
-
-export function sendAppSocketCommand(command: AppSocketCommand): void {
-    if (!appSocket || appSocket.readyState !== WebSocket.OPEN) {
-        appSocketOptions?.onGone();
-        return;
-    }
-
-    appSocket.send(JSON.stringify(command));
-}
-
-function scheduleAppSocketReconnect(): void {
-    const options = appSocketOptions;
-
-    if (!options || reconnectSocketTimer !== null) {
-        return;
-    }
-
-    reconnectSocketTimer = window.setTimeout(() => {
-        reconnectSocketTimer = null;
-
-        if (
-            appSocket &&
-            (appSocket.readyState === WebSocket.OPEN ||
-                appSocket.readyState === WebSocket.CONNECTING)
-        ) {
-            return;
-        }
-
-        connectAppSocket(options);
-    }, options.reconnectMs);
-}
-
-export function connectAppSocket(options: AppSocketOptions): void {
-    appSocketOptions = options;
-
-    if (
-        appSocket &&
-        (appSocket.readyState === WebSocket.OPEN ||
-            appSocket.readyState === WebSocket.CONNECTING)
-    ) {
-        return;
-    }
-
-    appSocket = new WebSocket(getSocketUrl());
-
-    appSocket.addEventListener('open', () => {
-        options.onAvailable();
-    });
-
-    appSocket.addEventListener('message', (event: MessageEvent) => {
-        try {
-            const data = JSON.parse(String(event.data)) as AppSocketEvent;
-            options.onEvent(data);
-        } catch (error) {
-            console.error(error);
-        }
-    });
-
-    appSocket.addEventListener('close', () => {
-        options.onGone();
-        scheduleAppSocketReconnect();
-    });
-
-    appSocket.addEventListener('error', () => {
-        options.onGone();
-        scheduleAppSocketReconnect();
-    });
-}
 
 function formatValidationStatus(event: AppSocketEvent): string | null {
     if (event.type !== 'library.validationStatus') {
@@ -211,7 +136,7 @@ export function createAppEventHandler(
                     return;
                 }
 
-                const tone =
+                const severity =
                     event.status === 'complete' && event.failed === 0
                         ? 'success'
                         : event.status === 'failed' ||
@@ -219,7 +144,7 @@ export function createAppEventHandler(
                           ? 'error'
                           : 'info';
 
-                options.onLibraryStatusChanged(message, tone);
+                options.onLibraryStatusChanged(message, severity);
                 return;
             }
         }

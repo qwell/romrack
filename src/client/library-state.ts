@@ -9,7 +9,7 @@ import {
 import {
     type StorageCopyItem,
     type StorageDeleteItem,
-} from '../shared/shared.js';
+} from '../shared/storage.js';
 
 export type SlotBadgeState =
     | 'complete'
@@ -201,7 +201,11 @@ export function markStorageCopiesComplete(
     }
 
     for (const group of options.groups) {
-        removeCompletedStorageTitleIdsFromGroup(group, completedMoveTitleIds, options);
+        removeCompletedStorageTitleIdsFromGroup(
+            group,
+            completedMoveTitleIds,
+            options
+        );
     }
 }
 
@@ -220,6 +224,10 @@ export function markStorageDeletesComplete(
     }
 
     for (const group of options.groups) {
-        removeCompletedStorageTitleIdsFromGroup(group, completedTitleIds, options);
+        removeCompletedStorageTitleIdsFromGroup(
+            group,
+            completedTitleIds,
+            options
+        );
     }
 }

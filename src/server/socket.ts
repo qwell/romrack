@@ -1,8 +1,13 @@
 import { type Server } from 'node:http';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import { AppSocketCommand, AppSocketEvent } from '../shared/socket.js';
-import { DownloadQueueItem } from '../shared/shared.js';
+import { DownloadQueueItem } from '../shared/download.js';
 import logger from '../shared/logger.js';
+import {
+    handleStorageCopySocketCommand,
+    handleStorageDeleteSocketCommand,
+} from './routes/storage.js';
+import { handleDownloadSocketCommand } from './routes/download.js';
 
 type AppSocketOptions = {
     server: Server;
@@ -15,6 +20,8 @@ export type AppSocket = {
     server: WebSocketServer;
     broadcast: (event: AppSocketEvent) => void;
 };
+
+let activeAppSocket: AppSocket | null = null;
 
 export function createAppSocket({
     server,
@@ -43,18 +50,18 @@ export function createAppSocket({
 
             const commandType = getSocketCommandType(commandText);
 
-            logger.log('server', `socket command received: ${commandType}`);
+            logger.info('server', `socket command received: ${commandType}`);
 
             const command = parseSocketCommand(data);
             if (!command) {
-                logger.log(
+                logger.error(
                     'server',
                     `socket command rejected: ${commandType} payload=${commandText}`
                 );
                 return;
             }
 
-            logger.log(
+            logger.info(
                 'server',
                 `socket command dispatch: ${command.type} args=${formatSocketCommandArgs(command)}`
             );
@@ -67,14 +74,16 @@ export function createAppSocket({
         });
 
         socket.on('error', (error) => {
-            logger.warn('server', `WebSocket client error: ${error.message}`);
+            logger.error('server', `WebSocket client error: ${error.message}`);
         });
     });
 
-    return {
+    activeAppSocket = {
         server: socketServer,
         broadcast,
     };
+
+    return activeAppSocket;
 }
 
 function getSocketCommandType(commandText: string): string {
@@ -97,6 +106,32 @@ export function sendAppSocketEvent(
     }
 
     socket.send(JSON.stringify(event));
+}
+
+export function handleAppSocketCommand(command: AppSocketCommand): void {
+    switch (command.type) {
+        case 'download.queue':
+        case 'download.retry':
+        case 'download.clear':
+        case 'download.cancel':
+            handleDownloadSocketCommand(command);
+            return;
+
+        case 'storage.copy.retry':
+        case 'storage.copy.clear':
+        case 'storage.copy.cancel':
+            handleStorageCopySocketCommand(command);
+            return;
+
+        case 'storage.delete.retry':
+        case 'storage.delete.clear':
+            handleStorageDeleteSocketCommand(command);
+            return;
+    }
+}
+
+export function broadcastAppSocketEvent(event: AppSocketEvent): void {
+    activeAppSocket?.broadcast(event);
 }
 
 function socketDataToText(data: RawData): string {

@@ -1,4 +1,5 @@
-import { DownloadQueueItem, formatSize } from '../shared/shared.js';
+import { DownloadQueueItem } from '../shared/download.js';
+import { formatSize } from '../shared/shared.js';
 import { TitleGroup, TitleKinds } from '../shared/titles.js';
 import {
     createActionBarCell,

@@ -1,21 +1,11 @@
-import {
-    formatSize,
-    StorageCopyItem,
-    StorageDeleteItem,
-} from '../shared/shared.js';
+import { formatSize } from '../shared/shared.js';
+import { StorageCopyItem, StorageDeleteItem } from '../shared/storage.js';
 import {
     createActionBarCell,
     createActionButton,
     updateActionBar,
 } from './action-bar.js';
 import { sendAppSocketCommand } from './app-socket.js';
-
-export type StorageActionBarCommand =
-    | 'storage.copy.cancel'
-    | 'storage.copy.clear'
-    | 'storage.copy.retry'
-    | 'storage.delete.clear'
-    | 'storage.delete.retry';
 
 export function syncStorageCopies(
     copies: StorageCopyItem[],

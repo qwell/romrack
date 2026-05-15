@@ -612,13 +612,13 @@ export async function scanWiiUTitles(
             group.name = parentEntry.titleName;
             group.region = parentEntry.region;
             group.iconUrl = databaseEntry?.iconUrl
-                ? `/api/title-icon/${encodeURIComponent(group.family)}`
+                ? `/api/icon/${encodeURIComponent(group.family)}`
                 : parentEntry.iconUrl;
         } else if (databaseEntry) {
             group.name = databaseEntry.name;
             group.region = databaseEntry.region;
             group.iconUrl = databaseEntry.iconUrl
-                ? `/api/title-icon/${encodeURIComponent(group.family)}`
+                ? `/api/icon/${encodeURIComponent(group.family)}`
                 : null;
         } else {
             const firstLocalChild = group.entries.find((entry) =>

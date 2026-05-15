@@ -1,8 +1,6 @@
-import {
-    DownloadQueueItem,
-    StorageCopyItem,
-    StorageDeleteItem,
-} from './shared.js';
+import { DownloadQueueItem } from './download.js';
+
+import { StorageCopyItem, StorageDeleteItem } from './storage.js';
 
 export type AppConnectedEvent = {
     type: 'app.connected';

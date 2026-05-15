@@ -1,29 +1,10 @@
-import { type DownloadQueueItem } from '../shared/shared.js';
+import { type DownloadQueueItem } from '../shared/download.js';
 import {
-    cancelStorageCopy,
-    clearStorageCopy,
-    clearStorageDelete,
-    retryStorageCopy,
-    retryStorageDelete,
-} from './storage.js';
-import {
-    type StorageCopyItem,
     type StorageDeleteItem,
-} from '../shared/shared.js';
-import {
-    cancelDownload,
-    type DownloadActionBarCommand,
-    formatDownloadIcon,
-    formatDownloadProgress,
-    formatDownloadState,
-    formatDownloadTitle,
-    getDownloadDedupeKey,
-    clearDownload,
-    renderDownloadActionRow,
-    retryDownload,
-} from './download.js';
-import {
     type StorageActionBarCommand,
+    StorageCopyItem,
+} from '../shared/storage.js';
+import {
     formatStorageCopyDetails,
     formatStorageCopyFileCount,
     formatStorageCopyIcon,
@@ -38,7 +19,25 @@ import {
     formatStorageDeleteTitle,
     renderStorageCopyActionRow,
     renderStorageDeleteActionRow,
+    cancelStorageCopy,
+    clearStorageCopy,
+    clearStorageDelete,
+    retryStorageCopy,
+    retryStorageDelete,
 } from './storage.js';
+
+import {
+    cancelDownload,
+    type DownloadActionBarCommand,
+    formatDownloadIcon,
+    formatDownloadProgress,
+    formatDownloadState,
+    formatDownloadTitle,
+    getDownloadDedupeKey,
+    clearDownload,
+    renderDownloadActionRow,
+    retryDownload,
+} from './download.js';
 
 export type ActionBarCommand =
     | DownloadActionBarCommand
