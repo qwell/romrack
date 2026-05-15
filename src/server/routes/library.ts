@@ -10,7 +10,7 @@ import {
 import { getConfig } from '../../shared/config.js';
 import logger from '../../shared/logger.js';
 import { formatLogError } from '../../shared/shared.js';
-import { ValidationStatusEvent } from '../../shared/socket.js';
+import { type ValidationStatusEvent } from '../../shared/socket.js';
 import { setLibraryCacheGroups } from '../../shared/wiiu.js';
 
 let latestLibraryValidationStatus: ValidationStatusEvent | null = null;

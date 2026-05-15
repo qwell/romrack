@@ -1,4 +1,4 @@
-import { DownloadQueueItem } from '../shared/download.js';
+import { type DownloadQueueItem } from '../shared/download.js';
 import { formatSize } from '../shared/shared.js';
 import {
     PARENT_KINDS,

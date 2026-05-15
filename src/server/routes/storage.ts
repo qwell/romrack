@@ -45,6 +45,7 @@ import {
     type StorageTransferQueueInput,
 } from '../../shared/storage.js';
 import {
+    SOCKET_COMMAND,
     type StorageCopySocketCommand,
     type StorageDeleteSocketCommand,
 } from '../../shared/socket.js';
@@ -732,15 +733,15 @@ export function handleStorageCopySocketCommand(
     command: StorageCopySocketCommand
 ): void {
     switch (command.type) {
-        case 'storage.copy.cancel':
+        case SOCKET_COMMAND.storageCopyCancel:
             cancelStorageCopy(command.id);
             return;
 
-        case 'storage.copy.clear':
+        case SOCKET_COMMAND.storageCopyClear:
             clearStorageCopy(command.id);
             return;
 
-        case 'storage.copy.retry':
+        case SOCKET_COMMAND.storageCopyRetry:
             retryStorageCopy(command.id);
             return;
     }
@@ -794,11 +795,11 @@ export function handleStorageDeleteSocketCommand(
     command: StorageDeleteSocketCommand
 ): void {
     switch (command.type) {
-        case 'storage.delete.clear':
+        case SOCKET_COMMAND.storageDeleteClear:
             clearStorageDelete(command.id);
             return;
 
-        case 'storage.delete.retry':
+        case SOCKET_COMMAND.storageDeleteRetry:
             retryStorageDelete(command.id);
             return;
     }

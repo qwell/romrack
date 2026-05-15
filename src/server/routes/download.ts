@@ -1,7 +1,10 @@
-import { DownloadQueueItem } from '../../shared/download.js';
+import { type DownloadQueueItem } from '../../shared/download.js';
 import logger from '../../shared/logger.js';
 import { formatLogError } from '../../shared/shared.js';
-import { DownloadSocketCommand } from '../../shared/socket.js';
+import {
+    SOCKET_COMMAND,
+    type DownloadSocketCommand,
+} from '../../shared/socket.js';
 import { broadcastAppSocketEvent } from '../socket.js';
 import { downloadTitle } from './title.js';
 
@@ -186,7 +189,7 @@ export function handleDownloadSocketCommand(
     command: DownloadSocketCommand
 ): void {
     switch (command.type) {
-        case 'download.queue': {
+        case SOCKET_COMMAND.downloadQueue: {
             logger.log(
                 'server',
                 `download queue requested: ${command.items
@@ -255,7 +258,7 @@ export function handleDownloadSocketCommand(
             return;
         }
 
-        case 'download.retry': {
+        case SOCKET_COMMAND.downloadRetry: {
             const item = downloadQueue.find(
                 (candidate) => candidate.id === command.id
             );
@@ -287,7 +290,7 @@ export function handleDownloadSocketCommand(
             return;
         }
 
-        case 'download.clear': {
+        case SOCKET_COMMAND.downloadClear: {
             const item = downloadQueue.find(
                 (candidate) => candidate.id === command.id
             );
@@ -333,7 +336,7 @@ export function handleDownloadSocketCommand(
             return;
         }
 
-        case 'download.cancel': {
+        case SOCKET_COMMAND.downloadCancel: {
             const item = downloadQueue.find(
                 (candidate) => candidate.id === command.id
             );

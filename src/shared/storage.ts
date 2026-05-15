@@ -34,11 +34,23 @@ export type StorageDeleteItem = {
 };
 
 export type StorageActionBarCommand =
-    | 'storage.copy.cancel'
-    | 'storage.copy.clear'
-    | 'storage.copy.retry'
-    | 'storage.delete.clear'
-    | 'storage.delete.retry';
+    (typeof STORAGE_ACTION)[keyof typeof STORAGE_ACTION];
+
+export const STORAGE_ACTION = {
+    cancelCopy: 'storage.copy.cancel',
+    clearCopy: 'storage.copy.clear',
+    retryCopy: 'storage.copy.retry',
+    clearDelete: 'storage.delete.clear',
+    retryDelete: 'storage.delete.retry',
+} as const;
+
+export const STORAGE_ACTION_BAR_COMMAND_TYPES = [
+    STORAGE_ACTION.cancelCopy,
+    STORAGE_ACTION.clearCopy,
+    STORAGE_ACTION.retryCopy,
+    STORAGE_ACTION.clearDelete,
+    STORAGE_ACTION.retryDelete,
+] as const satisfies readonly StorageActionBarCommand[];
 
 export type StorageDeleteQueueItem = StorageDeleteItem & {
     sourcePaths: string[];
@@ -60,3 +72,11 @@ export type StorageCopyQueueItem = StorageCopyItem & {
     requestedTitleId: string | null;
     duplicateSourcePaths: string[];
 };
+
+export function isStorageActionBarCommand(
+    value: string | null
+): value is StorageActionBarCommand {
+    return STORAGE_ACTION_BAR_COMMAND_TYPES.includes(
+        value as StorageActionBarCommand
+    );
+}

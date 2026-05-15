@@ -74,6 +74,14 @@ export function formatLogError(error: unknown): string {
     return `${error.message}; cause: ${formatLogError(cause)}`;
 }
 
+export function nullableString(value: unknown): string | null {
+    return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+export function nullableNumber(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
 export function getStringQuery(req: Request, name: string): string | null {
     const value = req.query[name];
     if (typeof value !== 'string') {

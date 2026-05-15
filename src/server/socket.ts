@@ -1,7 +1,15 @@
 import { type Server } from 'node:http';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
-import { AppSocketCommand, AppSocketEvent } from '../shared/socket.js';
-import { DownloadQueueItem } from '../shared/download.js';
+import {
+    type AppSocketCommand,
+    type AppSocketEvent,
+    SOCKET_COMMAND,
+    isDownloadSocketCommand,
+    isIdSocketCommandType,
+    isStorageCopySocketCommand,
+    isStorageDeleteSocketCommand,
+} from '../shared/socket.js';
+import { type DownloadQueueItem } from '../shared/download.js';
 import logger from '../shared/logger.js';
 import {
     handleStorageCopySocketCommand,
@@ -109,24 +117,18 @@ export function sendAppSocketEvent(
 }
 
 export function handleAppSocketCommand(command: AppSocketCommand): void {
-    switch (command.type) {
-        case 'download.queue':
-        case 'download.retry':
-        case 'download.clear':
-        case 'download.cancel':
-            handleDownloadSocketCommand(command);
-            return;
+    if (isDownloadSocketCommand(command)) {
+        handleDownloadSocketCommand(command);
+        return;
+    }
 
-        case 'storage.copy.retry':
-        case 'storage.copy.clear':
-        case 'storage.copy.cancel':
-            handleStorageCopySocketCommand(command);
-            return;
+    if (isStorageCopySocketCommand(command)) {
+        handleStorageCopySocketCommand(command);
+        return;
+    }
 
-        case 'storage.delete.retry':
-        case 'storage.delete.clear':
-            handleStorageDeleteSocketCommand(command);
-            return;
+    if (isStorageDeleteSocketCommand(command)) {
+        handleStorageDeleteSocketCommand(command);
     }
 }
 
@@ -182,35 +184,25 @@ function parseSocketCommand(data: RawData): AppSocketCommand | null {
 
     const command = parsed as { type?: unknown };
 
-    switch (command.type) {
-        case 'download.queue': {
-            const items = (command as { items?: unknown }).items;
+    if (command.type === SOCKET_COMMAND.downloadQueue) {
+        const items = (command as { items?: unknown }).items;
 
-            if (!Array.isArray(items) || !items.every(isDownloadQueueItem)) {
-                return null;
-            }
-
-            return parsed as AppSocketCommand;
-        }
-
-        case 'download.retry':
-        case 'download.clear':
-        case 'download.cancel':
-        case 'storage.copy.clear':
-        case 'storage.copy.retry':
-        case 'storage.copy.cancel':
-        case 'storage.delete.clear':
-        case 'storage.delete.retry': {
-            const id = (command as { id?: unknown }).id;
-
-            if (typeof id !== 'string' || id.length === 0) {
-                return null;
-            }
-
-            return parsed as AppSocketCommand;
-        }
-
-        default:
+        if (!Array.isArray(items) || !items.every(isDownloadQueueItem)) {
             return null;
+        }
+
+        return parsed as AppSocketCommand;
     }
+
+    if (isIdSocketCommandType(command.type)) {
+        const id = (command as { id?: unknown }).id;
+
+        if (typeof id !== 'string' || id.length === 0) {
+            return null;
+        }
+
+        return parsed as AppSocketCommand;
+    }
+
+    return null;
 }

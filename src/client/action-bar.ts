@@ -1,8 +1,15 @@
-import { type DownloadQueueItem } from '../shared/download.js';
+import {
+    DOWNLOAD_ACTION,
+    DownloadActionBarCommand,
+    isDownloadActionBarCommand,
+    type DownloadQueueItem,
+} from '../shared/download.js';
 import {
     type StorageDeleteItem,
     type StorageActionBarCommand,
-    StorageCopyItem,
+    type StorageCopyItem,
+    STORAGE_ACTION,
+    isStorageActionBarCommand,
 } from '../shared/storage.js';
 import {
     formatStorageCopyDetails,
@@ -28,7 +35,6 @@ import {
 
 import {
     cancelDownload,
-    type DownloadActionBarCommand,
     formatDownloadIcon,
     formatDownloadProgress,
     formatDownloadState,
@@ -105,7 +111,7 @@ export function createActionBarCommandHandler(
 ): (action: ActionBarCommand, itemId: string) => void {
     return (action, itemId) => {
         switch (action) {
-            case 'download.cancel':
+            case DOWNLOAD_ACTION.cancel:
                 sendDownloadCommandForMatches(
                     itemId,
                     options.downloads,
@@ -113,7 +119,7 @@ export function createActionBarCommandHandler(
                 );
                 return;
 
-            case 'download.clear':
+            case DOWNLOAD_ACTION.clear:
                 sendDownloadCommandForMatches(
                     itemId,
                     options.downloads,
@@ -121,7 +127,7 @@ export function createActionBarCommandHandler(
                 );
                 return;
 
-            case 'download.retry':
+            case DOWNLOAD_ACTION.retry:
                 sendDownloadCommandForMatches(
                     itemId,
                     options.downloads,
@@ -129,23 +135,23 @@ export function createActionBarCommandHandler(
                 );
                 return;
 
-            case 'storage.copy.cancel':
+            case STORAGE_ACTION.cancelCopy:
                 cancelStorageCopy(itemId);
                 return;
 
-            case 'storage.copy.clear':
+            case STORAGE_ACTION.clearCopy:
                 clearStorageCopy(itemId);
                 return;
 
-            case 'storage.copy.retry':
+            case STORAGE_ACTION.retryCopy:
                 retryStorageCopy(itemId);
                 return;
 
-            case 'storage.delete.clear':
+            case STORAGE_ACTION.clearDelete:
                 clearStorageDelete(itemId);
                 return;
 
-            case 'storage.delete.retry':
+            case STORAGE_ACTION.retryDelete:
                 retryStorageDelete(itemId);
                 return;
         }
@@ -153,19 +159,9 @@ export function createActionBarCommandHandler(
 }
 
 function isActionBarCommand(value: string | null): value is ActionBarCommand {
-    switch (value) {
-        case 'download.cancel':
-        case 'download.clear':
-        case 'download.retry':
-        case 'storage.copy.cancel':
-        case 'storage.copy.clear':
-        case 'storage.copy.retry':
-        case 'storage.delete.clear':
-        case 'storage.delete.retry':
-            return true;
-        default:
-            return false;
-    }
+    return (
+        isDownloadActionBarCommand(value) || isStorageActionBarCommand(value)
+    );
 }
 
 function getActionBarSignature(options: ActionBarOptions): string {

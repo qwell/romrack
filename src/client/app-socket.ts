@@ -1,10 +1,13 @@
-import { DownloadQueueItem } from '../shared/download.js';
-import { StorageCopyItem, StorageDeleteItem } from '../shared/storage.js';
+import { type DownloadQueueItem } from '../shared/download.js';
+import {
+    type StorageCopyItem,
+    type StorageDeleteItem,
+} from '../shared/storage.js';
 import {
     type AppSocketCommand,
     type AppSocketEvent,
 } from '../shared/socket.js';
-import { TitleGroup } from '../shared/titles.js';
+import { type TitleGroup } from '../shared/titles.js';
 import { syncDownloadQueue } from './download.js';
 import {
     markStorageCopiesComplete,
@@ -36,11 +39,6 @@ type AppEventOptions = {
 let appSocket: WebSocket | null = null;
 let reconnectSocketTimer: number | null = null;
 let appSocketOptions: AppSocketOptions | null = null;
-
-function getSocketUrl(): string {
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${location.host}/api/socket`;
-}
 
 export function sendAppSocketCommand(command: AppSocketCommand): void {
     if (!appSocket || appSocket.readyState !== WebSocket.OPEN) {
@@ -229,4 +227,9 @@ export function createAppEventHandler(
     };
 
     return handle;
+}
+
+export function getSocketUrl(): string {
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${location.host}/api/socket`;
 }

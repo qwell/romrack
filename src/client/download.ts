@@ -1,6 +1,6 @@
-import { DownloadQueueItem } from '../shared/download.js';
+import { DOWNLOAD_ACTION, type DownloadQueueItem } from '../shared/download.js';
 import { formatSize } from '../shared/shared.js';
-import { TitleGroup, TitleKinds } from '../shared/titles.js';
+import { type TitleGroup, TitleKinds } from '../shared/titles.js';
 import {
     createActionBarCell,
     createActionButton,
@@ -15,11 +15,6 @@ import {
 } from './title-detail.js';
 import { syncGroupStatusFromSlots } from './library-state.js';
 import { sendAppSocketCommand } from './app-socket.js';
-
-export type DownloadActionBarCommand =
-    | 'download.cancel'
-    | 'download.clear'
-    | 'download.retry';
 
 export type DownloadQueueState =
     | 'queued'
@@ -212,8 +207,8 @@ function renderDownloadControls(item: DownloadQueueItem): HTMLDivElement {
         detailsCell.classList.add('action-bar-controls');
         detailsCell.title = item.error ?? '';
         detailsCell.append(
-            createActionButton('Retry', 'download.retry', item.id),
-            createActionButton('Clear', 'download.clear', item.id)
+            createActionButton('Retry', DOWNLOAD_ACTION.retry, item.id),
+            createActionButton('Clear', DOWNLOAD_ACTION.clear, item.id)
         );
         return detailsCell;
     }
@@ -221,7 +216,7 @@ function renderDownloadControls(item: DownloadQueueItem): HTMLDivElement {
     if (item.state === 'queued') {
         detailsCell.classList.add('action-bar-controls');
         detailsCell.append(
-            createActionButton('Clear', 'download.clear', item.id)
+            createActionButton('Clear', DOWNLOAD_ACTION.clear, item.id)
         );
         return detailsCell;
     }
@@ -229,7 +224,7 @@ function renderDownloadControls(item: DownloadQueueItem): HTMLDivElement {
     if (item.state === 'complete') {
         detailsCell.classList.add('action-bar-controls');
         detailsCell.append(
-            createActionButton('Clear', 'download.clear', item.id)
+            createActionButton('Clear', DOWNLOAD_ACTION.clear, item.id)
         );
         return detailsCell;
     }
@@ -246,7 +241,7 @@ function renderDownloadControls(item: DownloadQueueItem): HTMLDivElement {
 
         detailsCell.append(
             detailsTextElement,
-            createActionButton('Cancel', 'download.cancel', item.id)
+            createActionButton('Cancel', DOWNLOAD_ACTION.cancel, item.id)
         );
         return detailsCell;
     }
@@ -287,21 +282,21 @@ export function queueDownloads(
 
 export function retryDownload(itemId: string): void {
     sendAppSocketCommand({
-        type: 'download.retry',
+        type: DOWNLOAD_ACTION.retry,
         id: itemId,
     });
 }
 
 export function clearDownload(itemId: string): void {
     sendAppSocketCommand({
-        type: 'download.clear',
+        type: DOWNLOAD_ACTION.clear,
         id: itemId,
     });
 }
 
 export function cancelDownload(itemId: string): void {
     sendAppSocketCommand({
-        type: 'download.cancel',
+        type: DOWNLOAD_ACTION.cancel,
         id: itemId,
     });
 }

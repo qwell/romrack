@@ -1,5 +1,9 @@
 import { formatSize } from '../shared/shared.js';
-import { StorageCopyItem, StorageDeleteItem } from '../shared/storage.js';
+import {
+    type StorageCopyItem,
+    type StorageDeleteItem,
+    STORAGE_ACTION,
+} from '../shared/storage.js';
 import {
     createActionBarCell,
     createActionButton,
@@ -187,8 +191,8 @@ function renderStorageCopyControls(item: StorageCopyItem): HTMLDivElement {
         detailsCell.classList.add('action-bar-controls');
         detailsCell.title = item.error ?? '';
         detailsCell.append(
-            createActionButton('Retry', 'storage.copy.retry', item.id),
-            createActionButton('Clear', 'storage.copy.clear', item.id)
+            createActionButton('Retry', STORAGE_ACTION.retryCopy, item.id),
+            createActionButton('Clear', STORAGE_ACTION.clearCopy, item.id)
         );
         return detailsCell;
     }
@@ -196,7 +200,7 @@ function renderStorageCopyControls(item: StorageCopyItem): HTMLDivElement {
     if (item.state === 'queued') {
         detailsCell.classList.add('action-bar-controls');
         detailsCell.append(
-            createActionButton('Clear', 'storage.copy.clear', item.id)
+            createActionButton('Clear', STORAGE_ACTION.clearCopy, item.id)
         );
         return detailsCell;
     }
@@ -204,7 +208,7 @@ function renderStorageCopyControls(item: StorageCopyItem): HTMLDivElement {
     if (item.state === 'complete') {
         detailsCell.classList.add('action-bar-controls');
         detailsCell.append(
-            createActionButton('Clear', 'storage.copy.clear', item.id)
+            createActionButton('Clear', STORAGE_ACTION.clearCopy, item.id)
         );
         return detailsCell;
     }
@@ -221,7 +225,7 @@ function renderStorageCopyControls(item: StorageCopyItem): HTMLDivElement {
 
         detailsCell.append(
             detailsTextElement,
-            createActionButton('Cancel', 'storage.copy.cancel', item.id)
+            createActionButton('Cancel', STORAGE_ACTION.cancelCopy, item.id)
         );
         return detailsCell;
     }
@@ -232,21 +236,21 @@ function renderStorageCopyControls(item: StorageCopyItem): HTMLDivElement {
 
 export function retryStorageCopy(itemId: string): void {
     sendAppSocketCommand({
-        type: 'storage.copy.retry',
+        type: STORAGE_ACTION.retryCopy,
         id: itemId,
     });
 }
 
 export function clearStorageCopy(itemId: string): void {
     sendAppSocketCommand({
-        type: 'storage.copy.clear',
+        type: STORAGE_ACTION.clearCopy,
         id: itemId,
     });
 }
 
 export function cancelStorageCopy(itemId: string): void {
     sendAppSocketCommand({
-        type: 'storage.copy.cancel',
+        type: STORAGE_ACTION.cancelCopy,
         id: itemId,
     });
 }
@@ -356,8 +360,8 @@ function renderStorageDeleteControls(item: StorageDeleteItem): HTMLDivElement {
         detailsCell.classList.add('action-bar-controls');
         detailsCell.title = item.error ?? '';
         detailsCell.append(
-            createActionButton('Retry', 'storage.delete.retry', item.id),
-            createActionButton('Clear', 'storage.delete.clear', item.id)
+            createActionButton('Retry', STORAGE_ACTION.retryDelete, item.id),
+            createActionButton('Clear', STORAGE_ACTION.clearDelete, item.id)
         );
         return detailsCell;
     }
@@ -365,7 +369,7 @@ function renderStorageDeleteControls(item: StorageDeleteItem): HTMLDivElement {
     if (item.state === 'queued' || item.state === 'complete') {
         detailsCell.classList.add('action-bar-controls');
         detailsCell.append(
-            createActionButton('Clear', 'storage.delete.clear', item.id)
+            createActionButton('Clear', STORAGE_ACTION.clearDelete, item.id)
         );
         return detailsCell;
     }
@@ -382,14 +386,14 @@ function renderStorageDeleteControls(item: StorageDeleteItem): HTMLDivElement {
 
 export function retryStorageDelete(itemId: string): void {
     sendAppSocketCommand({
-        type: 'storage.delete.retry',
+        type: STORAGE_ACTION.retryDelete,
         id: itemId,
     });
 }
 
 export function clearStorageDelete(itemId: string): void {
     sendAppSocketCommand({
-        type: 'storage.delete.clear',
+        type: STORAGE_ACTION.clearDelete,
         id: itemId,
     });
 }
