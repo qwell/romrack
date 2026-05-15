@@ -159,7 +159,3 @@ export type TitleGroup = {
     expectedChildren: ChildKind[];
     status: TitleGroupStatus;
 };
-
-export type LibraryResponse = {
-    groups: TitleGroup[];
-};

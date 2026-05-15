@@ -3,16 +3,17 @@ import { TitleGroup, TitleKinds } from '../shared/titles.js';
 import {
     createActionBarCell,
     createActionButton,
+    updateActionBar,
+} from './action-bar.js';
+import { getAvailableSizeBytes, getAvailableSizeText } from './main.js';
+import {
     formatVersions,
-    getAvailableSizeBytes,
-    getAvailableSizeText,
     markSlotBadgeComplete,
     refreshOpenDetailSidebarForGroup,
-    sendAppSocketCommand,
-    updateActionBar,
-    updateGroupStatusFromSlots,
     updateRenderedTitleGroup,
-} from './main.js';
+} from './title-detail.js';
+import { syncGroupStatusFromSlots } from './library-state.js';
+import { sendAppSocketCommand } from './app-socket.js';
 
 export type DownloadActionBarCommand =
     | 'download.cancel'
@@ -31,18 +32,6 @@ export function getDownloadState(
     kind: TitleKinds
 ): DownloadQueueState | null {
     return getDownloadItem(queue, family, kind)?.state ?? null;
-}
-
-export async function requestJson<T>(
-    url: string,
-    init?: RequestInit
-): Promise<T> {
-    const response = await fetch(url, init);
-    if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
-    }
-
-    return (await response.json()) as T;
 }
 
 function getDownloadItem(
@@ -377,7 +366,7 @@ function markDownloadComplete(
 
         if (existingEntry) {
             if (installedVersion < existingEntry.version) {
-                updateGroupStatusFromSlots(group);
+                syncGroupStatusFromSlots(group);
                 updateRenderedTitleGroup(group);
                 refreshOpenDetailSidebarForGroup(group);
                 return;
@@ -393,7 +382,7 @@ function markDownloadComplete(
         (entry) => !(entry.kind === item.kind && entry.titleId === item.titleId)
     );
 
-    updateGroupStatusFromSlots(group);
+    syncGroupStatusFromSlots(group);
     updateRenderedTitleGroup(group);
     refreshOpenDetailSidebarForGroup(group);
 }

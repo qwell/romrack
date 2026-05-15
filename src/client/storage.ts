@@ -6,9 +6,9 @@ import {
 import {
     createActionBarCell,
     createActionButton,
-    sendAppSocketCommand,
     updateActionBar,
-} from './main.js';
+} from './action-bar.js';
+import { sendAppSocketCommand } from './app-socket.js';
 
 export type StorageActionBarCommand =
     | 'storage.copy.cancel'
