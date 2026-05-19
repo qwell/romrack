@@ -7,10 +7,8 @@ import {
     createActionButton,
     updateActionBar,
 } from './action-bar.js';
-import { getAvailableSizeBytes, getAvailableSizeText } from './main.js';
 import {
     formatTitleKind,
-    formatVersions,
     markSlotBadgeComplete,
     refreshOpenDetailSidebarForGroup,
     updateRenderedTitleGroup,
@@ -32,7 +30,7 @@ export function getDownloadState(
     return getDownloadItem(queue, family, kind)?.state ?? null;
 }
 
-function getDownloadItem(
+export function getDownloadItem(
     queue: DownloadQueueItem[],
     family: string,
     kind: TitleKinds,
@@ -383,85 +381,6 @@ function markDownloadComplete(
     syncGroupStatusFromSlots(group);
     updateRenderedTitleGroup(group);
     refreshOpenDetailSidebarForGroup(group);
-}
-
-export function renderDownloadAvailabilityRow(
-    queue: DownloadQueueItem[],
-    group: TitleGroup,
-    entry: TitleGroup['availableEntries'][number]
-): HTMLLabelElement | HTMLDivElement {
-    const versions = formatVersions(entry.versions);
-    const label = versions ? `${entry.kind} ${versions}` : entry.kind;
-    const sizeText = getAvailableSizeText(entry);
-    const existingQueueItem = getDownloadItem(
-        queue,
-        group.family,
-        entry.kind,
-        entry.titleId
-    );
-
-    if (existingQueueItem) {
-        const row = document.createElement('div');
-        row.className = `title-download-row title-download-row-${existingQueueItem.state}`;
-
-        const state = document.createElement('span');
-        state.className = 'title-download-state';
-        state.textContent = formatDownloadIcon(existingQueueItem.state);
-
-        const slot = document.createElement('span');
-        slot.className = 'title-download-slot';
-        slot.textContent = label;
-
-        const titleId = document.createElement('span');
-        titleId.className = 'title-download-id';
-        titleId.textContent = formatDownloadProgress(existingQueueItem);
-
-        const size = document.createElement('span');
-        size.className = 'title-download-size';
-        size.textContent = sizeText ?? '';
-
-        row.append(state, slot, titleId, size);
-        return row;
-    }
-
-    const row = document.createElement('label');
-    row.className = 'title-download-row';
-
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'title-download-checkbox';
-    checkbox.value = entry.titleId;
-    checkbox.dataset.family = group.family;
-    checkbox.dataset.groupName = group.name;
-    checkbox.dataset.kind = entry.kind;
-    checkbox.dataset.label = label;
-    checkbox.dataset.titleId = entry.titleId;
-    checkbox.dataset.sizeText = sizeText ?? '';
-
-    const sizeBytes = getAvailableSizeBytes(entry);
-    if (sizeBytes !== null) {
-        checkbox.dataset.totalBytes = String(sizeBytes);
-    }
-
-    checkbox.disabled = !entry.availableOnCdn;
-    if (!entry.availableOnCdn) {
-        row.classList.add('title-download-row-unavailable');
-    }
-
-    const slot = document.createElement('span');
-    slot.className = 'title-download-slot';
-    slot.textContent = label;
-
-    const titleId = document.createElement('span');
-    titleId.className = 'title-download-id';
-    titleId.textContent = entry.titleId;
-
-    const size = document.createElement('span');
-    size.className = 'title-download-size';
-    size.textContent = entry.availableOnCdn ? (sizeText ?? '') : 'Not on CDN';
-
-    row.append(checkbox, slot, titleId, size);
-    return row;
 }
 
 export function collectSelectedDownloads(

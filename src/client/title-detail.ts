@@ -23,9 +23,10 @@ import { queueStorageCopy, queueStorageDelete } from './api.js';
 import {
     collectSelectedDownloads,
     formatDownloadIcon,
+    formatDownloadProgress,
+    getDownloadItem,
     getDownloadState,
     queueDownloads,
-    renderDownloadAvailabilityRow,
 } from './download.js';
 import {
     getEntry,
@@ -34,6 +35,7 @@ import {
     type SlotBadgeState,
 } from './library.js';
 import { sendAppSocketCommand } from './app-socket.js';
+import { getAvailableSizeBytes, getAvailableSizeText } from './main.js';
 
 type TitleDetailOptions = {
     downloads: DownloadQueueItem[];
@@ -169,6 +171,85 @@ function hasUsableLocalEntry(
     });
 }
 
+export function renderDownloadAvailabilityRow(
+    queue: DownloadQueueItem[],
+    group: TitleGroup,
+    entry: TitleGroup['availableEntries'][number]
+): HTMLLabelElement | HTMLDivElement {
+    const versions = formatVersions(entry.versions);
+    const label = versions ? `${entry.kind} ${versions}` : entry.kind;
+    const sizeText = getAvailableSizeText(entry);
+    const existingQueueItem = getDownloadItem(
+        queue,
+        group.family,
+        entry.kind,
+        entry.titleId
+    );
+
+    if (existingQueueItem) {
+        const row = document.createElement('div');
+        row.className = `title-download-row title-download-row-${existingQueueItem.state}`;
+
+        const state = document.createElement('span');
+        state.className = 'title-download-state';
+        state.textContent = formatDownloadIcon(existingQueueItem.state);
+
+        const slot = document.createElement('span');
+        slot.className = 'title-download-slot';
+        slot.textContent = label;
+
+        const titleId = document.createElement('span');
+        titleId.className = 'title-download-id';
+        titleId.textContent = formatDownloadProgress(existingQueueItem);
+
+        const size = document.createElement('span');
+        size.className = 'title-download-size';
+        size.textContent = sizeText ?? '';
+
+        row.append(slot, titleId, size, state);
+        return row;
+    }
+
+    const row = document.createElement('label');
+    row.className = 'title-download-row';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'title-download-checkbox';
+    checkbox.value = entry.titleId;
+    checkbox.dataset.family = group.family;
+    checkbox.dataset.groupName = group.name;
+    checkbox.dataset.kind = entry.kind;
+    checkbox.dataset.label = label;
+    checkbox.dataset.titleId = entry.titleId;
+    checkbox.dataset.sizeText = sizeText ?? '';
+
+    const sizeBytes = getAvailableSizeBytes(entry);
+    if (sizeBytes !== null) {
+        checkbox.dataset.totalBytes = String(sizeBytes);
+    }
+
+    checkbox.disabled = !entry.availableOnCdn;
+    if (!entry.availableOnCdn) {
+        row.classList.add('title-download-row-unavailable');
+    }
+
+    const slot = document.createElement('span');
+    slot.className = 'title-download-slot';
+    slot.textContent = label;
+
+    const titleId = document.createElement('span');
+    titleId.className = 'title-download-id';
+    titleId.textContent = entry.titleId;
+
+    const size = document.createElement('span');
+    size.className = 'title-download-size';
+    size.textContent = entry.availableOnCdn ? (sizeText ?? '') : 'Not on CDN';
+
+    row.append(checkbox, slot, titleId, size);
+    return row;
+}
+
 function renderDetailRow(label: string, value: string | null): HTMLElement {
     const row = document.createElement('div');
     row.className = 'title-detail-row';
@@ -216,6 +297,43 @@ function formatTitleVerificationStatus(
     }
 }
 
+function getTitleVerificationFailedCount(
+    verification: TitleVerifySocketEvent | null
+): number {
+    return (
+        verification?.copies.reduce((sum, copy) => sum + copy.failedCount, 0) ??
+        0
+    );
+}
+
+function renderTitleVerificationStatus(
+    verification: TitleVerifySocketEvent | null
+): HTMLElement {
+    const verificationStatus = document.createElement('span');
+    verificationStatus.className = 'title-storage-verification-state';
+    verificationStatus.textContent =
+        formatTitleVerificationStatus(verification);
+
+    if (verification?.status === 'complete') {
+        const failedCount = getTitleVerificationFailedCount(verification);
+
+        verificationStatus.classList.toggle(
+            'title-storage-verification-state-failed',
+            failedCount > 0
+        );
+        verificationStatus.classList.toggle(
+            'title-storage-verification-state-ok',
+            failedCount === 0
+        );
+    } else if (verification?.status === 'failed') {
+        verificationStatus.classList.add(
+            'title-storage-verification-state-failed'
+        );
+    }
+
+    return verificationStatus;
+}
+
 function renderDownloadedCopyRow(entry: TitleEntry): HTMLElement {
     const row = document.createElement('label');
     row.className = 'title-download-row title-storage-copy-row';
@@ -241,29 +359,7 @@ function renderDownloadedCopyRow(entry: TitleEntry): HTMLElement {
         entry.copyCount > 1 ? `(${entry.copyCount} copies)` : '';
 
     const verification = options?.titleVerifications.get(entry.titleId) ?? null;
-    console.log(verification);
-    const verificationStatus = document.createElement('span');
-    verificationStatus.className = 'title-storage-verification-state';
-    verificationStatus.textContent =
-        formatTitleVerificationStatus(verification);
-    if (verification?.status === 'complete') {
-        const failedCount = verification.copies.reduce(
-            (sum, copy) => sum + (copy.status === 'failed' ? 1 : 0),
-            0
-        );
-        verificationStatus.classList.toggle(
-            'title-storage-verification-state-failed',
-            failedCount > 0
-        );
-        verificationStatus.classList.toggle(
-            'title-storage-verification-state-ok',
-            failedCount === 0
-        );
-    } else if (verification?.status === 'failed') {
-        verificationStatus.classList.add(
-            'title-storage-verification-state-failed'
-        );
-    }
+    const verificationStatus = renderTitleVerificationStatus(verification);
 
     const size = document.createElement('span');
     size.className = 'title-download-size';
@@ -687,8 +783,9 @@ function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
         }
 
         const actions = document.createElement('div');
-        actions.className = 'title-download-actions';
+        actions.className = 'title-download-actions title-available-actions';
 
+        const spacer = document.createElement('div');
         const downloadButton = document.createElement('button');
         downloadButton.type = 'button';
         const updateDownloadButton = (): void => {
@@ -721,10 +818,10 @@ function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
             body?.replaceChildren(renderGroupDetailContent(group));
         });
 
-        actions.append(downloadButton);
+        actions.append(spacer, downloadButton);
         const availableContent = document.createElement('div');
-        availableContent.className = 'title-download-content';
-
+        availableContent.className =
+            'title-download-content title-available-content';
         availableContent.append(availableList, actions);
 
         availability.append(renderDetailSection('Available'), availableContent);
@@ -804,6 +901,7 @@ function requestTitleVerification(group: TitleGroup): void {
         sendAppSocketCommand({
             type: TITLE_VERIFY_SOCKET_COMMAND.queue,
             titleId: entry.titleId,
+            name: entry.name,
         });
     }
 }

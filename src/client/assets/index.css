@@ -968,6 +968,18 @@ footer > div:last-child {
     margin: 0;
 }
 
+.title-available-actions {
+    display: grid;
+    grid-template-columns: minmax(8rem, 1fr) max-content;
+    justify-content: stretch;
+    align-items: center;
+    gap: 6px;
+}
+
+.title-available-content {
+    grid-template-columns: minmax(0, 1fr);
+}
+
 .title-storage-copy-actions {
     display: grid;
     grid-template-columns: minmax(8rem, 1fr) max-content max-content;

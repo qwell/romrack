@@ -7,6 +7,7 @@ import {
     scanWiiUTitleRoots,
     validateWiiUTitleRoots,
 } from '../wiiu.js';
+import { clearAllTitleVerificationResults } from './title.js';
 import {
     type LibraryResponse,
     type LibraryValidateResponse,
@@ -61,6 +62,14 @@ export function createLibraryRouter(): Router {
     const router = Router();
 
     router.get('/', async (req, res) => {
+        try {
+            clearAllTitleVerificationResults();
+        } catch (error) {
+            logger.warn(
+                'server',
+                `Failed to clear title verification cache: ${String(error)}`
+            );
+        }
         try {
             const groups = await scanWiiUTitleRoots(getConfig().wiiuRoots);
 

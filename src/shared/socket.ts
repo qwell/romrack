@@ -140,6 +140,7 @@ export type LibraryValidateSocketCommand =
 export type TitleVerifySocketCommand = {
     type: typeof TITLE_VERIFY_SOCKET_COMMAND.queue;
     titleId: string;
+    name: string;
 };
 
 export type SocketCommand =

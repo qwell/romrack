@@ -221,3 +221,7 @@ async function verifyTitleCopies(titleId: string): Promise<void> {
 export function clearTitleVerificationResult(titleId: string): void {
     titleVerificationResults.delete(titleId.toLowerCase());
 }
+
+export function clearAllTitleVerificationResults(): void {
+    titleVerificationResults.clear();
+}
