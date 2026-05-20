@@ -126,7 +126,6 @@ yarn generate:titles
 - `GET /api/title-update?titleId=...`: Check the update title ID and latest update version for a base title.
 - `GET /api/title-dlc?titleId=...`: Check the DLC title ID and latest DLC version for a base title.
 - `GET /api/title-all?titleId=...`: Fetch base metadata plus update and DLC availability.
-- `GET /api/title-download?titleId=...`: Download a base, update, or DLC title into the first readable `wiiuRoots` directory, generate install files, and verify content hashes.
 - `GET /api/storage/list-fat32`: List FAT32 storage destinations. On WSL, unmounted Windows-only drives are returned for display but must be mounted in WSL before use.
 - `GET /api/storage/copy?titleId=...&dest=...`: Queue a local title copy to a FAT32 destination.
 - `GET /api/storage/move?titleId=...&dest=...`: Queue a local title move to a FAT32 destination and remove the local source after a successful copy.

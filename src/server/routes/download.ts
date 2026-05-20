@@ -1,4 +1,6 @@
 import { type DownloadQueueItem } from '../../shared/download.js';
+import { type TitleDownloadResponse } from '../../shared/api.js';
+import { getConfig } from '../../shared/config.js';
 import logger from '../../shared/logger.js';
 import { formatLogError } from '../../shared/shared.js';
 import {
@@ -7,7 +9,12 @@ import {
     DownloadSocketCommand,
 } from '../../shared/socket.js';
 import { broadcastAppSocketEvent } from '../socket.js';
-import { clearTitleVerificationResult, downloadTitle } from './title.js';
+import {
+    generateTitleInstallFiles,
+    TitleDownloadProgress,
+} from '../metadata.js';
+import { clearTitleScanCache, findFirstReadableWiiURoot } from '../wiiu.js';
+import { clearTitleVerificationResult } from './title.js';
 
 let downloadQueue: DownloadQueueItem[] = [];
 
@@ -15,6 +22,23 @@ let activeDownloadItemId: string | null = null;
 const activeDownloadAbortControllers = new Map<string, AbortController>();
 
 const cancelledDownloadIds = new Set<string>();
+
+export async function downloadTitle(
+    titleId: string,
+    onProgress?: (progress: TitleDownloadProgress) => void,
+    signal?: AbortSignal
+): Promise<TitleDownloadResponse> {
+    const romRoot = await findFirstReadableWiiURoot(getConfig().wiiuRoots);
+
+    const response = await generateTitleInstallFiles(titleId, romRoot, {
+        onProgress,
+        signal,
+    });
+
+    clearTitleScanCache();
+
+    return response;
+}
 
 function broadcastDownloadQueue(): void {
     broadcastAppSocketEvent({
