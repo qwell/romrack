@@ -7,11 +7,8 @@ import { getAppRoot } from './paths.js';
 import { getConfig } from '../shared/config.js';
 import { createAppSocket, handleAppSocketCommand } from './socket.js';
 import logger from '../shared/logger.js';
-import {
-    createStorageRouter,
-    getStorageCopies,
-    getStorageDeletes,
-} from './routes/storage.js';
+import { createStorageRouter, getStorageCopies } from './routes/storage.js';
+import { createDeleteRouter, getDeletes } from './routes/delete.js';
 import { formatLogError } from '../shared/shared.js';
 import { createConfigRouter } from './routes/config.js';
 import { createIconRouter } from './routes/icon.js';
@@ -64,6 +61,7 @@ app.use('/api/config', createConfigRouter());
 app.use('/api/icon', createIconRouter());
 app.use('/api/library', createLibraryRouter());
 app.use('/api/storage', createStorageRouter());
+app.use('/api/delete', createDeleteRouter());
 app.use('/api/title', createTitleRouter());
 
 const server = createServer(app);
@@ -74,7 +72,7 @@ createAppSocket({
         type: APP_SOCKET_EVENT.connected,
         downloads: getDownloadQueue(),
         storageCopies: getStorageCopies(),
-        storageDeletes: getStorageDeletes(),
+        deletes: getDeletes(),
         libraryValidateStatus: getLatestLibraryValidateStatus(),
     }),
     onCommand: handleAppSocketCommand,

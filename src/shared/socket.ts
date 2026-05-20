@@ -1,6 +1,7 @@
 import { type DownloadQueueItem } from './download.js';
+import { type DeleteItem } from './delete.js';
 
-import { type StorageCopyItem, type StorageDeleteItem } from './storage.js';
+import { type StorageCopyItem } from './storage.js';
 
 export const SOCKET_COMMAND = {
     downloadQueue: 'download.queue',
@@ -10,8 +11,8 @@ export const SOCKET_COMMAND = {
     storageCopyRetry: 'storage.copy.retry',
     storageCopyClear: 'storage.copy.clear',
     storageCopyCancel: 'storage.copy.cancel',
-    storageDeleteRetry: 'storage.delete.retry',
-    storageDeleteClear: 'storage.delete.clear',
+    deleteRetry: 'delete.retry',
+    deleteClear: 'delete.clear',
     libraryValidateCancel: 'library.validate.cancel',
     libraryValidateClear: 'library.validate.clear',
     libraryValidateFailureClear: 'library.validate.failure.clear',
@@ -23,7 +24,7 @@ export const SOCKET_EVENT = {
     appConnected: 'app.connected',
     downloadQueueChanged: 'download.queueChanged',
     storageCopyChanged: 'storage.copyChanged',
-    storageDeleteChanged: 'storage.deleteChanged',
+    deleteChanged: 'delete.changed',
     libraryValidateStatus: 'library.validateStatus',
     titleVerifyChanged: 'title.verify.changed',
 } as const;
@@ -41,9 +42,9 @@ export const STORAGE_COPY_SOCKET_COMMAND = {
     cancel: SOCKET_COMMAND.storageCopyCancel,
 } as const;
 
-export const STORAGE_DELETE_SOCKET_COMMAND = {
-    retry: SOCKET_COMMAND.storageDeleteRetry,
-    clear: SOCKET_COMMAND.storageDeleteClear,
+export const DELETE_SOCKET_COMMAND = {
+    retry: SOCKET_COMMAND.deleteRetry,
+    clear: SOCKET_COMMAND.deleteClear,
 } as const;
 
 export const LIBRARY_VALIDATE_SOCKET_COMMAND = {
@@ -69,8 +70,8 @@ export const STORAGE_COPY_SOCKET_EVENT = {
     changed: SOCKET_EVENT.storageCopyChanged,
 } as const;
 
-export const STORAGE_DELETE_SOCKET_EVENT = {
-    changed: SOCKET_EVENT.storageDeleteChanged,
+export const DELETE_SOCKET_EVENT = {
+    changed: SOCKET_EVENT.deleteChanged,
 } as const;
 
 export const LIBRARY_VALIDATE_SOCKET_EVENT = {
@@ -113,13 +114,13 @@ export type StorageCopySocketCommand =
           id: string;
       };
 
-export type StorageDeleteSocketCommand =
+export type DeleteSocketCommand =
     | {
-          type: typeof STORAGE_DELETE_SOCKET_COMMAND.retry;
+          type: typeof DELETE_SOCKET_COMMAND.retry;
           id: string;
       }
     | {
-          type: typeof STORAGE_DELETE_SOCKET_COMMAND.clear;
+          type: typeof DELETE_SOCKET_COMMAND.clear;
           id: string;
       };
 
@@ -146,7 +147,7 @@ export type TitleVerifySocketCommand = {
 export type SocketCommand =
     | DownloadSocketCommand
     | StorageCopySocketCommand
-    | StorageDeleteSocketCommand
+    | DeleteSocketCommand
     | LibraryValidateSocketCommand
     | TitleVerifySocketCommand;
 
@@ -154,7 +155,7 @@ export type AppConnectedEvent = {
     type: typeof APP_SOCKET_EVENT.connected;
     downloads: DownloadQueueItem[];
     storageCopies: StorageCopyItem[];
-    storageDeletes: StorageDeleteItem[];
+    deletes: DeleteItem[];
     libraryValidateStatus?: LibraryValidateStatusEvent | null;
 };
 
@@ -168,9 +169,9 @@ export type StorageCopySocketEvent = {
     items: StorageCopyItem[];
 };
 
-export type StorageDeleteSocketEvent = {
-    type: typeof STORAGE_DELETE_SOCKET_EVENT.changed;
-    items: StorageDeleteItem[];
+export type DeleteSocketEvent = {
+    type: typeof DELETE_SOCKET_EVENT.changed;
+    items: DeleteItem[];
 };
 
 export type LibraryValidateStatus =
@@ -217,7 +218,7 @@ export type SocketEvent =
     | AppConnectedEvent
     | DownloadSocketEvent
     | StorageCopySocketEvent
-    | StorageDeleteSocketEvent
+    | DeleteSocketEvent
     | LibraryValidateStatusEvent
     | TitleVerifySocketEvent;
 

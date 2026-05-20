@@ -6,12 +6,15 @@ import {
     DOWNLOAD_SOCKET_COMMAND,
     LIBRARY_VALIDATE_SOCKET_COMMAND,
     STORAGE_COPY_SOCKET_COMMAND,
-    STORAGE_DELETE_SOCKET_COMMAND,
+    DELETE_SOCKET_COMMAND,
     type LibraryValidateStatusEvent,
 } from '../shared/socket.js';
 import { type TitleKinds } from '../shared/titles.js';
 import {
-    type StorageDeleteItem,
+    type DeleteActionBarCommand,
+    type DeleteItem,
+} from '../shared/delete.js';
+import {
     type StorageActionBarCommand,
     type StorageCopyItem,
 } from '../shared/storage.js';
@@ -23,19 +26,21 @@ import {
     formatStorageCopySize,
     formatStorageCopyState,
     formatStorageCopyTitle,
-    formatStorageDeleteDetails,
-    formatStorageDeleteIcon,
-    formatStorageDeleteProgress,
-    formatStorageDeleteState,
-    formatStorageDeleteTitle,
     renderStorageCopyActionRow,
-    renderStorageDeleteActionRow,
     cancelStorageCopy,
     clearStorageCopy,
-    clearStorageDelete,
     retryStorageCopy,
-    retryStorageDelete,
 } from './storage.js';
+import {
+    clearDelete,
+    formatDeleteDetails,
+    formatDeleteIcon,
+    formatDeleteProgress,
+    formatDeleteState,
+    formatDeleteTitle,
+    renderDeleteActionRow,
+    retryDelete,
+} from './delete.js';
 
 import {
     cancelDownload,
@@ -61,8 +66,8 @@ export const ACTION_BAR_COMMAND = {
     storageCopyRetry: STORAGE_COPY_SOCKET_COMMAND.retry,
     storageCopyCancel: STORAGE_COPY_SOCKET_COMMAND.cancel,
     storageCopyClear: STORAGE_COPY_SOCKET_COMMAND.clear,
-    storageDeleteRetry: STORAGE_DELETE_SOCKET_COMMAND.retry,
-    storageDeleteClear: STORAGE_DELETE_SOCKET_COMMAND.clear,
+    deleteRetry: DELETE_SOCKET_COMMAND.retry,
+    deleteClear: DELETE_SOCKET_COMMAND.clear,
     libraryValidateCancel: LIBRARY_VALIDATE_SOCKET_COMMAND.cancel,
     libraryValidateClear: LIBRARY_VALIDATE_SOCKET_COMMAND.clear,
     libraryValidateFailureClear: LIBRARY_VALIDATE_SOCKET_COMMAND.failureClear,
@@ -73,12 +78,13 @@ export const ACTION_BAR_COMMAND = {
 export type ActionBarCommand =
     | DownloadActionBarCommand
     | StorageActionBarCommand
+    | DeleteActionBarCommand
     | LibraryActionBarCommand;
 
 type ActionBarOptions = {
     downloads: DownloadQueueItem[];
     storageCopies: StorageCopyItem[];
-    storageDeletes: StorageDeleteItem[];
+    deletes: DeleteItem[];
     libraryValidate: LibraryValidateStatusEvent | null;
     libraryValidateFailures: LibraryValidateStatusEvent[];
     onCommand: (action: ActionBarCommand, itemId: string) => void;
@@ -117,7 +123,7 @@ function isClearableActionBarItem(options: ActionBarOptions): boolean {
     return (
         options.downloads.some((item) => item.state !== 'downloading') ||
         options.storageCopies.some((item) => item.state !== 'copying') ||
-        options.storageDeletes.some((item) => item.state !== 'deleting') ||
+        options.deletes.some((item) => item.state !== 'deleting') ||
         options.libraryValidateFailures.length > 0 ||
         (options.libraryValidate !== null &&
             getLibraryValidateActionState(options.libraryValidate) !==
@@ -138,9 +144,9 @@ function clearAllActionBarItems(options: ActionBarOptions): void {
         }
     }
 
-    for (const item of options.storageDeletes) {
+    for (const item of options.deletes) {
         if (item.state !== 'deleting') {
-            options.onCommand(STORAGE_DELETE_SOCKET_COMMAND.clear, item.id);
+            options.onCommand(DELETE_SOCKET_COMMAND.clear, item.id);
         }
     }
 
@@ -241,12 +247,12 @@ export function createActionBarCommandHandler(
                 retryStorageCopy(itemId);
                 return;
 
-            case STORAGE_DELETE_SOCKET_COMMAND.clear:
-                clearStorageDelete(itemId);
+            case DELETE_SOCKET_COMMAND.clear:
+                clearDelete(itemId);
                 return;
 
-            case STORAGE_DELETE_SOCKET_COMMAND.retry:
-                retryStorageDelete(itemId);
+            case DELETE_SOCKET_COMMAND.retry:
+                retryDelete(itemId);
                 return;
 
             case LIBRARY_VALIDATE_SOCKET_COMMAND.cancel:
@@ -280,7 +286,7 @@ function getActionBarSignature(options: ActionBarOptions): string {
             id: item.id,
             state: item.state,
         })),
-        deletes: options.storageDeletes.map((item) => ({
+        deletes: options.deletes.map((item) => ({
             id: item.id,
             state: item.state,
         })),
@@ -525,9 +531,9 @@ function updateActionBarRowsInPlace(options: ActionBarOptions): void {
         }
     }
 
-    for (const item of options.storageDeletes) {
+    for (const item of options.deletes) {
         const row = actionBarRoot.querySelector<HTMLElement>(
-            `[data-storage-delete-item-id="${CSS.escape(item.id)}"]`
+            `[data-delete-item-id="${CSS.escape(item.id)}"]`
         );
 
         if (!row) {
@@ -539,40 +545,32 @@ function updateActionBarRowsInPlace(options: ActionBarOptions): void {
         row.dataset.state = item.state;
 
         const progress = row.querySelector<HTMLElement>(
-            '[data-storage-delete-progress]'
+            '[data-delete-progress]'
         );
-        const icon = row.querySelector<HTMLElement>(
-            '[data-storage-delete-icon]'
-        );
-        const state = row.querySelector<HTMLElement>(
-            '[data-storage-delete-state]'
-        );
-        const title = row.querySelector<HTMLElement>(
-            '[data-storage-delete-title]'
-        );
-        const detail = row.querySelector<HTMLElement>(
-            '[data-storage-delete-detail]'
-        );
+        const icon = row.querySelector<HTMLElement>('[data-delete-icon]');
+        const state = row.querySelector<HTMLElement>('[data-delete-state]');
+        const title = row.querySelector<HTMLElement>('[data-delete-title]');
+        const detail = row.querySelector<HTMLElement>('[data-delete-detail]');
 
         if (progress) {
-            progress.textContent = formatStorageDeleteProgress(item);
+            progress.textContent = formatDeleteProgress(item);
         }
 
         if (icon) {
-            icon.textContent = formatStorageDeleteIcon(item);
+            icon.textContent = formatDeleteIcon(item);
         }
 
         if (state) {
-            state.textContent = formatStorageDeleteState(item);
+            state.textContent = formatDeleteState(item);
         }
 
         if (title) {
-            title.textContent = formatStorageDeleteTitle(item);
-            title.title = formatStorageDeleteTitle(item);
+            title.textContent = formatDeleteTitle(item);
+            title.title = formatDeleteTitle(item);
         }
 
         if (detail) {
-            const detailText = formatStorageDeleteDetails(item);
+            const detailText = formatDeleteDetails(item);
             detail.textContent = detailText;
             detail.title = detailText;
         }
@@ -919,7 +917,7 @@ export function updateActionBar(): void {
     const isEmpty =
         actionBarOptions.downloads.length === 0 &&
         actionBarOptions.storageCopies.length === 0 &&
-        actionBarOptions.storageDeletes.length === 0 &&
+        actionBarOptions.deletes.length === 0 &&
         actionBarOptions.libraryValidate === null &&
         actionBarOptions.libraryValidateFailures.length === 0;
     actionBarRoot.hidden = isEmpty;
@@ -981,26 +979,23 @@ function rebuildActionBar(options: ActionBarOptions): void {
             .length +
         options.storageCopies.filter((item) => item.state === 'copying')
             .length +
-        options.storageDeletes.filter((item) => item.state === 'deleting')
-            .length +
+        options.deletes.filter((item) => item.state === 'deleting').length +
         (validateState === 'validating' ? 1 : 0);
     const queuedCount =
         options.downloads.filter((item) => item.state === 'queued').length +
         options.storageCopies.filter((item) => item.state === 'queued').length +
-        options.storageDeletes.filter((item) => item.state === 'queued').length;
+        options.deletes.filter((item) => item.state === 'queued').length;
     const failedCount =
         options.downloads.filter((item) => item.state === 'failed').length +
         options.storageCopies.filter((item) => item.state === 'failed').length +
-        options.storageDeletes.filter((item) => item.state === 'failed')
-            .length +
+        options.deletes.filter((item) => item.state === 'failed').length +
         options.libraryValidateFailures.length +
         (validateState === 'failed' ? 1 : 0);
     const finishedCount =
         options.downloads.filter((item) => item.state === 'complete').length +
         options.storageCopies.filter((item) => item.state === 'complete')
             .length +
-        options.storageDeletes.filter((item) => item.state === 'complete')
-            .length +
+        options.deletes.filter((item) => item.state === 'complete').length +
         (validateState === 'complete' ? 1 : 0);
 
     actionBarRoot.replaceChildren();
@@ -1008,7 +1003,7 @@ function rebuildActionBar(options: ActionBarOptions): void {
     if (
         options.downloads.length === 0 &&
         options.storageCopies.length === 0 &&
-        options.storageDeletes.length === 0 &&
+        options.deletes.length === 0 &&
         options.libraryValidate === null &&
         options.libraryValidateFailures.length === 0
     ) {
@@ -1046,8 +1041,8 @@ function rebuildActionBar(options: ActionBarOptions): void {
         details.append(renderStorageCopyActionRow(item));
     }
 
-    for (const item of options.storageDeletes) {
-        details.append(renderStorageDeleteActionRow(item));
+    for (const item of options.deletes) {
+        details.append(renderDeleteActionRow(item));
     }
 
     if (options.libraryValidate) {

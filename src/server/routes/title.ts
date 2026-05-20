@@ -12,6 +12,7 @@ import { sendServerError } from '../routes.js';
 import { broadcastAppSocketEvent } from '../socket.js';
 import { requireTitleIdQuery } from '../request.js';
 import {
+    clearTitleScanCache,
     classifyTitleId,
     findFirstReadableWiiURoot,
     findWiiUTitleSourcePaths,
@@ -42,10 +43,14 @@ export async function downloadTitle(
 ): Promise<TitleDownloadResponse> {
     const romRoot = await findFirstReadableWiiURoot(getConfig().wiiuRoots);
 
-    return generateTitleInstallFiles(titleId, romRoot, {
+    const response = await generateTitleInstallFiles(titleId, romRoot, {
         onProgress,
         signal,
     });
+
+    clearTitleScanCache();
+
+    return response;
 }
 
 export function createTitleRouter(): Router {

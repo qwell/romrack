@@ -7,15 +7,13 @@ import {
     DOWNLOAD_SOCKET_COMMAND,
     LIBRARY_VALIDATE_SOCKET_COMMAND,
     STORAGE_COPY_SOCKET_COMMAND,
-    STORAGE_DELETE_SOCKET_COMMAND,
+    DELETE_SOCKET_COMMAND,
     TITLE_VERIFY_SOCKET_COMMAND,
 } from '../shared/socket.js';
 import { type DownloadQueueItem } from '../shared/download.js';
 import logger from '../shared/logger.js';
-import {
-    handleStorageCopySocketCommand,
-    handleStorageDeleteSocketCommand,
-} from './routes/storage.js';
+import { handleStorageCopySocketCommand } from './routes/storage.js';
+import { handleDeleteSocketCommand } from './routes/delete.js';
 import { handleDownloadSocketCommand } from './routes/download.js';
 import { handleLibraryValidateSocketCommand } from './routes/library.js';
 import { handleTitleVerifySocketCommand } from './routes/title.js';
@@ -126,8 +124,8 @@ export function handleAppSocketCommand(command: SocketCommand): void {
     } else if (isSocketCommand(command, STORAGE_COPY_SOCKET_COMMAND)) {
         handleStorageCopySocketCommand(command);
         return;
-    } else if (isSocketCommand(command, STORAGE_DELETE_SOCKET_COMMAND)) {
-        handleStorageDeleteSocketCommand(command);
+    } else if (isSocketCommand(command, DELETE_SOCKET_COMMAND)) {
+        handleDeleteSocketCommand(command);
         return;
     } else if (isSocketCommand(command, LIBRARY_VALIDATE_SOCKET_COMMAND)) {
         handleLibraryValidateSocketCommand(command);
@@ -155,6 +153,11 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
 
     const command = parsed as SocketCommand;
 
+    const hasId = (): boolean => {
+        const id = (command as { id?: unknown }).id;
+        return typeof id === 'string' && id.length > 0;
+    };
+
     if (isSocketCommand(command, DOWNLOAD_SOCKET_COMMAND.queue)) {
         const items = (command as { items?: unknown }).items;
 
@@ -164,9 +167,16 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
 
         return command;
     } else if (isSocketCommand(command, DOWNLOAD_SOCKET_COMMAND)) {
-        const id = (command as { id?: unknown }).id;
+        if (!hasId()) {
+            return null;
+        }
 
-        if (typeof id !== 'string' || id.length === 0) {
+        return command;
+    } else if (
+        isSocketCommand(command, STORAGE_COPY_SOCKET_COMMAND) ||
+        isSocketCommand(command, DELETE_SOCKET_COMMAND)
+    ) {
+        if (!hasId()) {
             return null;
         }
 

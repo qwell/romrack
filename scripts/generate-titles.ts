@@ -10,7 +10,6 @@ import { normalizeRegion } from '../src/shared/regions.js';
 import {
     normalizeTitleName,
     RawTitleDatabaseEntry,
-    TitleBase,
 } from '../src/shared/titles.js';
 import { toArray } from '../src/shared/shared.js';
 import { requestJson } from '../src/shared/api.js';
@@ -20,8 +19,11 @@ type Icon = {
     iconUrl: string;
 };
 
-type TitleAllResponse = TitleBase & {
+type TitleAllResponse = {
     titleId?: string;
+    name?: string;
+    region?: string | null;
+    iconUrl?: string | null;
     productCode?: string | null;
     companyCode?: string | null;
     baseVersions?: number[];
@@ -289,13 +291,13 @@ async function processTitle(
         companyCode: metadata.companyCode ?? null,
         iconUrl: null,
         baseVersions: metadata.baseVersions ?? [],
-        updateVersions: metadata.updates ?? [],
-        dlcVersions: metadata.dlc ?? [],
+        updates: metadata.updates ?? [],
+        dlc: metadata.dlc ?? [],
         availableOnCdn: metadata.availableOnCdn ?? false,
     };
 
     console.log(
-        `[${index + 1}] HIT  ${titleId} base=${versionsText(title.baseVersions)} update=${versionsText(title.updateVersions)} dlc=${versionsText(title.dlcVersions)}`
+        `[${index + 1}] HIT  ${titleId} base=${versionsText(title.baseVersions)} update=${versionsText(title.updates)} dlc=${versionsText(title.dlc)}`
     );
 
     return title;
@@ -343,12 +345,12 @@ async function processExtraTitle(
 
     const updatedTitle: RawTitleDatabaseEntry = {
         ...title,
-        updateVersions: updateVersion === null ? [] : [updateVersion],
-        dlcVersions: dlcVersion === null ? [] : [dlcVersion],
+        updates: updateVersion === null ? [] : [updateVersion],
+        dlc: dlcVersion === null ? [] : [dlcVersion],
     };
 
     console.log(
-        `[${index + 1}] EXTRA ${title.titleId} base=${versionsText(updatedTitle.baseVersions)} update=${versionsText(updatedTitle.updateVersions)} dlc=${versionsText(updatedTitle.dlcVersions)}`
+        `[${index + 1}] EXTRA ${title.titleId} base=${versionsText(updatedTitle.baseVersions)} update=${versionsText(updatedTitle.updates)} dlc=${versionsText(updatedTitle.dlc)}`
     );
 
     return updatedTitle;
@@ -385,8 +387,8 @@ async function loadExtraTitles(
                         : (row['Company Code'] ?? null),
                 iconUrl: null,
                 baseVersions: parseVersions(row.Versions),
-                updateVersions: [],
-                dlcVersions: [],
+                updates: [],
+                dlc: [],
                 availableOnCdn:
                     (row['Available on CDN?'] ?? '').toLowerCase() === 'yes'
                         ? true

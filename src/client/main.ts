@@ -6,10 +6,8 @@ import {
     type LibraryValidateStatusEvent,
     LIBRARY_VALIDATE_SOCKET_EVENT,
 } from '../shared/socket.js';
-import {
-    type StorageCopyItem,
-    type StorageDeleteItem,
-} from '../shared/storage.js';
+import { type DeleteItem } from '../shared/delete.js';
+import { type StorageCopyItem } from '../shared/storage.js';
 import {
     createActionBarCommandHandler,
     mountActionBar,
@@ -25,7 +23,11 @@ import { type DownloadQueueItem } from '../shared/download.js';
 import { formatSize } from '../shared/shared.js';
 import { type Fat32Volume, type RuntimeOs } from '../shared/os.js';
 import { isWindowsPath } from '../shared/os/path.js';
-import { syncGroupStatusFromSlots } from './library.js';
+import {
+    addAvailableEntry,
+    createAvailableEntry,
+    syncGroupStatusFromSlots,
+} from './library.js';
 import {
     closeSettingsSidebar,
     isSettingsOpen,
@@ -42,6 +44,7 @@ import {
     resetDetailSidebars,
     toggleDetailSidebar,
     refreshOpenDetailSidebarForGroup,
+    requestTitleVerification,
     updateRenderedTitleGroup,
     mergeFailedValidationsIntoAvailable,
     isVerificationFailed,
@@ -80,7 +83,7 @@ let activeLibraryRequestId = 0;
 let allLibraryGroups: TitleGroup[] = [];
 const downloadQueue: DownloadQueueItem[] = [];
 const storageCopies: StorageCopyItem[] = [];
-const storageDeletes: StorageDeleteItem[] = [];
+const deletes: DeleteItem[] = [];
 const libraryValidateFailures: LibraryValidateStatusEvent[] = [];
 const titleVerify = new Map<string, TitleVerifySocketEvent>();
 
@@ -1012,7 +1015,7 @@ window.addEventListener('pageshow', resetDetailSidebars);
 mountActionBar({
     downloads: downloadQueue,
     storageCopies,
-    storageDeletes,
+    deletes: deletes,
     libraryValidate,
     libraryValidateFailures,
     onCommand: createActionBarCommandHandler({
@@ -1027,7 +1030,7 @@ connectAppSocket({
     onEvent: createAppEventHandler({
         downloads: downloadQueue,
         storageCopies,
-        storageDeletes,
+        deletes: deletes,
         haystacks: groupSearchHaystacks,
         getGroups: () => currentGroups,
         onServerAvailable: hideServerGoneModal,
@@ -1039,6 +1042,13 @@ connectAppSocket({
         onLibraryValidateChanged(event) {
             libraryValidate = event;
             setLibraryValidateAction(libraryValidate);
+        },
+        onDownloadComplete(item) {
+            titleVerify.delete(item.titleId);
+            requestTitleVerification(
+                item.titleId,
+                item.installedTitleName ?? item.groupName
+            );
         },
         onTitleVerificationChanged(event) {
             titleVerify.set(event.titleId, event);
@@ -1056,20 +1066,9 @@ connectAppSocket({
                     );
 
                     if (entry) {
-                        const alreadyAvailable = group.availableEntries.some(
-                            (candidate) =>
-                                candidate.kind === entry.kind &&
-                                candidate.titleId.toLowerCase() ===
-                                    entry.titleId.toLowerCase()
-                        );
-                        if (!alreadyAvailable) {
-                            group.availableEntries.push({
-                                kind: entry.kind,
-                                titleId: entry.titleId.toLowerCase(),
-                                versions:
-                                    entry.version > 0 ? [entry.version] : [],
-                                availableOnCdn: true,
-                            });
+                        const availableEntry = createAvailableEntry(entry);
+                        if (availableEntry) {
+                            addAvailableEntry(group, availableEntry);
                         }
                     }
                 }

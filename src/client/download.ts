@@ -123,7 +123,8 @@ export function syncDownloadQueue(
     queue: DownloadQueueItem[],
     nextQueue: DownloadQueueItem[],
     haystacks: WeakMap<TitleGroup, string>,
-    groups: TitleGroup[]
+    groups: TitleGroup[],
+    onDownloadComplete?: (item: DownloadQueueItem) => void
 ): void {
     const previousById = new Map(queue.map((item) => [item.id, item]));
     const shouldReconcileCompleted = previousById.size === 0;
@@ -139,6 +140,7 @@ export function syncDownloadQueue(
             item.state === 'complete'
         ) {
             markSlotBadgeComplete(item.family, item.kind);
+            onDownloadComplete?.(item);
             markDownloadComplete(queue, haystacks, groups, item);
         }
     }

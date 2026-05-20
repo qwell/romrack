@@ -6,10 +6,8 @@ import {
     type TitleGroup,
     TitleKinds,
 } from '../shared/titles.js';
-import {
-    type StorageCopyItem,
-    type StorageDeleteItem,
-} from '../shared/storage.js';
+import { type DeleteItem } from '../shared/delete.js';
+import { type StorageCopyItem } from '../shared/storage.js';
 import { LIBRARY_VALIDATE_SOCKET_COMMAND } from '../shared/socket.js';
 
 export type SlotBadgeState =
@@ -47,7 +45,7 @@ function isChildExpected(group: TitleGroup, childKind: ChildKind): boolean {
     return group.expectedChildren.includes(childKind);
 }
 
-function isAvailableEntryKind(
+export function isAvailableEntryKind(
     kind: TitleKinds
 ): kind is AvailableTitleEntry['kind'] {
     return (
@@ -55,6 +53,39 @@ function isAvailableEntryKind(
         kind === TitleKinds.Update ||
         kind === TitleKinds.DLC
     );
+}
+
+export function createAvailableEntry(
+    entry: TitleEntry
+): AvailableTitleEntry | null {
+    if (!isAvailableEntryKind(entry.kind)) {
+        return null;
+    }
+
+    return {
+        kind: entry.kind,
+        titleId: entry.titleId.toLowerCase(),
+        versions: entry.version > 0 ? [entry.version] : [],
+        availableOnCdn: true,
+    };
+}
+
+export function addAvailableEntry(
+    group: TitleGroup,
+    entry: AvailableTitleEntry
+): boolean {
+    const hasAvailableEntry = group.availableEntries.some(
+        (candidate) =>
+            candidate.kind === entry.kind &&
+            candidate.titleId.toLowerCase() === entry.titleId.toLowerCase()
+    );
+
+    if (hasAvailableEntry) {
+        return false;
+    }
+
+    group.availableEntries.push(entry);
+    return true;
 }
 
 export function getBaseBadgeState(group: TitleGroup): SlotBadgeState {
@@ -139,25 +170,16 @@ function restoreDeletedEntryAvailability(
     group: TitleGroup,
     entry: TitleEntry
 ): void {
-    if (!group.titleInDatabase || !isAvailableEntryKind(entry.kind)) {
+    if (!group.titleInDatabase) {
         return;
     }
 
-    const hasAvailableEntry = group.availableEntries.some(
-        (candidate) =>
-            candidate.kind === entry.kind && candidate.titleId === entry.titleId
-    );
-
-    if (hasAvailableEntry) {
+    const availableEntry = createAvailableEntry(entry);
+    if (!availableEntry) {
         return;
     }
 
-    group.availableEntries.push({
-        kind: entry.kind,
-        titleId: entry.titleId,
-        versions: entry.version > 0 ? [entry.version] : [],
-        availableOnCdn: true,
-    });
+    addAvailableEntry(group, availableEntry);
 }
 
 function removeCompletedStorageTitleIdsFromGroup(
@@ -213,8 +235,8 @@ export function markStorageCopiesComplete(
     }
 }
 
-export function markStorageDeletesComplete(
-    items: StorageDeleteItem[],
+export function markDeletesComplete(
+    items: DeleteItem[],
     options: MarkStorageCompleteOptions
 ): void {
     const completedTitleIds = new Set(

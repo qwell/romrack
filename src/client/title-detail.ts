@@ -19,7 +19,8 @@ import {
     TitleKinds,
     getVirtualConsolePlatform,
 } from '../shared/titles.js';
-import { queueStorageCopy, queueStorageDelete } from './api.js';
+import { queueStorageCopy } from './api.js';
+import { queueDelete } from './delete.js';
 import {
     collectSelectedDownloads,
     formatDownloadIcon,
@@ -33,6 +34,9 @@ import {
     getBaseBadgeState,
     getChildBadgeState,
     type SlotBadgeState,
+    addAvailableEntry,
+    createAvailableEntry,
+    isAvailableEntryKind,
 } from './library.js';
 import { sendAppSocketCommand } from './app-socket.js';
 import { getAvailableSizeBytes, getAvailableSizeText } from './main.js';
@@ -334,20 +338,38 @@ function renderTitleVerificationStatus(
     return verificationStatus;
 }
 
-function renderDownloadedCopyRow(entry: TitleEntry): HTMLElement {
+function renderLocalCopyRow(
+    entry: TitleEntry,
+    downloadData?: {
+        group: TitleGroup;
+        label: string;
+    }
+): HTMLElement {
     const row = document.createElement('label');
     row.className = 'title-download-row title-storage-copy-row';
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
-    checkbox.className = 'title-storage-copy-checkbox';
+    checkbox.className = downloadData
+        ? 'title-download-checkbox title-storage-copy-checkbox'
+        : 'title-storage-copy-checkbox';
     checkbox.value = entry.titleId;
     checkbox.dataset.titleId = entry.titleId;
     checkbox.dataset.copySizeBytes = String(entry.sizeBytes);
+    if (downloadData) {
+        checkbox.dataset.family = downloadData.group.family;
+        checkbox.dataset.groupName = downloadData.group.name;
+        checkbox.dataset.kind = entry.kind;
+        checkbox.dataset.label = downloadData.label;
+        checkbox.dataset.sizeText = formatSize(entry.sizeBytes);
+        checkbox.dataset.totalBytes = String(entry.sizeBytes);
+    }
 
     const slot = document.createElement('span');
     slot.className = 'title-download-slot';
-    slot.textContent = `${formatTitleKind(entry.kind)} v${entry.version}`;
+    slot.textContent =
+        downloadData?.label ??
+        `${formatTitleKind(entry.kind)} v${entry.version}`;
 
     const titleId = document.createElement('span');
     titleId.className = 'title-download-id';
@@ -367,6 +389,20 @@ function renderDownloadedCopyRow(entry: TitleEntry): HTMLElement {
 
     row.append(checkbox, slot, titleId, copyCount, verificationStatus, size);
     return row;
+}
+
+function renderDownloadedCopyRow(entry: TitleEntry): HTMLElement {
+    return renderLocalCopyRow(entry);
+}
+
+function renderInvalidCopyRow(
+    group: TitleGroup,
+    entry: TitleEntry
+): HTMLElement {
+    return renderLocalCopyRow(entry, {
+        group,
+        label: `${formatTitleKind(entry.kind)} v${entry.version}`,
+    });
 }
 
 function getSelectedDownloadedTitleIds(
@@ -455,6 +491,40 @@ function formatDeleteConfirmationEntry(entry: TitleEntry): string {
     return `${entry.name} v${entry.version} [${formatTitleKind(entry.kind)}] ${entry.titleId}${copyText}`;
 }
 
+async function confirmAndQueueDeletes(
+    titleIds: string[],
+    entries: TitleEntry[],
+    deleteButton: HTMLButtonElement,
+    label = 'local'
+): Promise<void> {
+    if (titleIds.length === 0) {
+        return;
+    }
+
+    const selectedTitleIds = new Set(titleIds);
+    const selectedEntries = entries.filter((entry) =>
+        selectedTitleIds.has(entry.titleId)
+    );
+    const selectedText = selectedEntries
+        .map(formatDeleteConfirmationEntry)
+        .join('\n');
+    const confirmed = window.confirm(
+        selectedEntries.length === 1
+            ? `Delete this ${label} title?\n\n${selectedText}`
+            : `Delete these ${selectedEntries.length} ${label} titles?\n\n${selectedText}`
+    );
+    if (!confirmed) {
+        return;
+    }
+
+    deleteButton.disabled = true;
+    try {
+        await Promise.all(titleIds.map((titleId) => queueDelete(titleId)));
+    } finally {
+        deleteButton.disabled = false;
+    }
+}
+
 function getKindSortValue(kind: TitleKinds): number {
     switch (kind) {
         case TitleKinds.Base:
@@ -473,6 +543,107 @@ function renderDetailSection(title: string): HTMLElement {
     heading.className = 'title-detail-section';
     heading.textContent = title;
     return heading;
+}
+
+function queueSelectedDownloads(
+    group: TitleGroup,
+    list: HTMLElement,
+    downloads: DownloadQueueItem[]
+): void {
+    const hasSelection =
+        list.querySelectorAll('.title-download-checkbox:checked').length > 0;
+
+    queueDownloads(downloads, collectSelectedDownloads(list, hasSelection));
+
+    const body = document.querySelector('.title-detail-body');
+    body?.replaceChildren(renderGroupDetailContent(group));
+}
+
+function renderAvailableActions(
+    group: TitleGroup,
+    list: HTMLElement,
+    downloads: DownloadQueueItem[]
+): HTMLElement {
+    const actions = document.createElement('div');
+    actions.className = 'title-download-actions title-available-actions';
+
+    const spacer = document.createElement('div');
+    const downloadButton = document.createElement('button');
+    downloadButton.type = 'button';
+    const updateDownloadButton = (): void => {
+        const checkedCount = list.querySelectorAll(
+            '.title-download-checkbox:checked'
+        ).length;
+
+        downloadButton.textContent =
+            checkedCount === 0 ? 'Download all' : 'Download selected';
+    };
+
+    downloadButton.disabled = false;
+    updateDownloadButton();
+
+    list.addEventListener('change', updateDownloadButton);
+    downloadButton.addEventListener('click', () => {
+        queueSelectedDownloads(group, list, downloads);
+    });
+
+    actions.append(spacer, downloadButton);
+    return actions;
+}
+
+function renderInvalidActions(
+    group: TitleGroup,
+    list: HTMLElement,
+    entries: TitleEntry[],
+    downloads: DownloadQueueItem[]
+): HTMLElement {
+    const actions = document.createElement('div');
+    actions.className = 'title-download-actions title-invalid-actions';
+
+    const downloadButton = document.createElement('button');
+    downloadButton.type = 'button';
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+
+    const updateButtons = (): void => {
+        const checkedCount = list.querySelectorAll(
+            '.title-storage-copy-checkbox:checked'
+        ).length;
+
+        downloadButton.textContent =
+            checkedCount === 0 ? 'Download all' : 'Download selected';
+        deleteButton.textContent =
+            checkedCount === 0 ? 'Delete all' : 'Delete selected';
+        downloadButton.disabled = entries.length === 0;
+        deleteButton.disabled = entries.length === 0;
+    };
+
+    updateButtons();
+    list.addEventListener('change', updateButtons);
+
+    downloadButton.addEventListener('click', () => {
+        queueSelectedDownloads(group, list, downloads);
+    });
+
+    deleteButton.addEventListener('click', () => {
+        void (async () => {
+            const hasSelection =
+                list.querySelectorAll('.title-storage-copy-checkbox:checked')
+                    .length > 0;
+            const titleIds = getSelectedDownloadedTitleIds(list, hasSelection);
+
+            await confirmAndQueueDeletes(
+                titleIds,
+                entries,
+                deleteButton,
+                'invalid local'
+            );
+        })();
+    });
+
+    actions.append(deleteButton, downloadButton);
+    return actions;
 }
 
 export function formatVersions(versions: number[]): string {
@@ -574,6 +745,13 @@ function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
             const verification =
                 detailOptions?.titleVerifications?.get(entry.titleId) ?? null;
             return !isVerificationFailed(verification);
+        })
+        .sort((a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind));
+    const invalidEntries = group.entries
+        .filter((entry) => {
+            const verification =
+                detailOptions?.titleVerifications?.get(entry.titleId) ?? null;
+            return isVerificationFailed(verification);
         })
         .sort((a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind));
 
@@ -710,36 +888,11 @@ function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
                     hasSelection
                 );
 
-                if (titleIds.length === 0) {
-                    return;
-                }
-
-                const selectedTitleIds = new Set(titleIds);
-                const selectedEntries = actionableLocalEntries.filter((entry) =>
-                    selectedTitleIds.has(entry.titleId)
+                await confirmAndQueueDeletes(
+                    titleIds,
+                    actionableLocalEntries,
+                    deleteButton
                 );
-                const selectedText = selectedEntries
-                    .map(formatDeleteConfirmationEntry)
-                    .join('\n');
-                const confirmed = window.confirm(
-                    selectedEntries.length === 1
-                        ? `Delete this local title?\n\n${selectedText}`
-                        : `Delete these ${selectedEntries.length} local titles?\n\n${selectedText}`
-                );
-                if (!confirmed) {
-                    return;
-                }
-
-                deleteButton.disabled = true;
-                try {
-                    await Promise.all(
-                        titleIds.map((titleId) => {
-                            return queueStorageDelete(titleId);
-                        })
-                    );
-                } finally {
-                    deleteButton.disabled = false;
-                }
             })();
         });
 
@@ -756,8 +909,42 @@ function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
         );
     }
 
+    if (invalidEntries.length > 0) {
+        const invalidList = document.createElement('div');
+        invalidList.className = 'title-download-list';
+
+        for (const entry of invalidEntries) {
+            invalidList.append(renderInvalidCopyRow(group, entry));
+        }
+
+        const invalidContent = document.createElement('div');
+        invalidContent.className =
+            'title-download-content title-invalid-content';
+        invalidContent.append(
+            invalidList,
+            renderInvalidActions(
+                group,
+                invalidList,
+                invalidEntries,
+                detailOptions?.downloads ?? []
+            )
+        );
+
+        availability.append(renderDetailSection('Invalid'), invalidContent);
+    }
+
     const availableEntries = group.availableEntries
         .filter((entry) => {
+            const invalid = invalidEntries.some(
+                (candidate) =>
+                    candidate.kind === entry.kind &&
+                    candidate.titleId.toLowerCase() ===
+                        entry.titleId.toLowerCase()
+            );
+            if (invalid) {
+                return false;
+            }
+
             const usable = hasUsableLocalEntry(
                 group,
                 entry.kind,
@@ -782,47 +969,17 @@ function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
             );
         }
 
-        const actions = document.createElement('div');
-        actions.className = 'title-download-actions title-available-actions';
-
-        const spacer = document.createElement('div');
-        const downloadButton = document.createElement('button');
-        downloadButton.type = 'button';
-        const updateDownloadButton = (): void => {
-            const checkedCount = availableList.querySelectorAll(
-                '.title-download-checkbox:checked'
-            ).length;
-
-            downloadButton.textContent =
-                checkedCount === 0 ? 'Download all' : 'Download selected';
-        };
-
-        downloadButton.disabled = false;
-        updateDownloadButton();
-
-        availableList.addEventListener('change', updateDownloadButton);
-
-        downloadButton.addEventListener('click', () => {
-            const downloads = detailOptions?.downloads ?? [];
-            const hasSelection =
-                availableList.querySelectorAll(
-                    '.title-download-checkbox:checked'
-                ).length > 0;
-
-            queueDownloads(
-                downloads,
-                collectSelectedDownloads(availableList, hasSelection)
-            );
-
-            const body = document.querySelector('.title-detail-body');
-            body?.replaceChildren(renderGroupDetailContent(group));
-        });
-
-        actions.append(spacer, downloadButton);
         const availableContent = document.createElement('div');
         availableContent.className =
             'title-download-content title-available-content';
-        availableContent.append(availableList, actions);
+        availableContent.append(
+            availableList,
+            renderAvailableActions(
+                group,
+                availableList,
+                detailOptions?.downloads ?? []
+            )
+        );
 
         availability.append(renderDetailSection('Available'), availableContent);
     }
@@ -886,7 +1043,7 @@ function showDetailSidebar(sidebar: HTMLElement, group: TitleGroup): void {
 
     const body = sidebar.querySelector('.title-detail-body');
     body?.replaceChildren(renderGroupDetailContent(group));
-    requestTitleVerification(group);
+    requestTitleVerifications(group);
 
     for (const groupElement of document.querySelectorAll('.title-group')) {
         groupElement.toggleAttribute(
@@ -896,24 +1053,24 @@ function showDetailSidebar(sidebar: HTMLElement, group: TitleGroup): void {
     }
 }
 
-function requestTitleVerification(group: TitleGroup): void {
+export function requestTitleVerification(titleId: string, name: string): void {
+    sendAppSocketCommand({
+        type: TITLE_VERIFY_SOCKET_COMMAND.queue,
+        titleId,
+        name,
+    });
+}
+
+function requestTitleVerifications(group: TitleGroup): void {
     for (const entry of group.entries) {
-        sendAppSocketCommand({
-            type: TITLE_VERIFY_SOCKET_COMMAND.queue,
-            titleId: entry.titleId,
-            name: entry.name,
-        });
+        requestTitleVerification(entry.titleId, entry.name);
     }
 }
 
 function isDownloadableValidationKind(
     kind: TitleKinds
 ): kind is TitleKinds.Base | TitleKinds.Update | TitleKinds.DLC {
-    return (
-        kind === TitleKinds.Base ||
-        kind === TitleKinds.Update ||
-        kind === TitleKinds.DLC
-    );
+    return isAvailableEntryKind(kind);
 }
 
 function validationToAvailableEntry(
@@ -927,12 +1084,16 @@ function validationToAvailableEntry(
         return null;
     }
 
-    return {
+    return createAvailableEntry({
+        titleId: title.titleId,
+        name: title.name,
+        region: null,
+        iconUrl: null,
+        version: title.version ?? 0,
         kind: title.kind,
-        titleId: title.titleId.toLowerCase(),
-        versions: title.version === null ? [] : [title.version],
-        availableOnCdn: true,
-    };
+        sizeBytes: 0,
+        copyCount: 1,
+    });
 }
 
 function getTitleFamily(titleId: string): string {
@@ -979,15 +1140,7 @@ export function mergeFailedValidationsIntoAvailable(
             group.entries.splice(entryIndex, 1);
         }
 
-        const alreadyAvailable = group.availableEntries.some(
-            (candidate) =>
-                candidate.kind === entry.kind &&
-                candidate.titleId.toLowerCase() === entry.titleId
-        );
-
-        if (!alreadyAvailable) {
-            group.availableEntries.push(entry);
-        }
+        addAvailableEntry(group, entry);
 
         if (!changedGroups.includes(group)) {
             changedGroups.push(group);

@@ -968,7 +968,8 @@ footer > div:last-child {
     margin: 0;
 }
 
-.title-available-actions {
+.title-available-actions,
+.title-invalid-actions {
     display: grid;
     grid-template-columns: minmax(8rem, 1fr) max-content;
     justify-content: stretch;
@@ -976,8 +977,14 @@ footer > div:last-child {
     gap: 6px;
 }
 
-.title-available-content {
+.title-available-content,
+.title-invalid-content {
     grid-template-columns: minmax(0, 1fr);
+}
+
+.title-invalid-actions {
+    grid-template-columns: max-content max-content;
+    justify-content: end;
 }
 
 .title-storage-copy-actions {

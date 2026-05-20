@@ -3,7 +3,8 @@ import {
     type AppConfigValidateRootResponse,
 } from './config.js';
 import { type Fat32Volume, type RuntimeOs } from './os.js';
-import { type StorageCopyItem, type StorageDeleteItem } from './storage.js';
+import { type DeleteItem } from './delete.js';
+import { type StorageCopyItem } from './storage.js';
 import { type TitleGroup, type TitleKinds } from './titles.js';
 
 export type ApiErrorResponse = {
@@ -54,15 +55,15 @@ export type StorageTransferQueuedResponse = {
     duplicate?: boolean;
 };
 
-export type StorageDeleteQueuedResponse = {
+export type DeleteQueuedResponse = {
     deleteId: string;
-    item: StorageDeleteItem;
+    item: DeleteItem;
     duplicate?: boolean;
 };
 
 export type StorageQueueResponse =
     | StorageTransferQueuedResponse
-    | StorageDeleteQueuedResponse
+    | DeleteQueuedResponse
     | ApiErrorResponse;
 
 export type TitleResponse = {

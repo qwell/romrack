@@ -1,12 +1,6 @@
 import { formatSize } from '../shared/shared.js';
-import {
-    STORAGE_COPY_SOCKET_COMMAND,
-    STORAGE_DELETE_SOCKET_COMMAND,
-} from '../shared/socket.js';
-import {
-    type StorageCopyItem,
-    type StorageDeleteItem,
-} from '../shared/storage.js';
+import { STORAGE_COPY_SOCKET_COMMAND } from '../shared/socket.js';
+import { type StorageCopyItem } from '../shared/storage.js';
 import {
     createActionBarCell,
     createActionButton,
@@ -24,28 +18,6 @@ export function syncStorageCopies(
     copies.splice(0, copies.length, ...nextCopies);
 
     const completedItems = copies.filter((item) => {
-        const previous = previousById.get(item.id);
-        return (
-            item.state === 'complete' &&
-            ((previous && previous.state !== 'complete') ||
-                shouldReconcileCompleted)
-        );
-    });
-
-    updateActionBar();
-    return completedItems;
-}
-
-export function syncStorageDeletes(
-    deletes: StorageDeleteItem[],
-    nextDeletes: StorageDeleteItem[]
-): StorageDeleteItem[] {
-    const previousById = new Map(deletes.map((item) => [item.id, item]));
-    const shouldReconcileCompleted = previousById.size === 0;
-
-    deletes.splice(0, deletes.length, ...nextDeletes);
-
-    const completedItems = deletes.filter((item) => {
         const previous = previousById.get(item.id);
         return (
             item.state === 'complete' &&
@@ -274,161 +246,6 @@ export function clearStorageCopy(itemId: string): void {
 export function cancelStorageCopy(itemId: string): void {
     sendAppSocketCommand({
         type: STORAGE_COPY_SOCKET_COMMAND.cancel,
-        id: itemId,
-    });
-}
-
-export function formatStorageDeleteProgress(item: StorageDeleteItem): string {
-    if (item.state === 'complete') {
-        return 'Done';
-    }
-
-    if (item.totalCount !== null && item.totalCount > 0) {
-        return `${item.deletedCount}/${item.totalCount}`;
-    }
-
-    return item.state === 'queued' ? '0' : '-';
-}
-
-export function formatStorageDeleteTitle(item: StorageDeleteItem): string {
-    return item.titleName ?? item.titleId;
-}
-
-export function formatStorageDeleteState(item: StorageDeleteItem): string {
-    switch (item.state) {
-        case 'deleting':
-            return 'Deleting';
-        case 'queued':
-            return 'Queued';
-        case 'failed':
-            return 'Failed';
-        case 'complete':
-            return 'Deleted';
-    }
-}
-
-export function formatStorageDeleteIcon(item: StorageDeleteItem): string {
-    switch (item.state) {
-        case 'deleting':
-            return '⌫';
-        case 'queued':
-            return '○';
-        case 'complete':
-            return '✓';
-        case 'failed':
-            return '!';
-    }
-}
-
-export function formatStorageDeleteDetails(item: StorageDeleteItem): string {
-    if (item.error) {
-        return item.error;
-    }
-
-    return item.message ?? formatStorageDeleteState(item);
-}
-
-export function renderStorageDeleteActionRow(
-    item: StorageDeleteItem
-): HTMLElement {
-    const row = document.createElement('div');
-    row.className = `action-bar-row action-bar-row-${item.state}`;
-    row.dataset.itemId = item.id;
-    row.dataset.itemState = item.state;
-    row.dataset.storageDeleteItemId = item.id;
-    row.dataset.state = item.state;
-
-    const progress = createActionBarCell(
-        'action-bar-progress',
-        formatStorageDeleteProgress(item)
-    );
-    progress.dataset.storageDeleteProgress = 'true';
-
-    const files = createActionBarCell('action-bar-files', '');
-    files.dataset.storageDeleteFiles = 'true';
-
-    const icon = createActionBarCell(
-        'action-bar-icon',
-        formatStorageDeleteIcon(item)
-    );
-    icon.dataset.storageDeleteIcon = 'true';
-
-    const state = createActionBarCell(
-        'action-bar-state',
-        formatStorageDeleteState(item)
-    );
-    state.dataset.storageDeleteState = 'true';
-
-    const size = createActionBarCell('action-bar-size', '');
-    size.dataset.storageDeleteSize = 'true';
-
-    const title = createActionBarCell(
-        'action-bar-title',
-        formatStorageDeleteTitle(item)
-    );
-    title.title = formatStorageDeleteTitle(item);
-    title.dataset.storageDeleteTitle = 'true';
-
-    const detailsCell = renderStorageDeleteControls(item);
-
-    row.append(progress, files, icon, state, size, title, detailsCell);
-    return row;
-}
-
-function renderStorageDeleteControls(item: StorageDeleteItem): HTMLDivElement {
-    const detailsCell = document.createElement('div');
-    detailsCell.className = 'action-bar-details-cell';
-
-    if (item.state === 'failed') {
-        detailsCell.classList.add('action-bar-controls');
-        detailsCell.title = item.error ?? '';
-        detailsCell.append(
-            createActionButton(
-                'Retry',
-                STORAGE_DELETE_SOCKET_COMMAND.retry,
-                item.id
-            ),
-            createActionButton(
-                'Clear',
-                STORAGE_DELETE_SOCKET_COMMAND.clear,
-                item.id
-            )
-        );
-        return detailsCell;
-    }
-
-    if (item.state === 'queued' || item.state === 'complete') {
-        detailsCell.classList.add('action-bar-controls');
-        detailsCell.append(
-            createActionButton(
-                'Clear',
-                STORAGE_DELETE_SOCKET_COMMAND.clear,
-                item.id
-            )
-        );
-        return detailsCell;
-    }
-
-    const detailsText = formatStorageDeleteDetails(item);
-    const detailsTextElement = document.createElement('span');
-    detailsTextElement.className = 'action-bar-control-text';
-    detailsTextElement.title = detailsText;
-    detailsTextElement.textContent = detailsText;
-    detailsTextElement.dataset.storageDeleteDetail = 'true';
-    detailsCell.append(detailsTextElement);
-    return detailsCell;
-}
-
-export function retryStorageDelete(itemId: string): void {
-    sendAppSocketCommand({
-        type: STORAGE_DELETE_SOCKET_COMMAND.retry,
-        id: itemId,
-    });
-}
-
-export function clearStorageDelete(itemId: string): void {
-    sendAppSocketCommand({
-        type: STORAGE_DELETE_SOCKET_COMMAND.clear,
         id: itemId,
     });
 }

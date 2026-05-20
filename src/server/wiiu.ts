@@ -179,8 +179,8 @@ function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
                 entry.baseVersions?.filter((version) =>
                     Number.isFinite(version)
                 ) ?? [],
-            updateVersions: entry.updateVersions ?? [],
-            dlcVersions: entry.dlcVersions ?? [],
+            updateVersions: entry.updates ?? [],
+            dlcVersions: entry.dlc ?? [],
 
             family,
             availableOnCdn: entry.availableOnCdn,

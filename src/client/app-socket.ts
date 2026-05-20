@@ -1,8 +1,6 @@
 import { type DownloadQueueItem } from '../shared/download.js';
-import {
-    type StorageCopyItem,
-    type StorageDeleteItem,
-} from '../shared/storage.js';
+import { type DeleteItem } from '../shared/delete.js';
+import { type StorageCopyItem } from '../shared/storage.js';
 import {
     type SocketCommand,
     type SocketEvent,
@@ -11,16 +9,15 @@ import {
     APP_SOCKET_EVENT,
     DOWNLOAD_SOCKET_EVENT,
     STORAGE_COPY_SOCKET_EVENT,
+    DELETE_SOCKET_EVENT,
     LIBRARY_VALIDATE_SOCKET_EVENT,
     TITLE_VERIFY_SOCKET_EVENT,
 } from '../shared/socket.js';
 import { type TitleGroup } from '../shared/titles.js';
 import { syncDownloadQueue } from './download.js';
-import {
-    markStorageCopiesComplete,
-    markStorageDeletesComplete,
-} from './library.js';
-import { syncStorageCopies, syncStorageDeletes } from './storage.js';
+import { markStorageCopiesComplete, markDeletesComplete } from './library.js';
+import { syncDeletes } from './delete.js';
+import { syncStorageCopies } from './storage.js';
 
 type AppSocketOptions = {
     reconnectMs: number;
@@ -32,7 +29,7 @@ type AppSocketOptions = {
 type AppEventOptions = {
     downloads: DownloadQueueItem[];
     storageCopies: StorageCopyItem[];
-    storageDeletes: StorageDeleteItem[];
+    deletes: DeleteItem[];
     haystacks: WeakMap<TitleGroup, string>;
     getGroups: () => TitleGroup[];
     onServerAvailable: () => void;
@@ -40,6 +37,7 @@ type AppEventOptions = {
     onValidationStateChanged: (validating: boolean) => void;
     onLibraryValidateChanged: (event: LibraryValidateStatusEvent) => void;
     onTitleVerificationChanged: (event: TitleVerifySocketEvent) => void;
+    onDownloadComplete?: (item: DownloadQueueItem) => void;
 };
 
 let appSocket: WebSocket | null = null;
@@ -132,7 +130,8 @@ export function createAppEventHandler(
                     options.downloads,
                     event.downloads,
                     options.haystacks,
-                    options.getGroups()
+                    options.getGroups(),
+                    options.onDownloadComplete
                 );
 
                 markStorageCopiesComplete(
@@ -142,11 +141,8 @@ export function createAppEventHandler(
                     ),
                     getStorageCompletionOptions()
                 );
-                markStorageDeletesComplete(
-                    syncStorageDeletes(
-                        options.storageDeletes,
-                        event.storageDeletes
-                    ),
+                markDeletesComplete(
+                    syncDeletes(options.deletes, event.deletes),
                     getStorageCompletionOptions()
                 );
 
@@ -161,7 +157,8 @@ export function createAppEventHandler(
                     options.downloads,
                     event.items,
                     options.haystacks,
-                    options.getGroups()
+                    options.getGroups(),
+                    options.onDownloadComplete
                 );
                 return;
 
@@ -173,10 +170,10 @@ export function createAppEventHandler(
                 );
                 return;
 
-            case 'storage.deleteChanged':
+            case DELETE_SOCKET_EVENT.changed:
                 options.onServerAvailable();
-                markStorageDeletesComplete(
-                    syncStorageDeletes(options.storageDeletes, event.items),
+                markDeletesComplete(
+                    syncDeletes(options.deletes, event.items),
                     getStorageCompletionOptions()
                 );
                 return;
