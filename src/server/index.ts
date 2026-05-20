@@ -4,21 +4,23 @@ import { createServer } from 'node:http';
 import path from 'node:path';
 
 import { getAppRoot } from './paths.js';
-import { getConfig } from '../shared/config.js';
 import { createAppSocket, handleAppSocketCommand } from './socket.js';
+import { getConfig } from '../shared/config.js';
 import logger from '../shared/logger.js';
-import { createStorageRouter, getStorageCopies } from './routes/storage.js';
-import { createDeleteRouter, getDeletes } from './routes/delete.js';
 import { formatLogError } from '../shared/shared.js';
-import { createConfigRouter } from './routes/config.js';
-import { createIconRouter } from './routes/icon.js';
+import { APP_SOCKET_EVENT } from '../shared/socket.js';
 import {
+    createIconRouter,
+    createConfigRouter,
+    createStorageRouter,
+    getStorageCopies,
+    createDeleteRouter,
+    getDeletes,
     createLibraryRouter,
     getLatestLibraryValidateStatus,
-} from './routes/library.js';
-import { createTitleRouter } from './routes/title.js';
-import { getDownloadQueue } from './routes/download.js';
-import { APP_SOCKET_EVENT } from '../shared/socket.js';
+    createTitleRouter,
+    getDownloadQueue,
+} from './routes.js';
 
 const config = getConfig();
 

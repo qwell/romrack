@@ -12,11 +12,13 @@ import {
 } from '../shared/socket.js';
 import { type DownloadQueueItem } from '../shared/download.js';
 import logger from '../shared/logger.js';
-import { handleStorageCopySocketCommand } from './routes/storage.js';
-import { handleDeleteSocketCommand } from './routes/delete.js';
-import { handleDownloadSocketCommand } from './routes/download.js';
-import { handleLibraryValidateSocketCommand } from './routes/library.js';
-import { handleTitleVerifySocketCommand } from './routes/title.js';
+import {
+    handleStorageCopySocketCommand,
+    handleDeleteSocketCommand,
+    handleDownloadSocketCommand,
+    handleLibraryValidateSocketCommand,
+    handleTitleVerifySocketCommand,
+} from './routes.js';
 
 type AppSocketOptions = {
     server: Server;
