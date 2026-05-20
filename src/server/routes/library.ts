@@ -25,6 +25,8 @@ import { TitleGroup, TitleKinds } from '../../shared/titles.js';
 
 let latestLibraryValidateStatus: LibraryValidateStatusEvent | null = null;
 let activeLibraryValidateAbortController: AbortController | null = null;
+let libraryValidateStatusTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingLibraryValidateStatus: LibraryValidateStatusEvent | null = null;
 
 let libraryGroups: TitleGroup[] = [];
 
@@ -54,8 +56,41 @@ export function getLatestLibraryValidateStatus(): LibraryValidateStatusEvent | n
 function broadcastLibraryValidateStatus(
     event: LibraryValidateStatusEvent
 ): void {
+    clearScheduledLibraryValidateStatus();
     latestLibraryValidateStatus = event;
     broadcastAppSocketEvent(event);
+}
+
+function scheduleLibraryValidateStatus(
+    event: LibraryValidateStatusEvent
+): void {
+    pendingLibraryValidateStatus = event;
+
+    if (libraryValidateStatusTimer !== null) {
+        return;
+    }
+
+    libraryValidateStatusTimer = setTimeout(() => {
+        libraryValidateStatusTimer = null;
+
+        if (!pendingLibraryValidateStatus) {
+            return;
+        }
+
+        const nextEvent = pendingLibraryValidateStatus;
+        pendingLibraryValidateStatus = null;
+        latestLibraryValidateStatus = nextEvent;
+        broadcastAppSocketEvent(nextEvent);
+    }, 200);
+}
+
+function clearScheduledLibraryValidateStatus(): void {
+    if (libraryValidateStatusTimer !== null) {
+        clearTimeout(libraryValidateStatusTimer);
+        libraryValidateStatusTimer = null;
+    }
+
+    pendingLibraryValidateStatus = null;
 }
 
 export function createLibraryRouter(): Router {
@@ -101,10 +136,19 @@ export function createLibraryRouter(): Router {
             const titles = await validateWiiUTitleRoots(
                 getConfig().wiiuRoots,
                 (progress) => {
-                    broadcastLibraryValidateStatus({
+                    const event: LibraryValidateStatusEvent = {
                         type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
                         ...progress,
-                    });
+                    };
+
+                    if (
+                        progress.status === 'validated' &&
+                        progress.result === 'failed'
+                    ) {
+                        broadcastLibraryValidateStatus(event);
+                    } else {
+                        scheduleLibraryValidateStatus(event);
+                    }
                 },
                 abortController.signal
             );

@@ -758,6 +758,7 @@ type LibraryValidateProgress =
           name: string;
           kind: TitleKinds;
           sizeText: string;
+          currentFileName?: string | null;
           current: number;
           total: number;
       }
@@ -831,7 +832,21 @@ export async function validateWiiUTitles(
             'wiiu',
             `validating title: [${titleId}] ${titleName} [${titleKind}] (${sizeText})`
         );
-        const validation = await validateTitleInstallFiles(dirPath);
+        const validation = await validateTitleInstallFiles(
+            dirPath,
+            (progress) => {
+                onProgress?.({
+                    status: 'validating',
+                    titleId,
+                    name: titleName,
+                    kind: titleKind,
+                    sizeText,
+                    currentFileName: progress.currentFileName,
+                    current: offset + index,
+                    total,
+                });
+            }
+        );
         throwIfLibraryValidateCancelled(options.signal);
         const result = validation.status === 'ok' ? 'ok' : 'failed';
         const status =

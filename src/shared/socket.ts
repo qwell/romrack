@@ -188,6 +188,7 @@ export type LibraryValidateStatusEvent = {
     name?: string;
     kind?: string;
     sizeText?: string;
+    currentFileName?: string | null;
     result?: 'ok' | 'failed';
     current?: number;
     total?: number;

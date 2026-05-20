@@ -174,6 +174,10 @@ export type InstalledTitleValidation = {
     verification: ContentTreeVerification[];
 };
 
+export type InstalledTitleValidationProgress = {
+    currentFileName: string;
+};
+
 class TitleMetadataError extends Error {
     stage: string;
 
@@ -677,7 +681,8 @@ export async function generateTitleInstallFiles(
 }
 
 export async function validateTitleInstallFiles(
-    dirPath: string
+    dirPath: string,
+    onProgress?: (progress: InstalledTitleValidationProgress) => void
 ): Promise<InstalledTitleValidation> {
     const tmd = await readTmd(dirPath);
     if (!tmd) {
@@ -716,10 +721,13 @@ export async function validateTitleInstallFiles(
 
     const verification: ContentTreeVerification[] = [];
     for (const content of tmd.contents) {
+        const files = getContentInstallFiles(dirPath, content);
+        onProgress?.({ currentFileName: files.appName });
         verification.push(
             await verifyInstalledContent({
                 dirPath,
                 content,
+                files,
                 titleKey,
             })
         );
@@ -825,14 +833,16 @@ function createFailedInstalledValidation(
 function verifyInstalledContent({
     dirPath,
     content,
+    files,
     titleKey,
 }: {
     dirPath: string;
     content: TmdContent;
+    files?: ContentInstallFiles;
     titleKey: Uint8Array;
 }): Promise<ContentTreeVerification> {
     return verifyContentInstallFiles({
-        files: getContentInstallFiles(dirPath, content),
+        files: files ?? getContentInstallFiles(dirPath, content),
         content,
         titleKey,
     });

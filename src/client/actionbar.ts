@@ -719,7 +719,9 @@ function formatLibraryValidateDetails(
 ): string {
     const state = getLibraryValidateActionState(event);
     if (state === 'validating') {
-        return 'Checking files...';
+        return event.currentFileName
+            ? `Checking files... ${event.currentFileName}`
+            : 'Checking files...';
     }
 
     if (state === 'complete') {
