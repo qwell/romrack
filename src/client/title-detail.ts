@@ -51,15 +51,10 @@ type TitleDetailOptions = {
     ) => Promise<StorageFat32ListResponse | null>;
 };
 
-let selectedFamily: string | null = null;
 let options: TitleDetailOptions | null = null;
 
 export function setupTitleDetails(nextOptions: TitleDetailOptions): void {
     options = nextOptions;
-}
-
-export function hasOpenDetailFamily(): boolean {
-    return selectedFamily !== null;
 }
 
 function formatRegion(region: string | null): {
@@ -708,7 +703,7 @@ function renderVirtualConsoleBadge(group: TitleGroup): HTMLElement | null {
     return badge;
 }
 
-function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
+export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
     const detailOptions = options;
     const fragment = document.createDocumentFragment();
     const summary = document.createElement('div');
@@ -990,69 +985,6 @@ function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
     return fragment;
 }
 
-export function closeDetailSidebar(sidebar: HTMLElement): void {
-    selectedFamily = null;
-    sidebar.hidden = true;
-    document.body.removeAttribute('data-detail-open');
-    sidebar.querySelector('.title-detail-body')?.replaceChildren();
-
-    for (const group of document.querySelectorAll('.title-group')) {
-        group.removeAttribute('data-selected');
-    }
-}
-
-export function resetDetailSidebars(): void {
-    selectedFamily = null;
-    document.body.removeAttribute('data-detail-open');
-
-    for (const sidebar of document.querySelectorAll<HTMLElement>(
-        '.title-detail-sidebar'
-    )) {
-        sidebar.hidden = true;
-        sidebar.querySelector('.title-detail-body')?.replaceChildren();
-    }
-
-    for (const group of document.querySelectorAll('.title-group')) {
-        group.removeAttribute('data-selected');
-    }
-}
-
-function showDetailSidebar(sidebar: HTMLElement, group: TitleGroup): void {
-    selectedFamily = group.family;
-    sidebar.hidden = false;
-    document.body.setAttribute('data-detail-open', '');
-
-    const title = sidebar.querySelector('.title-detail-title');
-    if (title) {
-        title.textContent = group.name;
-    }
-
-    const thumbnail = sidebar.querySelector<HTMLElement>(
-        '.title-detail-thumbnail'
-    );
-    if (thumbnail) {
-        thumbnail.replaceChildren();
-
-        if (group.iconUrl) {
-            const image = document.createElement('img');
-            image.src = group.iconUrl;
-            image.alt = group.name;
-            thumbnail.append(image);
-        }
-    }
-
-    const body = sidebar.querySelector('.title-detail-body');
-    body?.replaceChildren(renderGroupDetailContent(group));
-    requestTitleVerifications(group);
-
-    for (const groupElement of document.querySelectorAll('.title-group')) {
-        groupElement.toggleAttribute(
-            'data-selected',
-            groupElement.getAttribute('data-family') === group.family
-        );
-    }
-}
-
 export function requestTitleVerification(titleId: string, name: string): void {
     sendAppSocketCommand({
         type: TITLE_VERIFY_SOCKET_COMMAND.queue,
@@ -1061,7 +993,7 @@ export function requestTitleVerification(titleId: string, name: string): void {
     });
 }
 
-function requestTitleVerifications(group: TitleGroup): void {
+export function requestTitleVerifications(group: TitleGroup): void {
     for (const entry of group.entries) {
         requestTitleVerification(entry.titleId, entry.name);
     }
@@ -1150,53 +1082,10 @@ export function mergeFailedValidationsIntoAvailable(
     return changedGroups;
 }
 
-export function toggleDetailSidebar(
-    sidebar: HTMLElement,
-    group: TitleGroup
-): void {
-    if (selectedFamily === group.family) {
-        closeDetailSidebar(sidebar);
-        return;
-    }
-
-    showDetailSidebar(sidebar, group);
-}
-
-export function buildDetailSidebar(): HTMLElement {
-    const sidebar = document.createElement('aside');
-    sidebar.className = 'title-detail-sidebar';
-    sidebar.hidden = true;
-    sidebar.setAttribute('aria-label', 'Title details');
-
-    const header = document.createElement('div');
-    header.className = 'title-detail-sidebar-header';
-
-    const thumbnail = document.createElement('div');
-    thumbnail.className = 'title-detail-thumbnail';
-
-    const title = document.createElement('h2');
-    title.className = 'title-detail-title';
-    title.textContent = 'Title details';
-
-    const closeButton = document.createElement('button');
-    closeButton.className = 'title-detail-close';
-    closeButton.type = 'button';
-    closeButton.setAttribute('aria-label', 'Close title details');
-    closeButton.textContent = '×';
-    closeButton.addEventListener('click', () => closeDetailSidebar(sidebar));
-
-    const body = document.createElement('div');
-    body.className = 'title-detail-body';
-
-    header.append(thumbnail, title, closeButton);
-    sidebar.append(header, body);
-
-    return sidebar;
-}
-
 export function renderGroup(
     group: TitleGroup,
-    onSelect: (group: TitleGroup) => void
+    onSelect: (group: TitleGroup) => void,
+    selectedFamily: string | null = null
 ): HTMLElement | null {
     if (!group.name) {
         return null;
@@ -1371,18 +1260,4 @@ export function updateRenderedTitleGroup(group: TitleGroup): void {
         TitleKinds.DLC,
         getChildBadgeState(group, TitleKinds.DLC)
     );
-}
-
-export function refreshOpenDetailSidebarForGroup(group: TitleGroup): void {
-    if (selectedFamily !== group.family) {
-        return;
-    }
-
-    const body = document.querySelector<HTMLElement>('.title-detail-body');
-
-    if (!body) {
-        return;
-    }
-
-    body.replaceChildren(renderGroupDetailContent(group));
 }

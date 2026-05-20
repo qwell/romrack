@@ -5,7 +5,7 @@ import {
     createActionBarCell,
     createActionButton,
     updateActionBar,
-} from './action-bar.js';
+} from './actionbar.js';
 import { sendAppSocketCommand } from './app-socket.js';
 
 export function syncStorageCopies(

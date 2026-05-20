@@ -12,7 +12,7 @@ import {
     createActionBarCommandHandler,
     mountActionBar,
     setLibraryValidateAction,
-} from './action-bar.js';
+} from './actionbar.js';
 import {
     type TitleGroup,
     type TitleGroupStatus,
@@ -36,19 +36,25 @@ import {
 } from './settings.js';
 import { connectAppSocket, createAppEventHandler } from './app-socket.js';
 import {
-    buildDetailSidebar,
-    closeDetailSidebar,
     setupTitleDetails,
-    hasOpenDetailFamily,
     renderGroup,
-    resetDetailSidebars,
-    toggleDetailSidebar,
-    refreshOpenDetailSidebarForGroup,
     requestTitleVerification,
     updateRenderedTitleGroup,
     mergeFailedValidationsIntoAvailable,
     isVerificationFailed,
+    renderGroupDetailContent,
+    requestTitleVerifications,
 } from './title-detail.js';
+import {
+    buildDetailSidebar,
+    closeDetailSidebar,
+    getSelectedDetailFamily,
+    hasOpenDetailFamily,
+    refreshOpenDetailSidebarForGroup,
+    resetDetailSidebars,
+    setupDetailSidebar,
+    toggleDetailSidebar,
+} from './sidebar.js';
 import logger from '../shared/logger.js';
 
 declare const __APP_VERSION__: string;
@@ -409,8 +415,10 @@ function renderGroups(
     const firstBatch = filteredGroups.slice(0, BATCH_SIZE);
     const fragment = document.createDocumentFragment();
     for (const group of firstBatch) {
-        const render = renderGroup(group, (selectedGroup) =>
-            toggleDetailSidebar(sidebar, selectedGroup)
+        const render = renderGroup(
+            group,
+            (selectedGroup) => toggleDetailSidebar(sidebar, selectedGroup),
+            getSelectedDetailFamily()
         );
         if (render) fragment.append(render);
     }
@@ -435,8 +443,11 @@ function renderGroups(
                 );
 
                 for (const group of next) {
-                    const render = renderGroup(group, (selectedGroup) =>
-                        toggleDetailSidebar(sidebar, selectedGroup)
+                    const render = renderGroup(
+                        group,
+                        (selectedGroup) =>
+                            toggleDetailSidebar(sidebar, selectedGroup),
+                        getSelectedDetailFamily()
                     );
                     if (render) fragment.append(render);
                 }
@@ -956,6 +967,10 @@ function setupSidebars(): void {
                 image.src = src;
             }
         },
+    });
+    setupDetailSidebar({
+        renderContent: renderGroupDetailContent,
+        onShow: requestTitleVerifications,
     });
     resetDetailSidebars();
 }

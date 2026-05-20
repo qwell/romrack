@@ -6,13 +6,13 @@ import {
     createActionBarCell,
     createActionButton,
     updateActionBar,
-} from './action-bar.js';
+} from './actionbar.js';
 import {
     formatTitleKind,
     markSlotBadgeComplete,
-    refreshOpenDetailSidebarForGroup,
     updateRenderedTitleGroup,
 } from './title-detail.js';
+import { refreshOpenDetailSidebarForGroup } from './sidebar.js';
 import { syncGroupStatusFromSlots } from './library.js';
 import { sendAppSocketCommand } from './app-socket.js';
 
