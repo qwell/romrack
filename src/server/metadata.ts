@@ -130,6 +130,10 @@ type DownloadableTitle = {
     kind: 'Base' | 'Update' | 'DLC';
 };
 
+function formatInstallDirectoryKind(kind: DownloadableTitle['kind']): string {
+    return kind === 'Base' ? 'Game' : kind;
+}
+
 export type ContentTreeVerification = {
     contentId: string;
     status: 'ok' | 'missing-h3' | 'failed';
@@ -579,9 +583,10 @@ export async function generateTitleInstallFiles(
         options.signal
     );
     const meta = metaXml ? readMetaXml(metaXml) : null;
+    const directoryKind = formatInstallDirectoryKind(kind);
     const outputDir = path.join(
         romRoot,
-        `${safeDirectoryName(meta?.name ?? normalizedTitleId)} [${kind}] [${normalizedTitleId}]`
+        `${safeDirectoryName(meta?.name ?? normalizedTitleId)} [${directoryKind}] [${normalizedTitleId}]`
     );
     const tmdFile = path.join(outputDir, TMD_TITLE_FILE);
     const certFile = path.join(outputDir, CERT_TITLE_FILE);
