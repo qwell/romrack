@@ -8,7 +8,6 @@ import {
     updateActionBar,
 } from './actionbar.js';
 import {
-    formatTitleKind,
     markSlotBadgeComplete,
     updateRenderedTitleGroup,
 } from './title-detail.js';
@@ -104,7 +103,7 @@ export function formatDownloadState(item: DownloadQueueItem): string {
 }
 
 export function formatDownloadTitle(item: DownloadQueueItem): string {
-    return `${item.groupName} [${formatTitleKind(item.kind)}]`;
+    return `${item.groupName} [${item.kind}]`;
 }
 
 function formatDownloadDetails(item: DownloadQueueItem): string {

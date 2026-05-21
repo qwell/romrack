@@ -108,7 +108,7 @@ export type ChildTitleMetadata = {
 
 export type GeneratedTitleInstallFiles = {
     titleId: string;
-    kind: 'Game' | 'Update' | 'DLC';
+    kind: 'Base' | 'Update' | 'DLC';
     name: string;
     titleVersion: number;
     titleKey: string;
@@ -127,7 +127,7 @@ export type GeneratedTitleInstallFiles = {
 
 type DownloadableTitle = {
     titleId: string;
-    kind: 'Game' | 'Update' | 'DLC';
+    kind: 'Base' | 'Update' | 'DLC';
 };
 
 export type ContentTreeVerification = {
@@ -2719,7 +2719,7 @@ function normalizeDownloadableTitleId(titleId: string): DownloadableTitle {
 
     switch (normalizedTitleId.slice(0, 8)) {
         case '00050000':
-            return { titleId: normalizedTitleId, kind: 'Game' };
+            return { titleId: normalizedTitleId, kind: 'Base' };
         case '0005000e':
             return { titleId: normalizedTitleId, kind: 'Update' };
         case '0005000c':

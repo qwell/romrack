@@ -263,10 +263,6 @@ function renderDetailRow(label: string, value: string | null): HTMLElement {
     return row;
 }
 
-export function formatTitleKind(kind: TitleKinds | string): string {
-    return kind === String(TitleKinds.Base) ? 'Game' : kind;
-}
-
 function formatTitleVerificationStatus(
     event: TitleVerifySocketEvent | null
 ): string {
@@ -362,9 +358,7 @@ function renderLocalCopyRow(
 
     const slot = document.createElement('span');
     slot.className = 'title-download-slot';
-    slot.textContent =
-        downloadData?.label ??
-        `${formatTitleKind(entry.kind)} v${entry.version}`;
+    slot.textContent = downloadData?.label ?? `${entry.kind} v${entry.version}`;
 
     const titleId = document.createElement('span');
     titleId.className = 'title-download-id';
@@ -396,7 +390,7 @@ function renderInvalidCopyRow(
 ): HTMLElement {
     return renderLocalCopyRow(entry, {
         group,
-        label: `${formatTitleKind(entry.kind)} v${entry.version}`,
+        label: `${entry.kind} v${entry.version}`,
     });
 }
 
@@ -483,7 +477,7 @@ function updateStorageCopyAvailability(
 
 function formatDeleteConfirmationEntry(entry: TitleEntry): string {
     const copyText = entry.copyCount > 1 ? ` (${entry.copyCount} copies)` : '';
-    return `${entry.name} v${entry.version} [${formatTitleKind(entry.kind)}] ${entry.titleId}${copyText}`;
+    return `${entry.name} v${entry.version} [${entry.kind}] ${entry.titleId}${copyText}`;
 }
 
 async function confirmAndQueueDeletes(

@@ -87,9 +87,5 @@ export function formatTitleDisplayName(
     kind: TitleKinds | null
 ): string {
     const label = name ?? titleId;
-    return kind ? `${label} [${getTitleKindDisplayName(kind)}]` : label;
-}
-
-function getTitleKindDisplayName(kind: TitleKinds): string {
-    return kind === TitleKinds.Base ? 'Game' : kind;
+    return kind ? `${label} [${kind}]` : label;
 }

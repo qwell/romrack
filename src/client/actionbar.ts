@@ -55,7 +55,6 @@ import {
     retryDownload,
 } from './download.js';
 import { sendAppSocketCommand } from './app-socket.js';
-import { formatTitleKind } from './title-detail.js';
 import { LibraryActionBarCommand } from './library.js';
 
 export const ACTION_BAR_COMMAND = {
@@ -388,7 +387,7 @@ function queueLibraryValidateFailureDownload(
             family: item.titleId.toLowerCase().slice(8),
             groupName: item.name ?? item.titleId,
             kind: item.kind as TitleKinds,
-            label: formatTitleKind(item.kind),
+            label: item.kind,
             titleId: item.titleId,
             sizeText: null,
             totalBytes: null,
@@ -702,7 +701,7 @@ function formatLibraryValidateTitle(event: LibraryValidateStatusEvent): string {
         event.kind &&
         event.titleId
     ) {
-        return `${event.name} [${formatTitleKind(event.kind)}]`;
+        return `${event.name} [${event.kind}]`;
     }
 
     return 'Library validation';
