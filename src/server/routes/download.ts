@@ -349,7 +349,7 @@ export function handleDownloadSocketCommand(
 
             logger.log(
                 'server',
-                `download cleared: ${item.groupName} ${item.label} ${item.titleId}`
+                `download cleared: [${item.titleId}] ${item.groupName} [${item.label}]`
             );
 
             downloadQueue = downloadQueue.filter(

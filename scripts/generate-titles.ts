@@ -8,6 +8,7 @@ import { XMLParser } from 'fast-xml-parser';
 
 import { normalizeRegion } from '../src/shared/regions.js';
 import {
+    normalizeTitleId,
     normalizeTitleName,
     RawTitleDatabaseEntry,
 } from '../src/shared/titles.js';
@@ -115,13 +116,6 @@ function stringFieldRecord<K extends string>(
     );
 }
 
-function normalizeTitleId(value: string): string | null {
-    const titleIdPattern = /^[0-9a-f]{16}$/;
-    const titleId = value.toLowerCase();
-
-    return titleIdPattern.test(titleId) ? titleId : null;
-}
-
 function titleIdSet(entries: unknown[]): Set<string> {
     const titleIds = new Set<string>();
 
@@ -141,7 +135,7 @@ function sortByTitleId<T extends { titleId: string }>(entries: T[]): T[] {
     return entries.toSorted((a, b) => a.titleId.localeCompare(b.titleId));
 }
 
-function parseVersions(value: string | null | undefined): number[] {
+function parseVersions(value?: string): number[] {
     const matches = [...(value ?? '').matchAll(/v?\s*(\d+)/gi)];
     return matches
         .map((match) => Number.parseInt(match[1], 10))
@@ -251,7 +245,9 @@ function generateTitleIds(excluded: Set<string>): string[] {
         const end = BigInt(`0x${endHex}`);
 
         while (current <= end) {
-            const titleId = current.toString(16).padStart(16, '0');
+            const titleId = normalizeTitleId(
+                current.toString(16).padStart(16, '0')
+            );
 
             if (!excluded.has(titleId)) {
                 titleIds.push(titleId);
@@ -284,8 +280,8 @@ async function processTitle(
     }
 
     const title: RawTitleDatabaseEntry = {
-        titleId,
-        name: metadata.name == null ? '' : normalizeTitleName(metadata.name),
+        titleId: normalizeTitleId(titleId),
+        name: normalizeTitleName(metadata.name),
         region: normalizeRegion(metadata.region, metadata.productCode),
         productCode: metadata.productCode ?? null,
         companyCode: metadata.companyCode ?? null,
@@ -368,23 +364,12 @@ async function loadExtraTitles(
     const rows = parseCsvRows(await fs.readFile(titledbFile, 'utf8'));
     const titles = rows
         .map((row): RawTitleDatabaseEntry | null => {
-            const titleId = normalizeTitleId(row['Title ID'] ?? '');
-            if (titleId === null) {
-                return null;
-            }
-
             return {
-                titleId: titleId,
+                titleId: normalizeTitleId(row['Title ID']),
                 name: normalizeTitleName(row.Description),
                 region: normalizeRegion(row.Region, row['Product Code']),
-                productCode:
-                    row['Product Code'] === ''
-                        ? null
-                        : (row['Product Code'] ?? null),
-                companyCode:
-                    row['Company Code'] === ''
-                        ? null
-                        : (row['Company Code'] ?? null),
+                productCode: row['Product Code'] ?? null,
+                companyCode: row['Company Code'] ?? null,
                 iconUrl: null,
                 baseVersions: parseVersions(row.Versions),
                 updates: [],

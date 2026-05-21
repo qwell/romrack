@@ -96,6 +96,8 @@ type ActionCommandOptions = {
 let actionBarRoot: HTMLElement | null = null;
 let actionBarSignature = '';
 let actionBarOptions: ActionBarOptions | null = null;
+let actionBarOrderCounter = 0;
+const actionBarItemOrder = new Map<string, number>();
 
 function isActionBarCommand<T extends ActionBarCommand>(
     command: string | null,
@@ -276,18 +278,12 @@ export function createActionBarCommandHandler(
 }
 
 function getActionBarSignature(options: ActionBarOptions): string {
+    const entries = getOrderedActionBarEntries(options);
+
     return JSON.stringify({
-        downloads: options.downloads.map((item) => ({
-            id: item.id,
-            state: item.state,
-        })),
-        copies: options.storageCopies.map((item) => ({
-            id: item.id,
-            state: item.state,
-        })),
-        deletes: options.deletes.map((item) => ({
-            id: item.id,
-            state: item.state,
+        entries: entries.map((entry) => ({
+            key: entry.key,
+            state: getActionBarEntryState(entry),
         })),
         libraryValidate: options.libraryValidate
             ? {
@@ -307,6 +303,107 @@ function getActionBarSignature(options: ActionBarOptions): string {
             })
         ),
     });
+}
+
+type ActionBarEntry =
+    | {
+          key: string;
+          type: 'download';
+          item: DownloadQueueItem;
+      }
+    | {
+          key: string;
+          type: 'storageCopy';
+          item: StorageCopyItem;
+      }
+    | {
+          key: string;
+          type: 'delete';
+          item: DeleteItem;
+      }
+    | {
+          key: string;
+          type: 'libraryValidate';
+          item: LibraryValidateStatusEvent;
+      }
+    | {
+          key: string;
+          type: 'libraryValidateFailure';
+          item: LibraryValidateStatusEvent;
+      };
+
+function getActionBarEntryState(entry: ActionBarEntry): string {
+    switch (entry.type) {
+        case 'download':
+        case 'storageCopy':
+        case 'delete':
+            return entry.item.state;
+        case 'libraryValidate':
+        case 'libraryValidateFailure':
+            return getLibraryValidateActionState(entry.item);
+    }
+}
+
+function trackActionBarEntry(key: string): void {
+    if (actionBarItemOrder.has(key)) {
+        return;
+    }
+
+    actionBarItemOrder.set(key, actionBarOrderCounter);
+    actionBarOrderCounter += 1;
+}
+
+function getOrderedActionBarEntries(
+    options: ActionBarOptions
+): ActionBarEntry[] {
+    const entries: ActionBarEntry[] = [
+        ...options.downloads.map((item) => ({
+            key: `download:${item.id}`,
+            type: 'download' as const,
+            item,
+        })),
+        ...options.storageCopies.map((item) => ({
+            key: `storage-copy:${item.id}`,
+            type: 'storageCopy' as const,
+            item,
+        })),
+        ...options.deletes.map((item) => ({
+            key: `delete:${item.id}`,
+            type: 'delete' as const,
+            item,
+        })),
+        ...(options.libraryValidate
+            ? [
+                  {
+                      key: 'library-validate',
+                      type: 'libraryValidate' as const,
+                      item: options.libraryValidate,
+                  },
+              ]
+            : []),
+        ...options.libraryValidateFailures.map((item) => ({
+            key: `library-validate-failure:${getLibraryValidateFailureKey(item)}`,
+            type: 'libraryValidateFailure' as const,
+            item,
+        })),
+    ];
+
+    const activeKeys = new Set(entries.map((entry) => entry.key));
+    for (const key of actionBarItemOrder.keys()) {
+        if (!activeKeys.has(key)) {
+            actionBarItemOrder.delete(key);
+        }
+    }
+
+    for (const entry of entries) {
+        trackActionBarEntry(entry.key);
+    }
+
+    return entries.sort(
+        (left, right) =>
+            (actionBarItemOrder.get(left.key) ?? 0) -
+            (actionBarItemOrder.get(right.key) ?? 0)
+    );
 }
 
 export function setLibraryValidateAction(
@@ -405,6 +502,7 @@ function queueLibraryValidateFailureDownload(
             installedSourcePath: null,
         },
     ]);
+    clearLibraryValidateFailure(itemId);
 }
 
 function updateActionBarRowsInPlace(options: ActionBarOptions): void {
@@ -660,14 +758,14 @@ function formatLibraryValidateProgress(
     if (event.status === 'failed') {
         return event.current !== undefined && event.total
             ? `${Math.round((event.current / event.total) * 100)}%`
-            : '0%';
+            : '-';
     }
 
     if (event.current !== undefined && event.total) {
         return `${Math.round((event.current / event.total) * 100)}%`;
     }
 
-    return '0%';
+    return '-';
 }
 
 function formatLibraryValidateFileCount(
@@ -719,7 +817,7 @@ function formatLibraryValidateDetails(
     const state = getLibraryValidateActionState(event);
     if (state === 'validating') {
         return event.currentFileName
-            ? `Checking files... ${event.currentFileName}`
+            ? event.currentFileName
             : 'Checking files...';
     }
 
@@ -731,9 +829,7 @@ function formatLibraryValidateDetails(
         return `${event.failed ?? 0}/${event.total ?? 0} failed`;
     }
 
-    return event.error
-        ? `Failed to validate library. ${event.error}`
-        : 'Failed to validate library.';
+    return 'Library validation cancelled.';
 }
 
 function getLibraryValidateFailureKey(
@@ -1034,24 +1130,24 @@ function rebuildActionBar(options: ActionBarOptions): void {
     const details = document.createElement('div');
     details.className = 'action-bar-details';
 
-    for (const item of options.downloads) {
-        details.append(renderDownloadActionRow(item));
-    }
-
-    for (const item of options.storageCopies) {
-        details.append(renderStorageCopyActionRow(item));
-    }
-
-    for (const item of options.deletes) {
-        details.append(renderDeleteActionRow(item));
-    }
-
-    if (options.libraryValidate) {
-        details.append(renderLibraryValidateActionRow(options.libraryValidate));
-    }
-
-    for (const item of options.libraryValidateFailures) {
-        details.append(renderLibraryValidateFailureRow(item));
+    for (const entry of getOrderedActionBarEntries(options)) {
+        switch (entry.type) {
+            case 'download':
+                details.append(renderDownloadActionRow(entry.item));
+                break;
+            case 'storageCopy':
+                details.append(renderStorageCopyActionRow(entry.item));
+                break;
+            case 'delete':
+                details.append(renderDeleteActionRow(entry.item));
+                break;
+            case 'libraryValidate':
+                details.append(renderLibraryValidateActionRow(entry.item));
+                break;
+            case 'libraryValidateFailure':
+                details.append(renderLibraryValidateFailureRow(entry.item));
+                break;
+        }
     }
 
     actionBarRoot.append(details);

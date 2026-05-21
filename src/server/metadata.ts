@@ -663,7 +663,7 @@ export async function generateTitleInstallFiles(
 
     logger.log(
         'metadata',
-        `finished downloading: [${normalizedTitleId}] ${name}`
+        `finished downloading: [${normalizedTitleId}] ${name} ${kind}`
     );
 
     return {

@@ -22,44 +22,6 @@ export enum VirtualConsolePlatform {
     MSX = 'MSX',
 }
 
-export function getVirtualConsolePlatform(
-    productCode: string | null
-): VirtualConsolePlatform | null {
-    const code = productCode;
-
-    if (code === null) {
-        return null;
-    }
-    if (code.startsWith('WUP-N-D')) {
-        return VirtualConsolePlatform.NDS;
-    } else if (code.startsWith('WUP-N-F')) {
-        return VirtualConsolePlatform.NES;
-    } else if (code.startsWith('WUP-N-J')) {
-        return VirtualConsolePlatform.SNES;
-    } else if (code.startsWith('WUP-N-N')) {
-        return VirtualConsolePlatform.N64;
-    } else if (code.startsWith('WUP-N-V')) {
-        return VirtualConsolePlatform.Wii;
-    } else if (code.startsWith('WUP-N-MN')) {
-        return VirtualConsolePlatform.MSX;
-    } else if (
-        code.startsWith('WUP-N-PA') ||
-        code.startsWith('WUP-N-PB') ||
-        code.startsWith('WUP-N-PC') ||
-        code.startsWith('WUP-N-PD')
-    ) {
-        return VirtualConsolePlatform.GBA;
-    } else if (code.startsWith('WUP-N-PN')) {
-        return VirtualConsolePlatform.PCE;
-    }
-
-    return null;
-}
-
-export function normalizeTitleName(name: string): string {
-    return name.replace(/\\n/g, ' ').replace(/\s+/g, ' ').trim() || 'Unknown';
-}
-
 export const PARENT_KINDS = [
     TitleKinds.vWii,
     TitleKinds.Base,
@@ -159,3 +121,49 @@ export type TitleGroup = {
     expectedChildren: ChildKind[];
     status: TitleGroupStatus;
 };
+
+export function getVirtualConsolePlatform(
+    productCode: string | null
+): VirtualConsolePlatform | null {
+    const code = productCode;
+
+    if (code === null) {
+        return null;
+    }
+    if (code.startsWith('WUP-N-D')) {
+        return VirtualConsolePlatform.NDS;
+    } else if (code.startsWith('WUP-N-F')) {
+        return VirtualConsolePlatform.NES;
+    } else if (code.startsWith('WUP-N-J')) {
+        return VirtualConsolePlatform.SNES;
+    } else if (code.startsWith('WUP-N-N')) {
+        return VirtualConsolePlatform.N64;
+    } else if (code.startsWith('WUP-N-V')) {
+        return VirtualConsolePlatform.Wii;
+    } else if (code.startsWith('WUP-N-MN')) {
+        return VirtualConsolePlatform.MSX;
+    } else if (
+        code.startsWith('WUP-N-PA') ||
+        code.startsWith('WUP-N-PB') ||
+        code.startsWith('WUP-N-PC') ||
+        code.startsWith('WUP-N-PD')
+    ) {
+        return VirtualConsolePlatform.GBA;
+    } else if (code.startsWith('WUP-N-PN')) {
+        return VirtualConsolePlatform.PCE;
+    }
+
+    return null;
+}
+
+export function normalizeTitleName(name?: string): string {
+    // Remove newlines and consecutive spaces.
+    return name?.replace(/\\n/g, ' ').replace(/\s+/g, ' ').trim() ?? 'Unknown';
+}
+
+export function normalizeTitleId(titleId?: string): string {
+    const titleIdNormalized = titleId?.toLowerCase() ?? '';
+    const titleIdPattern = /^[0-9a-f]{16}$/;
+
+    return titleIdPattern.test(titleIdNormalized) ? titleIdNormalized : '';
+}
