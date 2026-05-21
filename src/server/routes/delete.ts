@@ -23,7 +23,7 @@ import {
     DELETE_SOCKET_EVENT,
     type DeleteSocketCommand,
 } from '../../shared/socket.js';
-import { formatLogError, formatTitleDisplayName } from '../../shared/shared.js';
+import { formatLogError, formatTitleDisplay } from '../../shared/shared.js';
 import { getLibraryCacheEntry } from './library.js';
 import { hasConflictingStorageCopyPath } from './storage.js';
 import path from 'path';
@@ -108,11 +108,13 @@ function queueDelete(
     const deleteItem: DeleteItem = {
         id: deleteId,
         titleId: normalizedTitleId,
-        titleName: formatTitleDisplayName(
+        titleName: formatTitleDisplay(
             deleteCached?.name ?? null,
             normalizedTitleId,
-            deleteTitleKind
+            deleteTitleKind,
+            deleteCached?.version ?? null
         ),
+        titleVersion: deleteCached?.version ?? null,
         titleKind: deleteTitleKind,
         state: 'queued',
         message: 'Queued',
@@ -199,11 +201,13 @@ async function processDeleteQueue(): Promise<void> {
             nextItem.totalCount = safeSourcePaths.length;
 
             nextItem.titleKind = titleIdentity?.kind ?? null;
+            nextItem.titleVersion = titleIdentity?.version ?? null;
             const deleteCached = getLibraryCacheEntry(nextItem.titleId);
-            nextItem.titleName = formatTitleDisplayName(
+            nextItem.titleName = formatTitleDisplay(
                 deleteCached?.name ?? null,
                 nextItem.titleId,
-                nextItem.titleKind
+                nextItem.titleKind,
+                nextItem.titleVersion
             );
 
             void downloadNusTitleMetadata(nextItem.titleId)
@@ -211,13 +215,15 @@ async function processDeleteQueue(): Promise<void> {
                     if (!metadata?.name) {
                         return;
                     }
-                    const namedTitleName = formatTitleDisplayName(
+                    const namedTitleName = formatTitleDisplay(
                         metadata.name,
                         nextItem.titleId,
-                        nextItem.titleKind
+                        nextItem.titleKind,
+                        nextItem.titleVersion
                     );
                     updateDelete(nextItem.id, {
                         titleName: namedTitleName,
+                        titleVersion: nextItem.titleVersion,
                     });
                 })
                 .catch(() => {});
@@ -225,6 +231,7 @@ async function processDeleteQueue(): Promise<void> {
 
             updateDelete(nextItem.id, {
                 titleName: nextItem.titleName,
+                titleVersion: nextItem.titleVersion,
                 titleKind: nextItem.titleKind,
                 totalCount: nextItem.totalCount,
                 message: nextItem.message,

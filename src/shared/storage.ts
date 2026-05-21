@@ -8,6 +8,7 @@ export type StorageCopyItem = {
     operation: StorageCopyOperation;
     titleId: string | null;
     sourceName: string;
+    titleVersion: number | null;
     titleKind: TitleKinds | null;
     destinationName: string;
     state: StorageCopyState;

@@ -31,7 +31,7 @@ import { isWindowsPath } from '../../shared/os/path.js';
 import {
     formatLogError,
     formatSize,
-    formatTitleDisplayName,
+    formatTitleDisplay,
 } from '../../shared/shared.js';
 import {
     type StorageFat32ListResponse,
@@ -170,9 +170,9 @@ function queueStorageTransfer(
     const sourceName = sourcePath
         ? getStorageCopySourceName(sourcePath)
         : cached
-          ? formatTitleDisplayName(cached.name, titleId!, titleKind)
+          ? formatTitleDisplay(cached.name, titleId!, titleKind, cached.version)
           : titleId
-            ? formatTitleDisplayName(null, titleId, titleKind)
+            ? formatTitleDisplay(null, titleId, titleKind)
             : 'Wii U root';
 
     const copyItem: StorageCopyItem = {
@@ -180,6 +180,7 @@ function queueStorageTransfer(
         operation,
         titleId,
         sourceName,
+        titleVersion: cached?.version ?? null,
         titleKind,
         destinationName: requestedDestination
             ? getStorageCopyDisplayName(requestedDestination)
@@ -565,20 +566,23 @@ async function processStorageCopyQueue(): Promise<void> {
             nextItem.requestedTitleId ?? titleIdentity?.titleId ?? null;
         nextItem.titleId = resolvedTitleId;
         nextItem.titleKind = titleIdentity?.kind ?? null;
+        nextItem.titleVersion = titleIdentity?.version ?? null;
         const copyCached = nextItem.titleId
             ? getLibraryCacheEntry(nextItem.titleId)
             : null;
         nextItem.sourceName = nextItem.titleId
-            ? formatTitleDisplayName(
+            ? formatTitleDisplay(
                   copyCached?.name ?? null,
                   nextItem.titleId,
-                  nextItem.titleKind
+                  nextItem.titleKind,
+                  nextItem.titleVersion
               )
             : getStorageCopySourceName(readableSourcePath);
 
         updateStorageCopy(nextItem.id, {
             titleId: nextItem.titleId,
             sourceName: nextItem.sourceName,
+            titleVersion: nextItem.titleVersion,
             titleKind: nextItem.titleKind,
         });
 
@@ -590,12 +594,16 @@ async function processStorageCopyQueue(): Promise<void> {
                     if (!metadata?.name || shouldStopStorageCopy(copyId)) {
                         return;
                     }
-                    const namedSourceName = formatTitleDisplayName(
+                    const namedSourceName = formatTitleDisplay(
                         metadata.name,
                         resolvedTitleId,
-                        kind
+                        kind,
+                        nextItem.titleVersion
                     );
-                    updateStorageCopy(copyId, { sourceName: namedSourceName });
+                    updateStorageCopy(copyId, {
+                        sourceName: namedSourceName,
+                        titleVersion: nextItem.titleVersion,
+                    });
                 })
                 .catch(() => {});
         }
@@ -1025,7 +1033,7 @@ async function copyPathWithStreams({
 
         let copiedBytes = 0;
         const readStream = createReadStream(sourceFilePath);
-        readStream.on('data', (chunk: Buffer) => {
+        readStream.on('data', (chunk) => {
             copiedBytes += chunk.length;
             onProgress({
                 relativePath: file.relativePath,

@@ -36,17 +36,21 @@ export function setLibraryCacheGroups(groups: TitleGroup[]): void {
 
 export function getLibraryCacheEntry(
     titleId: string
-): { name: string; kind: TitleKinds | null } | null {
+): { name: string; version: number | null; kind: TitleKinds | null } | null {
     const normalized = titleId.toLowerCase();
     const family = normalized.slice(8);
     const group = libraryGroups.find((g) => g.family === family);
     if (!group || !group.name) {
         return null;
     }
-    const kind =
-        group.entries.find((e) => e.titleId.toLowerCase() === normalized)
-            ?.kind ?? null;
-    return { name: group.name, kind };
+    const entry =
+        group.entries.find((e) => e.titleId.toLowerCase() === normalized) ??
+        null;
+    return {
+        name: group.name,
+        version: entry?.version ?? null,
+        kind: entry?.kind ?? null,
+    };
 }
 
 export function getLatestLibraryValidateStatus(): LibraryValidateStatusEvent | null {

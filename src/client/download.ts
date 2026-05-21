@@ -1,5 +1,5 @@
 import { type DownloadQueueItem } from '../shared/download.js';
-import { formatSize } from '../shared/shared.js';
+import { formatSize, formatTitleDisplay } from '../shared/shared.js';
 import { type TitleGroup, TitleKinds } from '../shared/titles.js';
 import { DOWNLOAD_SOCKET_COMMAND } from '../shared/socket.js';
 import {
@@ -103,7 +103,12 @@ export function formatDownloadState(item: DownloadQueueItem): string {
 }
 
 export function formatDownloadTitle(item: DownloadQueueItem): string {
-    return `${item.groupName} [${item.kind}]`;
+    return formatTitleDisplay(
+        item.installedTitleName ?? item.groupName,
+        item.titleId,
+        item.kind,
+        item.installedVersion
+    );
 }
 
 function formatDownloadDetails(item: DownloadQueueItem): string {

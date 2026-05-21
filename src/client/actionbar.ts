@@ -9,7 +9,7 @@ import {
     DELETE_SOCKET_COMMAND,
     type LibraryValidateStatusEvent,
 } from '../shared/socket.js';
-import { type TitleKinds } from '../shared/titles.js';
+import { formatTitleDisplay } from '../shared/shared.js';
 import {
     type DeleteActionBarCommand,
     type DeleteItem,
@@ -299,6 +299,7 @@ function getActionBarSignature(options: ActionBarOptions): string {
             (item) => ({
                 titleId: item.titleId ?? null,
                 titleName: item.name ?? null,
+                titleVersion: item.version ?? null,
                 titleKind: item.kind ?? null,
             })
         ),
@@ -483,7 +484,7 @@ function queueLibraryValidateFailureDownload(
             id: crypto.randomUUID(),
             family: item.titleId.toLowerCase().slice(8),
             groupName: item.name ?? item.titleId,
-            kind: item.kind as TitleKinds,
+            kind: item.kind,
             label: item.kind,
             titleId: item.titleId,
             sizeText: null,
@@ -795,11 +796,15 @@ function formatLibraryValidateState(event: LibraryValidateStatusEvent): string {
 function formatLibraryValidateTitle(event: LibraryValidateStatusEvent): string {
     if (
         (event.status === 'validating' || event.status === 'validated') &&
-        event.name &&
         event.kind &&
         event.titleId
     ) {
-        return `${event.name} [${event.kind}]`;
+        return formatTitleDisplay(
+            event.name ?? null,
+            event.titleId,
+            event.kind,
+            event.version ?? null
+        );
     }
 
     return 'Library validation';

@@ -20,7 +20,12 @@ import {
     TitleDatabaseEntry,
     RawTitleDatabaseEntry,
 } from '../shared/titles.js';
-import { toArray, mapConcurrent, formatSize } from '../shared/shared.js';
+import {
+    toArray,
+    mapConcurrent,
+    formatSize,
+    formatTitleDisplay,
+} from '../shared/shared.js';
 import { getAppRoot } from './paths.js';
 import { getImmediatePathSizeBytes } from '../shared/file.js';
 import { readTmd } from './metadata.js';
@@ -138,7 +143,7 @@ export function classifyTitleId(titleId: string): {
 
 export async function readWiiUTitleIdentity(
     titlePath: string
-): Promise<{ titleId: string; kind: TitleKinds } | null> {
+): Promise<{ titleId: string; version: number; kind: TitleKinds } | null> {
     const tmd = await readTmd(titlePath);
     if (!tmd) {
         return null;
@@ -147,6 +152,7 @@ export async function readWiiUTitleIdentity(
     const titleId = Buffer.from(tmd.header.titleId).toString('hex');
     return {
         titleId,
+        version: tmd.header.titleVersion,
         kind: classifyTitleId(titleId).kind,
     };
 }
@@ -757,6 +763,7 @@ type LibraryValidateProgress =
           titleId: string;
           name: string;
           kind: TitleKinds;
+          version: number | null;
           sizeText: string;
           currentFileName?: string | null;
           current: number;
@@ -767,6 +774,7 @@ type LibraryValidateProgress =
           titleId: string;
           name: string;
           kind: TitleKinds;
+          version: number | null;
           result: 'ok' | 'failed';
           error: string | null;
           current: number;
@@ -815,6 +823,7 @@ export async function validateWiiUTitles(
         const titleId = titleEntry?.titleId ?? 'unknown';
         const titleName = titleEntry?.name ?? directory;
         const titleKind = titleEntry?.kind ?? TitleKinds.Unknown;
+        const titleVersion = titleEntry?.version ?? null;
 
         const sizeText = formatSize(sizeBytes);
 
@@ -823,6 +832,7 @@ export async function validateWiiUTitles(
             titleId,
             name: titleName,
             kind: titleKind,
+            version: titleVersion,
             sizeText,
             current: offset + index,
             total,
@@ -830,7 +840,12 @@ export async function validateWiiUTitles(
 
         logger.log(
             'wiiu',
-            `validating title: [${titleId}] ${titleName} [${titleKind}] (${sizeText})`
+            `validating title: ${formatTitleDisplay(
+                titleName,
+                titleId,
+                titleKind,
+                titleVersion
+            )} (${sizeText})`
         );
         const validation = await validateTitleInstallFiles(
             dirPath,
@@ -840,6 +855,7 @@ export async function validateWiiUTitles(
                     titleId,
                     name: titleName,
                     kind: titleKind,
+                    version: titleVersion,
                     sizeText,
                     currentFileName: progress.currentFileName,
                     current: offset + index,
@@ -857,7 +873,12 @@ export async function validateWiiUTitles(
         // Keep the extra space, for alignment purposes
         logger.log(
             'wiiu',
-            `validated title:  [${titleId}] ${titleName} [${titleKind}] (${status})`
+            `validated title:  ${formatTitleDisplay(
+                titleName,
+                titleId,
+                titleKind,
+                validation.titleVersion
+            )} (${status})`
         );
 
         onProgress?.({
@@ -865,6 +886,7 @@ export async function validateWiiUTitles(
             titleId,
             name: titleName,
             kind: titleKind,
+            version: validation.titleVersion,
             result,
             error: validation.error,
             current: offset + index + 1,

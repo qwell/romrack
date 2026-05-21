@@ -81,11 +81,15 @@ export function nullableNumber(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-export function formatTitleDisplayName(
+export function formatTitleDisplay(
     name: string | null,
     titleId: string,
-    kind: TitleKinds | null
+    kind: TitleKinds | string | null,
+    version: number | null = null
 ): string {
     const label = name ?? titleId;
-    return kind ? `${label} [${kind}]` : label;
+    const versionText = version === null ? '' : ` v${version}`;
+    const kindText = kind ? ` [${kind}]` : '';
+    const titleIdText = name === null ? '' : ` ${titleId}`;
+    return `${label}${versionText}${kindText}${titleIdText}`;
 }

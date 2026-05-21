@@ -8,7 +8,7 @@ import {
     TITLE_VERIFY_SOCKET_COMMAND,
     type TitleVerifySocketEvent,
 } from '../shared/socket.js';
-import { formatSize } from '../shared/shared.js';
+import { formatSize, formatTitleDisplay } from '../shared/shared.js';
 import {
     AvailableTitleEntry,
     PARENT_KINDS,
@@ -477,7 +477,12 @@ function updateStorageCopyAvailability(
 
 function formatDeleteConfirmationEntry(entry: TitleEntry): string {
     const copyText = entry.copyCount > 1 ? ` (${entry.copyCount} copies)` : '';
-    return `${entry.name} v${entry.version} [${entry.kind}] ${entry.titleId}${copyText}`;
+    return `${formatTitleDisplay(
+        entry.name,
+        entry.titleId,
+        entry.kind,
+        entry.version
+    )}${copyText}`;
 }
 
 async function confirmAndQueueDeletes(

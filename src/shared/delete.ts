@@ -7,6 +7,7 @@ export type DeleteItem = {
     id: string;
     titleId: string;
     titleName: string | null;
+    titleVersion: number | null;
     titleKind: TitleKinds | null;
     state: DeleteState;
     message: string | null;

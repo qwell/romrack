@@ -2,6 +2,7 @@ import { type DownloadQueueItem } from './download.js';
 import { type DeleteItem } from './delete.js';
 
 import { type StorageCopyItem } from './storage.js';
+import { TitleKinds } from './titles.js';
 
 export const SOCKET_COMMAND = {
     downloadQueue: 'download.queue',
@@ -186,7 +187,8 @@ export type LibraryValidateStatusEvent = {
     status: LibraryValidateStatus;
     titleId?: string;
     name?: string;
-    kind?: string;
+    kind?: TitleKinds;
+    version?: number | null;
     sizeText?: string;
     currentFileName?: string | null;
     result?: 'ok' | 'failed';
