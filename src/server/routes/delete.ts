@@ -1,7 +1,6 @@
 import { randomUUID } from 'crypto';
 import { Router } from 'express';
 
-import { downloadNusTitleMetadata } from '../metadata.js';
 import { requireStringQuery } from '../request.js';
 import { sendServerError } from '../routes.js';
 import { broadcastAppSocketEvent } from '../socket.js';
@@ -210,23 +209,6 @@ async function processDeleteQueue(): Promise<void> {
                 nextItem.titleVersion
             );
 
-            void downloadNusTitleMetadata(nextItem.titleId)
-                .then((metadata) => {
-                    if (!metadata?.name) {
-                        return;
-                    }
-                    const namedTitleName = formatTitleDisplay(
-                        metadata.name,
-                        nextItem.titleId,
-                        nextItem.titleKind,
-                        nextItem.titleVersion
-                    );
-                    updateDelete(nextItem.id, {
-                        titleName: namedTitleName,
-                        titleVersion: nextItem.titleVersion,
-                    });
-                })
-                .catch(() => {});
             nextItem.message = 'Deleting...';
 
             updateDelete(nextItem.id, {
