@@ -4,6 +4,18 @@
     "repository": "https://github.com/qwell/wiiu-vault",
     "author": "Jason Parker",
     "license": "GPL-3.0-or-later",
+    "bugs": {
+        "url": "https://github.com/qwell/wiiu-vault/issues",
+        "email": "north@ntbox.com"
+    },
+    "funding": {
+        "type": "patreon",
+        "url": "https://www.patreon.com/northantara"
+    },
+    "keywords": [
+        "wiiu",
+        "roms"
+    ],
     "main": "dist/index.js",
     "type": "module",
     "typings": "dist/index.d.ts",
@@ -13,6 +25,11 @@
     "engines": {
         "node": ">=24.0.0"
     },
+    "os": [
+        "linux",
+        "win32",
+        "darwin"
+    ],
     "packageManager": "yarn@4.14.1",
     "scripts": {
         "lint": "eslint --cache --cache-strategy metadata --cache-location ./.cache/eslint .",
