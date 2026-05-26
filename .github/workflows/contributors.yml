@@ -1,0 +1,30 @@
+name: Update CONTRIBUTORS file
+on:
+    schedule:
+        - cron: '0 0 * * 0' # weekly
+    workflow_dispatch:
+
+permissions:
+    contents: write
+
+jobs:
+    main:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+
+            - uses: minicli/action-contributors@v3.3
+              name: "Update a project's CONTRIBUTORS file"
+              env:
+                  CONTRIB_REPOSITORY: 'qwell/wiiu-vault'
+                  CONTRIB_OUTPUT_FILE: 'CONTRIBUTORS.md'
+                  CONTRIB_STENCIL_DIR: ${{ github.workspace }}/.stencil
+                  CONTRIB_TEMPLATE: contributors
+                  CONTRIB_IGNORE: 'github-actions[bot],renovate-bot,dependabot[bot]'
+
+            - name: Commit changes
+              uses: test-room-7/action-update-file@v2
+              with:
+                  file-path: 'CONTRIBUTORS.md'
+                  commit-msg: Update Contributors
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
