@@ -479,7 +479,7 @@ function queueLibraryValidateFailureDownload(
         return;
     }
 
-    queueDownloads(downloads, [
+    const addedItems = queueDownloads(downloads, [
         {
             id: crypto.randomUUID(),
             family: item.titleId.toLowerCase().slice(8),
@@ -503,7 +503,9 @@ function queueLibraryValidateFailureDownload(
             installedSourcePath: null,
         },
     ]);
-    clearLibraryValidateFailure(itemId);
+    if (addedItems.length > 0) {
+        clearLibraryValidateFailure(itemId);
+    }
 }
 
 function updateActionBarRowsInPlace(options: ActionBarOptions): void {
@@ -905,13 +907,7 @@ function renderLibraryValidateFailureDetails(
     details.append(
         detailsTextElement,
         ...(event.titleId
-            ? [
-                  createActionButton(
-                      'Download',
-                      LIBRARY_VALIDATE_SOCKET_COMMAND.failureDownload,
-                      getLibraryValidateFailureKey(event)
-                  ),
-              ]
+            ? [createLibraryValidateFailureDownloadButton(event)]
             : []),
         createActionButton(
             'Clear',
@@ -920,6 +916,38 @@ function renderLibraryValidateFailureDetails(
         )
     );
     return details;
+}
+
+function createLibraryValidateFailureDownloadButton(
+    event: LibraryValidateStatusEvent
+): HTMLButtonElement {
+    const button = createActionButton(
+        'Download',
+        LIBRARY_VALIDATE_SOCKET_COMMAND.failureDownload,
+        getLibraryValidateFailureKey(event)
+    );
+    button.disabled = isLibraryValidateFailureDownloadQueued(event);
+    return button;
+}
+
+function isLibraryValidateFailureDownloadQueued(
+    event: LibraryValidateStatusEvent
+): boolean {
+    if (!event.titleId || !event.kind) {
+        return false;
+    }
+
+    const family = event.titleId.toLowerCase().slice(8);
+
+    return (
+        actionBarOptions?.downloads.some(
+            (item) =>
+                item.state !== 'complete' &&
+                item.family === family &&
+                item.kind === event.kind &&
+                item.titleId.toLowerCase() === event.titleId?.toLowerCase()
+        ) ?? false
+    );
 }
 
 function renderLibraryValidateFailureRow(

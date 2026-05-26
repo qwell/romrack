@@ -857,7 +857,7 @@ footer > div:last-child {
 
 .title-download-row {
     display: grid;
-    grid-template-columns: 18px 13ch minmax(0, 1fr) max-content max-content;
+    grid-template-columns: 18px 12ch minmax(16ch, 1fr) 6ch 6ch;
     gap: 6px;
     align-items: center;
     min-height: 20px;
@@ -865,9 +865,7 @@ footer > div:last-child {
 }
 
 .title-storage-copy-row {
-    grid-template-columns:
-        18px 13ch minmax(0, 1fr) max-content max-content
-        max-content;
+    grid-template-columns: 18px 12ch minmax(16ch, 1fr) minmax(0, 1fr) 12ch 8ch;
 }
 
 .title-download-row input {
@@ -916,8 +914,21 @@ footer > div:last-child {
     color: var(--border-muted);
     font-size: 0.9em;
     overflow: hidden;
+    text-align: right;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.title-download-row > .title-storage-verification-state {
+    grid-column: 5;
+}
+
+.title-download-row > .title-download-progress {
+    grid-column: 6;
+}
+
+.title-download-row:not(.title-storage-copy-row) > .title-download-size {
+    grid-column: 5;
 }
 
 .title-storage-verification-state-ok {
@@ -929,8 +940,12 @@ footer > div:last-child {
 }
 
 .title-download-size {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--border-muted);
+    text-align: right;
 }
 
 .title-download-state {

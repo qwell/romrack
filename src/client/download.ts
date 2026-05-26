@@ -261,7 +261,7 @@ function renderDownloadControls(item: DownloadQueueItem): HTMLDivElement {
 export function queueDownloads(
     queue: DownloadQueueItem[],
     items: DownloadQueueItem[]
-): void {
+): DownloadQueueItem[] {
     const seen = new Set<string>();
 
     const addedItems = items.filter((item) => {
@@ -277,13 +277,18 @@ export function queueDownloads(
     });
 
     if (addedItems.length === 0) {
-        return;
+        return [];
     }
+
+    queue.push(...addedItems);
+    updateActionBar();
+    renderDownloadMarkers(queue);
 
     sendAppSocketCommand({
         type: DOWNLOAD_SOCKET_COMMAND.queue,
         items: addedItems,
     });
+    return addedItems;
 }
 
 export function retryDownload(itemId: string): void {

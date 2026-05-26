@@ -187,11 +187,12 @@ export function renderDownloadAvailabilityRow(
 
     if (existingQueueItem) {
         const row = document.createElement('div');
-        row.className = `title-download-row title-download-row-${existingQueueItem.state}`;
+        row.className = `title-download-row title-storage-copy-row title-download-row-${existingQueueItem.state}`;
 
-        const state = document.createElement('span');
-        state.className = 'title-download-state';
-        state.textContent = formatDownloadIcon(existingQueueItem.state);
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'title-download-checkbox';
+        checkbox.disabled = true;
 
         const slot = document.createElement('span');
         slot.className = 'title-download-slot';
@@ -199,13 +200,14 @@ export function renderDownloadAvailabilityRow(
 
         const titleId = document.createElement('span');
         titleId.className = 'title-download-id';
-        titleId.textContent = formatDownloadProgress(existingQueueItem);
+        titleId.textContent = entry.titleId;
 
-        const size = document.createElement('span');
-        size.className = 'title-download-size';
-        size.textContent = sizeText ?? '';
+        const progress = document.createElement('span');
+        progress.className =
+            'title-storage-verification-state title-download-progress';
+        progress.textContent = formatDownloadProgress(existingQueueItem);
 
-        row.append(slot, titleId, size, state);
+        row.append(checkbox, slot, titleId, progress);
         return row;
     }
 
@@ -354,6 +356,17 @@ function renderLocalCopyRow(
         checkbox.dataset.label = downloadData.label;
         checkbox.dataset.sizeText = formatSize(entry.sizeBytes);
         checkbox.dataset.totalBytes = String(entry.sizeBytes);
+
+        const existingDownload = getDownloadItem(
+            options?.downloads ?? [],
+            downloadData.group.family,
+            entry.kind,
+            entry.titleId
+        );
+        if (existingDownload) {
+            checkbox.disabled = true;
+            row.title = formatDownloadProgress(existingDownload);
+        }
     }
 
     const slot = document.createElement('span');
@@ -543,14 +556,32 @@ function queueSelectedDownloads(
     group: TitleGroup,
     list: HTMLElement,
     downloads: DownloadQueueItem[]
-): void {
+): DownloadQueueItem[] {
     const hasSelection =
         list.querySelectorAll('.title-download-checkbox:checked').length > 0;
 
-    queueDownloads(downloads, collectSelectedDownloads(list, hasSelection));
+    const addedItems = queueDownloads(
+        downloads,
+        collectSelectedDownloads(list, hasSelection)
+    );
 
     const body = document.querySelector('.title-detail-body');
     body?.replaceChildren(renderGroupDetailContent(group));
+    return addedItems;
+}
+
+function hasDownloadableCheckboxes(list: HTMLElement): boolean {
+    return getActiveDownloadCheckboxes(list, false).length > 0;
+}
+
+function getActiveDownloadCheckboxes(
+    list: HTMLElement,
+    selectedOnly: boolean
+): HTMLInputElement[] {
+    const selector = selectedOnly
+        ? '.title-download-checkbox:checked:not(:disabled)'
+        : '.title-download-checkbox:not(:disabled)';
+    return Array.from(list.querySelectorAll<HTMLInputElement>(selector));
 }
 
 function renderAvailableActions(
@@ -568,17 +599,22 @@ function renderAvailableActions(
         const checkedCount = list.querySelectorAll(
             '.title-download-checkbox:checked'
         ).length;
+        const targetCount = getActiveDownloadCheckboxes(
+            list,
+            checkedCount > 0
+        ).length;
 
         downloadButton.textContent =
             checkedCount === 0 ? 'Download all' : 'Download selected';
+        downloadButton.disabled = targetCount === 0;
     };
 
-    downloadButton.disabled = false;
     updateDownloadButton();
 
     list.addEventListener('change', updateDownloadButton);
     downloadButton.addEventListener('click', () => {
         queueSelectedDownloads(group, list, downloads);
+        updateDownloadButton();
     });
 
     actions.append(spacer, downloadButton);
@@ -609,7 +645,8 @@ function renderInvalidActions(
             checkedCount === 0 ? 'Download all' : 'Download selected';
         deleteButton.textContent =
             checkedCount === 0 ? 'Delete all' : 'Delete selected';
-        downloadButton.disabled = entries.length === 0;
+        downloadButton.disabled =
+            entries.length === 0 || !hasDownloadableCheckboxes(list);
         deleteButton.disabled = entries.length === 0;
     };
 
@@ -618,6 +655,7 @@ function renderInvalidActions(
 
     downloadButton.addEventListener('click', () => {
         queueSelectedDownloads(group, list, downloads);
+        updateButtons();
     });
 
     deleteButton.addEventListener('click', () => {
