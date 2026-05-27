@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { type Fat32Volume, type OsOperations } from './types.js';
@@ -83,7 +84,7 @@ export async function listMountedFat32Volumes(): Promise<Fat32Volume[]> {
         .map((mount) => {
             const size = sizes.get(mount.path);
             return {
-                label: mount.path.split('/').pop() ?? null,
+                label: path.basename(mount.path) || null,
                 fileSystem: 'FAT32',
                 source: mount.path,
                 sizeBytes: size?.sizeBytes ?? null,

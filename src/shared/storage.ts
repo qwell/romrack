@@ -32,8 +32,7 @@ export const STORAGE_ACTION_BAR_COMMAND_TYPES = [
 ] as const satisfies readonly StorageActionBarCommand[];
 
 export type StorageTransferQueueInput = {
-    sourcePath: string | null;
-    titleId: string | null;
+    titleId: string;
     requestedDestination: string | null;
     move: boolean;
 };
@@ -42,9 +41,8 @@ export type StorageCopyQueueItem = StorageCopyItem & {
     sourcePath: string | null;
     destinationPath: string;
     currentFilePath: string | null;
-    requestedSourcePath: string | null;
     requestedDestination: string | null;
-    requestedTitleId: string | null;
+    requestedTitleId: string;
     duplicateSourcePaths: string[];
 };
 

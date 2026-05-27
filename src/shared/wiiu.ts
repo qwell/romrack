@@ -2,6 +2,8 @@ import path from 'path';
 import fs from 'fs';
 
 import { DEFAULT_ROM_DIR } from './config.js';
+import { resolveReadablePath } from './os.js';
+import { isWindowsPath } from './os/path.js';
 
 type WiiURootInspection = {
     normalizedRoot: string;
@@ -48,6 +50,10 @@ export function readWiiURoots(
 }
 
 function normalizeWiiURoot(root: string): string {
+    if (process.platform !== 'win32' && isWindowsPath(root)) {
+        return root.trim();
+    }
+
     const resolvedRoot = path.resolve(root.trim());
 
     try {
@@ -59,9 +65,10 @@ function normalizeWiiURoot(root: string): string {
 
 async function inspectWiiURoot(root: string): Promise<WiiURootInspection> {
     const normalizedRoot = normalizeWiiURoot(root);
+    const readableRoot = await resolveReadablePath(normalizedRoot);
 
     try {
-        const stats = await fs.promises.stat(normalizedRoot);
+        const stats = await fs.promises.stat(readableRoot);
         if (!stats.isDirectory()) {
             return {
                 normalizedRoot,
@@ -72,7 +79,7 @@ async function inspectWiiURoot(root: string): Promise<WiiURootInspection> {
         }
 
         try {
-            await fs.promises.access(normalizedRoot, fs.constants.R_OK);
+            await fs.promises.access(readableRoot, fs.constants.R_OK);
             return {
                 normalizedRoot,
                 exists: true,

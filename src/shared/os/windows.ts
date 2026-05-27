@@ -1,10 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-import path from 'node:path';
-
 import { type Fat32Volume, type OsOperations } from './types.js';
-import { isWindowsPath, normalizePath } from './path.js';
 import { nullableNumber, nullableString, toArray } from '../shared.js';
 
 const execFileAsync = promisify(execFile);
@@ -22,12 +19,6 @@ type WindowsVolume = {
 function getDriveRoot(driveLetter: string | null): string | null {
     return driveLetter ? `${driveLetter}:\\` : null;
 }
-
-export function normalizeWindowsPath(value: string): string {
-    return path.win32.normalize(value.trim());
-}
-
-export { isWindowsPath };
 
 function parseWindowsVolume(value: unknown): Fat32Volume | null {
     if (!value || typeof value !== 'object') {
@@ -66,6 +57,15 @@ export function parseWindowsFat32Volumes(stdout: string): Fat32Volume[] {
         .filter((volume): volume is Fat32Volume => volume !== null);
 }
 
+export function parseWindowsDriveRoot(value: string | null): string | null {
+    if (!value) {
+        return null;
+    }
+
+    const match = /^([A-Z]):[\\/]?$/i.exec(value.trim());
+    return match ? `${match[1].toUpperCase()}:\\` : null;
+}
+
 export async function listMountedFat32Volumes(): Promise<Fat32Volume[]> {
     const { stdout } = await execFileAsync('powershell.exe', [
         '-NoProfile',
@@ -83,13 +83,6 @@ export async function listMountedFat32Volumes(): Promise<Fat32Volume[]> {
 }
 
 export const listFat32Volumes = listMountedFat32Volumes;
-
-export function appendWindowsSubpath(root: string, subpath: string): string {
-    return path.win32.join(
-        normalizeWindowsPath(normalizePath(root) ?? root),
-        normalizeWindowsPath(normalizePath(subpath) ?? subpath)
-    );
-}
 
 export const windows: OsOperations = {
     listFat32Volumes,

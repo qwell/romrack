@@ -32,6 +32,7 @@ import { readTmd } from './metadata.js';
 import logger from '../shared/logger.js';
 import { ansi } from '../shared/ansi.js';
 import { LibraryValidateTitle } from '../shared/api.js';
+import { resolveReadablePath } from '../shared/os.js';
 
 type GameTdbLocale = {
     '@lang'?: string;
@@ -500,9 +501,7 @@ async function findTitleDirs(root: string): Promise<string[]> {
             childDirectories,
             LIBRARY_SCAN_CONCURRENCY,
             async (entry) => {
-                const subRel = relative
-                    ? `${relative}/${entry.name}`
-                    : entry.name;
+                const subRel = path.join(relative, entry.name);
                 const childPath = path.join(currentPath, entry.name);
                 return findTitleDirsInPath(childPath, subRel);
             }
@@ -702,8 +701,9 @@ export async function scanWiiUTitleRoots(
     for (const root of roots) {
         logger.log('wiiu', `scanning Wii U root: ${root}`);
         try {
-            await assertReadableDirectory(root);
-            scannedGroups.push(...(await scanWiiUTitles(root)));
+            const readableRoot = await resolveReadablePath(root);
+            await assertReadableDirectory(readableRoot);
+            scannedGroups.push(...(await scanWiiUTitles(readableRoot)));
         } catch {
             logger.warn('wiiu', `skipping Wii U root ${root}`);
         }
@@ -722,8 +722,9 @@ export async function findWiiUTitleSourcePaths(
 
     for (const root of roots) {
         try {
-            await assertReadableDirectory(root);
-            const entries = await scanTitleEntries(root, titleDatabase);
+            const readableRoot = await resolveReadablePath(root);
+            await assertReadableDirectory(readableRoot);
+            const entries = await scanTitleEntries(readableRoot, titleDatabase);
 
             sourcePaths.push(
                 ...entries
@@ -745,8 +746,9 @@ export async function findFirstReadableWiiURoot(
 
     for (const root of roots) {
         try {
-            await assertReadableDirectory(root);
-            return root;
+            const readableRoot = await resolveReadablePath(root);
+            await assertReadableDirectory(readableRoot);
+            return readableRoot;
         } catch (error) {
             errors.push(
                 `${root}: ${error instanceof Error ? error.message : String(error)}`
@@ -922,10 +924,11 @@ export async function validateWiiUTitleRoots(
         throwIfLibraryValidateCancelled(signal);
 
         try {
-            await assertReadableDirectory(root);
+            const readableRoot = await resolveReadablePath(root);
+            await assertReadableDirectory(readableRoot);
             readableRoots.push({
-                root,
-                directories: await findTitleDirs(root),
+                root: readableRoot,
+                directories: await findTitleDirs(readableRoot),
             });
         } catch {
             logger.warn('wiiu', `skipping Wii U root ${root}`);

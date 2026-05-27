@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto';
 import { pipeline } from 'stream/promises';
 import { Router, type Request } from 'express';
 
-import { getStringQuery } from '../request.js';
+import { getStringQuery, requireTitleIdQuery } from '../request.js';
 import { sendServerError } from '../routes.js';
 import { downloadNusTitleMetadata } from '../metadata.js';
 import { broadcastAppSocketEvent } from '../socket.js';
@@ -18,6 +18,7 @@ import { getConfig } from '../../shared/config.js';
 import {
     getPathFileSizes,
     getPathStats,
+    isSameOrNestedPath,
     type PathFileSize,
 } from '../../shared/file.js';
 import logger from '../../shared/logger.js';
@@ -27,7 +28,6 @@ import {
     resolveFat32Destination,
     resolveReadablePath,
 } from '../../shared/os.js';
-import { isWindowsPath } from '../../shared/os/path.js';
 import {
     formatLogError,
     formatSize,
@@ -51,7 +51,6 @@ import { getLibraryCacheEntry } from './library.js';
 import {
     deleteLocalTitleSourcePaths,
     getSafeLocalDeletePaths,
-    isSameOrNestedPath,
 } from './delete.js';
 
 type RouteResult<TBody> = {
@@ -63,9 +62,14 @@ export function createStorageRouter(): Router {
     const router = Router();
 
     router.get('/copy', (req, res) => {
+        const titleId = requireTitleIdQuery(req, res);
+        if (titleId === null) {
+            return;
+        }
+
         try {
             const result = queueStorageTransfer(
-                getStorageTransferQueueInput(req, false)
+                getStorageTransferQueueInput(req, titleId, false)
             );
             res.status(result.status).json(result.body);
         } catch (error) {
@@ -80,9 +84,14 @@ export function createStorageRouter(): Router {
     });
 
     router.get('/move', (req, res) => {
+        const titleId = requireTitleIdQuery(req, res);
+        if (titleId === null) {
+            return;
+        }
+
         try {
             const result = queueStorageTransfer(
-                getStorageTransferQueueInput(req, true)
+                getStorageTransferQueueInput(req, titleId, true)
             );
             res.status(result.status).json(result.body);
         } catch (error) {
@@ -129,11 +138,9 @@ function queueStorageTransfer(
     const requestedDestination = input.requestedDestination;
     const move = input.move;
     const copyId = randomUUID();
-    const sourcePath = input.sourcePath;
-    const titleId = input.titleId?.toLowerCase() ?? null;
+    const titleId = input.titleId.toLowerCase();
     const operation = move ? 'move' : 'copy';
     const transferKey = getStorageTransferKey({
-        sourcePath,
         titleId,
         requestedDestination,
         operation,
@@ -143,7 +150,6 @@ function queueStorageTransfer(
             (item) =>
                 (item.state === 'queued' || item.state === 'copying') &&
                 getStorageTransferKey({
-                    sourcePath: item.sourcePath,
                     titleId: item.requestedTitleId,
                     requestedDestination: item.requestedDestination,
                     operation: item.operation,
@@ -156,7 +162,7 @@ function queueStorageTransfer(
             body: {
                 copyId: existingItem.id,
                 item: existingItem,
-                sourcePath,
+                sourcePath: existingItem.sourcePath,
                 titleId,
                 requestedDestination,
                 move,
@@ -165,15 +171,11 @@ function queueStorageTransfer(
         };
     }
 
-    const cached = titleId ? getLibraryCacheEntry(titleId) : null;
-    const titleKind = titleId ? classifyTitleId(titleId).kind : null;
-    const sourceName = sourcePath
-        ? getStorageCopySourceName(sourcePath)
-        : cached
-          ? formatTitleDisplay(cached.name, titleId!, titleKind, cached.version)
-          : titleId
-            ? formatTitleDisplay(null, titleId, titleKind)
-            : 'Wii U root';
+    const cached = getLibraryCacheEntry(titleId);
+    const titleKind = classifyTitleId(titleId).kind;
+    const sourceName = cached
+        ? formatTitleDisplay(cached.name, titleId, titleKind, cached.version)
+        : formatTitleDisplay(null, titleId, titleKind);
 
     const copyItem: StorageCopyItem = {
         id: copyId,
@@ -198,10 +200,9 @@ function queueStorageTransfer(
 
     const queueItem: StorageCopyQueueItem = {
         ...copyItem,
-        sourcePath,
+        sourcePath: null,
         destinationPath: requestedDestination ?? '',
         currentFilePath: null,
-        requestedSourcePath: sourcePath,
         requestedDestination,
         requestedTitleId: titleId,
         duplicateSourcePaths: [],
@@ -218,7 +219,7 @@ function queueStorageTransfer(
         body: {
             copyId,
             item: copyItem,
-            sourcePath,
+            sourcePath: null,
             titleId,
             requestedDestination,
             move,
@@ -228,31 +229,28 @@ function queueStorageTransfer(
 
 function getStorageTransferQueueInput(
     req: Request,
+    titleId: string,
     move: boolean
 ): StorageTransferQueueInput {
     return {
-        sourcePath: getStringQuery(req, 'source'),
-        titleId: getStringQuery(req, 'titleId'),
+        titleId,
         requestedDestination: getStringQuery(req, 'dest'),
         move,
     };
 }
 
 function getStorageTransferKey({
-    sourcePath,
     titleId,
     requestedDestination,
     operation,
 }: {
-    sourcePath: string | null;
-    titleId: string | null;
+    titleId: string;
     requestedDestination: string | null;
     operation: StorageCopyItem['operation'];
 }): string {
     return [
         operation,
-        sourcePath ?? '',
-        titleId?.toLowerCase() ?? '',
+        titleId.toLowerCase(),
         requestedDestination?.trim() ?? '',
     ].join('\0');
 }
@@ -522,48 +520,57 @@ async function processStorageCopyQueue(): Promise<void> {
             );
         }
 
-        if (
-            nextItem.requestedSourcePath !== null &&
-            isInvalidStorageSourcePath(nextItem.requestedSourcePath)
-        ) {
+        const sourcePaths = await findWiiUTitleSourcePaths(
+            getConfig().wiiuRoots,
+            nextItem.requestedTitleId
+        );
+
+        if (sourcePaths.length === 0) {
             throw new Error(
-                `Invalid storage source path: ${nextItem.requestedSourcePath}`
+                `No local title found for ${nextItem.requestedTitleId}`
             );
         }
 
-        let sourcePath = nextItem.requestedSourcePath;
-        let duplicateSourcePaths: string[] = [];
+        const readableSourcePaths = await Promise.all(
+            sourcePaths.map((path) => resolveReadablePath(path))
+        );
+        let sourceIndex: number | null = null;
+        let destination: StreamCopyDestination | null = null;
 
-        if (sourcePath === null && nextItem.requestedTitleId !== null) {
-            const sourcePaths = await findWiiUTitleSourcePaths(
-                getConfig().wiiuRoots,
-                nextItem.requestedTitleId
+        for (const [index, readablePath] of readableSourcePaths.entries()) {
+            const candidateDestination = await getStreamCopyDestination(
+                readablePath,
+                storageDestination.source
             );
-            sourcePath = sourcePaths[0] ?? null;
-            duplicateSourcePaths = sourcePaths.slice(1);
+            if (
+                !isSameOrNestedPath(readablePath, candidateDestination.path) &&
+                !isSameOrNestedPath(candidateDestination.path, readablePath)
+            ) {
+                sourceIndex = index;
+                destination = candidateDestination;
+                break;
+            }
         }
 
-        if (sourcePath === null && nextItem.requestedTitleId === null) {
-            sourcePath = getConfig().wiiuRoots[0] ?? null;
-        }
-
-        if (!sourcePath) {
+        if (sourceIndex === null || destination === null) {
             throw new Error(
-                nextItem.requestedTitleId === null
-                    ? 'No Wii U root configured'
-                    : `No local title found for ${nextItem.requestedTitleId}`
+                `No non-overlapping local title source found for ${nextItem.requestedTitleId}`
             );
         }
 
-        const readableSourcePath = await resolveReadablePath(sourcePath);
+        const readableSourcePath = readableSourcePaths[sourceIndex];
         const titleIdentity = await readWiiUTitleIdentity(readableSourcePath);
         nextItem.sourcePath = readableSourcePath;
-        nextItem.requestedSourcePath = sourcePath;
-        nextItem.duplicateSourcePaths = duplicateSourcePaths;
-        nextItem.titleId =
-            nextItem.requestedTitleId ?? titleIdentity?.titleId ?? null;
-        const resolvedTitleId =
-            nextItem.requestedTitleId ?? titleIdentity?.titleId ?? null;
+        nextItem.duplicateSourcePaths = sourcePaths.filter((_, index) => {
+            const readablePath = readableSourcePaths[index];
+            return (
+                index !== sourceIndex &&
+                readablePath !== undefined &&
+                !isSameOrNestedPath(readablePath, destination.path) &&
+                !isSameOrNestedPath(destination.path, readablePath)
+            );
+        });
+        const resolvedTitleId = nextItem.requestedTitleId;
         nextItem.titleId = resolvedTitleId;
         nextItem.titleKind = titleIdentity?.kind ?? null;
         nextItem.titleVersion = titleIdentity?.version ?? null;
@@ -623,10 +630,6 @@ async function processStorageCopyQueue(): Promise<void> {
 
         const sourceSizeBytes = sourceStats.sizeBytes;
         const sourceFileCount = sourceStats.fileCount;
-        const destination = await getStreamCopyDestination(
-            readableSourcePath,
-            storageDestination.source
-        );
         const destinationPath = destination.path;
         const freeBytes = destination.freeBytes ?? storageDestination.freeBytes;
 
@@ -682,9 +685,7 @@ async function processStorageCopyQueue(): Promise<void> {
                     return;
                 }
 
-                const nextFilePath = getStorageCopyFileKey(
-                    progressUpdate.relativePath
-                );
+                const nextFilePath = progressUpdate.relativePath;
 
                 if (
                     currentFilePath !== null &&
@@ -814,10 +815,6 @@ function calculateStorageCopyProgress(
     return Math.min(100, Math.max(0, overallProgress));
 }
 
-function getStorageCopyFileKey(filePath: string): string {
-    return filePath.replaceAll('\\', '/').replace(/^\/+/, '');
-}
-
 function calculateStorageCopyByteProgress({
     completedBytes,
     currentFileSizeBytes,
@@ -849,24 +846,6 @@ function calculateStorageCopyByteProgress({
     );
 }
 
-function getStorageInstallRoot(destinationRoot: string): string {
-    const usesWindowsPath = /^[A-Z]:(?:[\\/]|$)/i.test(destinationRoot);
-    const pathApi = usesWindowsPath ? path.win32 : path.posix;
-    const normalizedRoot = usesWindowsPath
-        ? path.win32.normalize(
-              /^[A-Z]:$/i.test(destinationRoot)
-                  ? `${destinationRoot}\\`
-                  : destinationRoot
-          )
-        : destinationRoot.replace(/[\\/]+$/, '');
-
-    if (pathApi.basename(normalizedRoot).toLowerCase() === 'install') {
-        return normalizedRoot;
-    }
-
-    return pathApi.join(normalizedRoot, 'install');
-}
-
 type StreamCopyDestination = {
     path: string;
     freeBytes: number | null;
@@ -880,10 +859,7 @@ async function getStreamCopyDestination(
         await ensureStorageInstallRoot(destinationRoot);
 
     return {
-        path: path.join(
-            resolvedDestinationRoot,
-            path.basename(sourcePath.replace(/[\\/]+$/, ''))
-        ),
+        path: path.join(resolvedDestinationRoot, path.basename(sourcePath)),
         freeBytes: await getStorageFreeBytes(resolvedDestinationRoot),
     };
 }
@@ -891,30 +867,20 @@ async function getStreamCopyDestination(
 async function ensureStorageInstallRoot(
     destinationRoot: string
 ): Promise<string> {
-    let resolvedDestinationRoot: string;
-    const installRoot = getStorageInstallRoot(destinationRoot);
-    if (isWindowsPath(installRoot)) {
-        const resolvedPath = await resolveReadablePath(installRoot).catch(
-            () => null
+    let readableDestinationRoot: string;
+    try {
+        readableDestinationRoot = await resolveReadablePath(destinationRoot);
+    } catch (error) {
+        throw new Error(
+            `Storage destination is not mounted in this runtime: ${destinationRoot}`,
+            { cause: error }
         );
-        if (resolvedPath === null) {
-            throw new Error(
-                `Destination is not mounted in WSL: ${installRoot}. Mount the drive in WSL or run the server on Windows.`
-            );
-        }
-
-        resolvedDestinationRoot = resolvedPath;
-    } else {
-        try {
-            resolvedDestinationRoot = await resolveReadablePath(installRoot);
-        } catch (error) {
-            throw new Error(
-                `Storage destination is not mounted in this runtime: ${installRoot}`,
-                { cause: error }
-            );
-        }
     }
 
+    const resolvedDestinationRoot = path.join(
+        readableDestinationRoot,
+        'install'
+    );
     await mkdir(resolvedDestinationRoot, { recursive: true });
     return resolvedDestinationRoot;
 }
@@ -931,8 +897,7 @@ async function getStorageFreeBytes(
 }
 
 function getStorageCopyDisplayName(filePath: string): string {
-    const normalized = filePath.replace(/[\\/]+$/, '');
-    return path.basename(normalized) || normalized;
+    return path.basename(filePath) || filePath;
 }
 
 function getStorageCopySourceName(filePath: string): string {
@@ -955,10 +920,6 @@ function shouldStopStorageCopy(itemId: string): boolean {
         (activeStorageCopyId === itemId &&
             activeStorageCopyAbortController?.signal.aborted === true)
     );
-}
-
-function isInvalidStorageSourcePath(sourcePath: string): boolean {
-    return sourcePath === 'undefined' || sourcePath === 'null';
 }
 
 export async function hasConflictingStorageCopyPath(

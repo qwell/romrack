@@ -1,10 +1,10 @@
 import os from 'node:os';
+import path from 'node:path';
 
 import { linux } from './os/linux.js';
 import { macos } from './os/macos.js';
 import { windows } from './os/windows.js';
 import { inspectWslPath, wsl2, isWsl2 } from './os/wsl2.js';
-import { resolveStorageDestination } from './os/path.js';
 import { type Fat32Volume, type OsOperations } from './os/types.js';
 
 export type { Fat32Volume, OsOperations } from './os/types.js';
@@ -21,14 +21,12 @@ export function resolveFat32Destination(
         return volumes[0] ?? null;
     }
 
-    for (const volume of volumes) {
-        const resolved = resolveStorageDestination(volume, destination);
-        if (resolved) {
-            return resolved;
-        }
-    }
-
-    return null;
+    const resolvedDestination = path.resolve(destination);
+    return (
+        volumes.find(
+            (volume) => path.resolve(volume.source) === resolvedDestination
+        ) ?? null
+    );
 }
 
 export async function getRuntimeOs(): Promise<RuntimeOs> {

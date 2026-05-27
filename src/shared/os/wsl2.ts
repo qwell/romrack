@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { type Fat32Volume, type OsOperations } from './types.js';
 import * as linux from './linux.js';
 import * as windows from './windows.js';
+import { isWindowsPath } from './path.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -51,32 +52,6 @@ function isWindowsBackedMount(mount: linux.LinuxMount): boolean {
     );
 }
 
-function getMountWindowsPath(mount: linux.LinuxMount): string | null {
-    return (
-        normalizeWindowsDriveRoot(mount.source) ??
-        normalizeWindowsDriveRoot(
-            parseOptions(mount.options).get('path') ?? null
-        )
-    );
-}
-
-function normalizeWindowsDriveRoot(value: string | null): string | null {
-    if (!value) {
-        return null;
-    }
-
-    const match = /^([A-Z]):[\\/]?$/i.exec(value.trim());
-    return match ? `${match[1].toUpperCase()}:\\` : null;
-}
-
-function getRelativeWindowsPath(
-    sourcePath: string,
-    mount: linux.LinuxMount
-): string {
-    const relative = path.posix.relative(mount.target, sourcePath);
-    return relative === '' ? '' : path.win32.join(...relative.split('/'));
-}
-
 async function wslpath(args: string[]): Promise<string | null> {
     try {
         const { stdout } = await execFileAsync('wslpath', args);
@@ -87,13 +62,22 @@ async function wslpath(args: string[]): Promise<string | null> {
     }
 }
 
-async function getMountedWindowsPath(windowsPath: string): Promise<{
+function getMountWindowsPath(mount: linux.LinuxMount): string | null {
+    return (
+        windows.parseWindowsDriveRoot(mount.source) ??
+        windows.parseWindowsDriveRoot(
+            parseOptions(mount.options).get('path') ?? null
+        )
+    );
+}
+
+async function resolveMountedWslPath(windowsPath: string): Promise<{
     path: string;
     mountTarget: string;
     fileSystem: string;
 } | null> {
-    const normalizedPath = windows.normalizeWindowsPath(windowsPath);
-    const root = normalizeWindowsDriveRoot(
+    const normalizedPath = path.win32.normalize(windowsPath.trim());
+    const root = windows.parseWindowsDriveRoot(
         path.win32.parse(normalizedPath).root
     );
     if (!root) {
@@ -113,7 +97,7 @@ async function getMountedWindowsPath(windowsPath: string): Promise<{
     const relativePath = path.win32.relative(root, normalizedPath);
     return {
         path: relativePath
-            ? path.posix.join(mount.target, ...relativePath.split(/[\\/]+/))
+            ? path.join(mount.target, ...relativePath.split(path.win32.sep))
             : mount.target,
         mountTarget: mount.target,
         fileSystem: mount.fileSystem,
@@ -148,7 +132,9 @@ export async function listMountedFat32Volumes(): Promise<Fat32Volume[]> {
     }
 
     for (const volume of windowsVolumes) {
-        const normalizedWindowsPath = normalizeWindowsDriveRoot(volume.source);
+        const normalizedWindowsPath = windows.parseWindowsDriveRoot(
+            volume.source
+        );
         if (!normalizedWindowsPath) {
             continue;
         }
@@ -177,7 +163,7 @@ export async function listMountedFat32Volumes(): Promise<Fat32Volume[]> {
     return [
         ...byLinuxSource.values(),
         ...[...byWindowsPath.values()].filter((volume) =>
-            windows.isWindowsPath(volume.source)
+            isWindowsPath(volume.source)
         ),
     ];
 }
@@ -185,11 +171,11 @@ export async function listMountedFat32Volumes(): Promise<Fat32Volume[]> {
 export async function inspectWslPath(
     sourcePath: string
 ): Promise<WslPathInspection> {
-    if (windows.isWindowsPath(sourcePath)) {
+    if (isWindowsPath(sourcePath)) {
         const convertedPath = await wslpath(['-u', sourcePath]);
         const mountedPath =
             convertedPath === null
-                ? await getMountedWindowsPath(sourcePath)
+                ? await resolveMountedWslPath(sourcePath)
                 : null;
 
         return {
@@ -214,9 +200,9 @@ export async function inspectWslPath(
 
     const mountWindowsPath = getMountWindowsPath(mount);
     const windowsPath = mountWindowsPath
-        ? windows.appendWindowsSubpath(
+        ? path.win32.join(
               mountWindowsPath,
-              getRelativeWindowsPath(sourcePath, mount)
+              path.relative(mount.target, sourcePath)
           )
         : await wslpath(['-w', sourcePath]);
 

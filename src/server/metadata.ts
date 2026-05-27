@@ -2741,7 +2741,11 @@ function buildDownloadUrl(
     titleId: string,
     suffix: string
 ): string {
-    const normalizedTitleId = titleId.replace(/^\/+|\/+$/g, '');
+    const normalizedTitleId = titleId.toLowerCase();
+    if (!/^[0-9a-f]{16}$/.test(normalizedTitleId)) {
+        throw new Error(`Invalid titleId: ${titleId}`);
+    }
+
     return new URL(
         `${normalizedTitleId}/${suffix}`,
         ensureTrailingSlash(baseUrl)

@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process';
 import { readFile, statfs } from 'node:fs/promises';
+import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { type Fat32Volume, type OsOperations } from './types.js';
+import { isSameOrNestedPath } from '../file.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -125,11 +127,13 @@ export async function findMountForPath(
         return parseFindmntJson(stdout)[0] ?? null;
     } catch {
         const mounts = await listMounts();
+        const resolvedTargetPath = path.resolve(targetPath);
         const sorted = mounts
-            .filter(
-                (mount) =>
-                    targetPath === mount.target ||
-                    targetPath.startsWith(`${mount.target}/`)
+            .filter((mount) =>
+                isSameOrNestedPath(
+                    path.resolve(mount.target),
+                    resolvedTargetPath
+                )
             )
             .sort((a, b) => b.target.length - a.target.length);
         return sorted[0] ?? null;

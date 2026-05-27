@@ -25,9 +25,9 @@ import {
 import { formatLogError, formatTitleDisplay } from '../../shared/shared.js';
 import { getLibraryCacheEntry } from './library.js';
 import { hasConflictingStorageCopyPath } from './storage.js';
-import path from 'path';
 import { realpath, rm } from 'fs/promises';
 import { resolveReadablePath } from '../../shared/os.js';
+import { isSameOrNestedPath } from '../../shared/file.js';
 
 type RouteResult<TBody> = {
     status: number;
@@ -393,7 +393,7 @@ export async function getSafeLocalDeletePaths(
             );
         }
 
-        if (path.relative(containingRoot, realSourcePath) === '') {
+        if (containingRoot === realSourcePath) {
             throw new Error(
                 `Refusing to delete configured Wii U root: ${sourcePath}`
             );
@@ -422,12 +422,4 @@ export async function deleteLocalTitleSourcePaths(
     }
 
     return deletedCount;
-}
-
-export function isSameOrNestedPath(left: string, right: string): boolean {
-    const relative = path.relative(left, right);
-    return (
-        relative === '' ||
-        (!relative.startsWith('..') && !path.isAbsolute(relative))
-    );
 }

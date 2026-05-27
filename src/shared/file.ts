@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readdir, stat } from 'node:fs/promises';
+import { lstat, readdir } from 'node:fs/promises';
 
 import { mapConcurrent } from './shared.js';
 
@@ -15,10 +15,28 @@ export type PathFileSize = {
     sizeBytes: number;
 };
 
+export function isSameOrNestedPath(left: string, right: string): boolean {
+    const root = path.resolve(left);
+    let current = path.resolve(right);
+
+    for (;;) {
+        if (current === root) {
+            return true;
+        }
+
+        const parent = path.dirname(current);
+        if (parent === current) {
+            return false;
+        }
+
+        current = parent;
+    }
+}
+
 export async function getImmediatePathSizeBytes(
     targetPath: string
 ): Promise<number> {
-    const info = await stat(targetPath);
+    const info = await lstat(targetPath);
 
     if (info.isFile()) {
         return info.size;
@@ -34,7 +52,9 @@ export async function getImmediatePathSizeBytes(
         DIRECTORY_SIZE_CONCURRENCY,
         async (entry) => {
             try {
-                const childInfo = await stat(path.join(targetPath, entry.name));
+                const childInfo = await lstat(
+                    path.join(targetPath, entry.name)
+                );
                 return childInfo.size;
             } catch {
                 return 0;
@@ -54,7 +74,7 @@ export async function getPathFileCount(targetPath: string): Promise<number> {
 }
 
 export async function getPathStats(targetPath: string): Promise<PathStats> {
-    const info = await stat(targetPath);
+    const info = await lstat(targetPath);
 
     if (info.isFile()) {
         return {
@@ -101,7 +121,7 @@ export async function getPathStats(targetPath: string): Promise<PathStats> {
 export async function getPathFileSizes(
     targetPath: string
 ): Promise<PathFileSize[]> {
-    const info = await stat(targetPath);
+    const info = await lstat(targetPath);
     const root = info.isDirectory() ? targetPath : path.dirname(targetPath);
     return collectPathFileSizes(root, targetPath);
 }
@@ -110,7 +130,7 @@ async function collectPathFileSizes(
     rootPath: string,
     targetPath: string
 ): Promise<PathFileSize[]> {
-    const info = await stat(targetPath);
+    const info = await lstat(targetPath);
 
     if (info.isFile()) {
         const relativePath = path.relative(rootPath, targetPath);
