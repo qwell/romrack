@@ -6,6 +6,7 @@ Work in Progress
 
 ## Table of Contents
 
+- [Features](#features)
 - [Prerequisites](#prerequisites)
 - [Release](#release)
 - [Configuration](#configuration)
@@ -15,6 +16,17 @@ Work in Progress
 - [Contributing](#contributing)
 - [License](#license)
 - [TODO](#todo)
+
+## Features
+
+- Browse library - view your games grouped by title.
+- Search & filters - find games by name, region, or download status.
+- Download titles - select versions and start downloads.
+- Manage downloads - see progress, retry, or clear failed items.
+- Manage local copies - list stored titles and delete unwanted ones.
+- Copy to SD card - select titles and copy to an inserted FAT32 SD.
+- Title verification - view broken files and delete or re-download them.
+- Detail sidebar - quick access to synopsis, version, size, and status.
 
 ## Prerequisites
 
@@ -121,8 +133,9 @@ yarn generate:titles
 ## API
 
 - `GET /api/library`: Scan the configured library.
+- `GET /api/library/validate`: Validate library file integrity and report progress.
 - `GET /api/title-icon/:family`: Proxy/cache a title icon from the title database.
-- `GET /api/title-metadata?titleId=...`: Fetch base NUS metadata for a title ID.
+- `GET /api/title?titleId=...`: Fetch base NUS metadata for a title ID.
 - `GET /api/title-update?titleId=...`: Check the update title ID and latest update version for a base title.
 - `GET /api/title-dlc?titleId=...`: Check the DLC title ID and latest DLC version for a base title.
 - `GET /api/title-all?titleId=...`: Fetch base metadata plus update and DLC availability.
@@ -133,21 +146,33 @@ yarn generate:titles
 
 ## WebSocket API
 
-The browser connects to `/api/socket`. On connection, the server sends `app.connected` with current downloads, storage copies, storage deletes, and library validation status.
+The browser connects to `/api/socket`. On connection the server sends an `app.connected` event with the current state (downloads, storage copies, deletes, and optional library validation status).
 
 Server events:
 
-- `download.queueChanged`: Current download queue.
-- `storage.copyChanged`: Current storage copy/move queue.
-- `storage.deleteChanged`: Current storage delete queue.
-- `library.validateStatus`: Library validation progress.
+- `app.connected`: Initial app state payload (downloads, storageCopies, deletes, libraryValidateStatus).
+- `download.queueChanged`: Current download queue updates.
+- `storage.copyChanged`: Current storage copy/move queue updates.
+- `delete.changed`: Current delete queue updates.
+- `library.validateStatus`: Library validation progress and status updates.
+- `title.verify.changed`: Title verification progress and results.
 
 Client commands:
 
-- `download.queue`: Queue title downloads.
-- `download.retry`, `download.remove`, `download.cancel`: Manage download items by ID.
-- `storage.copy.retry`, `storage.copy.remove`, `storage.copy.cancel`: Manage copy/move items by ID.
-- `storage.delete.retry`, `storage.delete.remove`: Manage delete items by ID.
+- `download.queue`: Queue title downloads (payload: items).
+- `download.retry`: Retry a failed download (payload: id).
+- `download.clear`: Clear a download entry (payload: id).
+- `download.cancel`: Cancel an active download (payload: id).
+- `storage.copy.retry`: Retry a storage copy/move (payload: id).
+- `storage.copy.clear`: Clear a storage copy/move entry (payload: id).
+- `storage.copy.cancel`: Cancel an active storage copy/move (payload: id).
+- `delete.retry`: Retry a delete operation (payload: id).
+- `delete.clear`: Clear a delete entry (payload: id).
+- `library.validate.cancel`: Cancel an in-progress library validation.
+- `library.validate.clear`: Clear current validation status.
+- `library.validate.failure.clear`: Clear recorded validation failures.
+- `library.validate.failure.download`: Queue downloads for validation failures.
+- `title.verify.queue`: Queue verification for a title (payload: `{ titleId, name }`).
 
 ## Title Data
 
