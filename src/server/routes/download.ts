@@ -9,10 +9,8 @@ import {
     DownloadSocketCommand,
 } from '../../shared/socket.js';
 import { broadcastAppSocketEvent } from '../socket.js';
-import {
-    generateTitleInstallFiles,
-    TitleDownloadProgress,
-} from '../metadata.js';
+import { TitleDownloadProgress } from '../title.js';
+import { generateTitleInstallFiles } from '../install-title.js';
 import { clearTitleScanCache, findFirstReadableWiiURoot } from '../wiiu.js';
 import { clearTitleVerificationResult } from './title.js';
 

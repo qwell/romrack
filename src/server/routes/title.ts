@@ -1,17 +1,17 @@
 import { Router } from 'express';
 
 import {
-    downloadNusTitleMetadata,
+    downloadNusBaseMetadata,
     getDlcMetadata,
     getUpdateMetadata,
-    validateTitleInstallFileSizes,
-} from '../metadata.js';
+} from '../title.js';
 import { sendServerError } from '../routes.js';
 import { broadcastAppSocketEvent } from '../socket.js';
 import { requireTitleIdQuery } from '../request.js';
 import { classifyTitleId, findWiiUTitleSourcePaths } from '../wiiu.js';
 import { type TitleResponse } from '../../shared/api.js';
 import { getConfig } from '../../shared/config.js';
+import { isHttpErrorStatus } from '../../shared/download.js';
 import logger from '../../shared/logger.js';
 import { resolveReadablePath } from '../../shared/os.js';
 import { formatLogError } from '../../shared/shared.js';
@@ -22,6 +22,7 @@ import {
     type TitleVerifyCopyResult,
     type TitleVerifySocketCommand,
 } from '../../shared/socket.js';
+import { validateTitleInstallFileSizes } from '../install-title.js';
 
 const activeTitleVerifications = new Set<string>();
 const titleVerificationResults = new Map<string, TitleVerifySocketEvent>();
@@ -37,12 +38,12 @@ export function createTitleRouter(): Router {
 
         try {
             const [metadata, updateMetadata, dlcMetadata] = await Promise.all([
-                downloadNusTitleMetadata(titleId),
+                downloadNusBaseMetadata(titleId),
                 getUpdateMetadata(titleId),
                 getDlcMetadata(titleId),
             ]);
 
-            if (!metadata) {
+            if (!metadata && !updateMetadata.exists && !dlcMetadata.exists) {
                 res.status(404).json({
                     error: 'Failed to parse title metadata',
                 });
@@ -50,19 +51,20 @@ export function createTitleRouter(): Router {
             }
 
             const response: TitleResponse = {
-                titleId: metadata.titleId,
-                name: metadata.name,
-                region: metadata.region,
-                productCode: metadata.productCode,
-                companyCode: metadata.companyCode,
+                titleId: metadata?.titleId ?? titleId,
+                name: metadata?.name ?? null,
+                region: metadata?.region ?? null,
+                productCode: metadata?.productCode ?? null,
+                companyCode: metadata?.companyCode ?? null,
                 baseVersions:
-                    metadata.titleVersion === null
+                    metadata?.titleVersion === null ||
+                    metadata?.titleVersion === undefined
                         ? []
                         : [metadata.titleVersion],
-                titleKey: metadata.titleKey
+                titleKey: metadata?.titleKey
                     ? Buffer.from(metadata.titleKey).toString('hex')
                     : null,
-                titleKeyPassword: metadata.titleKeyPassword,
+                titleKeyPassword: metadata?.titleKeyPassword ?? null,
                 updateVersions:
                     updateMetadata.exists &&
                     updateMetadata.titleVersion !== null
@@ -79,6 +81,12 @@ export function createTitleRouter(): Router {
                 'server',
                 `Failed to load full title metadata: ${formatLogError(error)}`
             );
+            if (isHttpErrorStatus(error, 504)) {
+                res.status(504).json({
+                    error: 'Failed to load full title metadata',
+                });
+                return;
+            }
             sendServerError(res, 'Failed to load full title metadata', error, {
                 includeDetails: true,
             });

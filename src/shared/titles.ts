@@ -51,8 +51,8 @@ export type RawTitleDatabaseEntry = {
     companyCode: string | null;
     productCode: string | null;
     baseVersions: number[];
-    updates: number[];
-    dlc: number[];
+    updateVersions: number[];
+    dlcVersions: number[];
     availableOnCdn?: boolean;
 };
 

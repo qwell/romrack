@@ -1,4 +1,4 @@
-export function getProductCodeRegion(
+function getProductCodeRegion(
     productCode: string | null | undefined
 ): string | null {
     const match = /^WUP-[A-Z0-9]+-[A-Z0-9]{3}([A-Z0-9])$/i.exec(

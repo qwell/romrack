@@ -6,8 +6,8 @@
         "productCode": "WUP-X-HBCJ",
         "companyCode": "0001",
         "iconUrl": null,
-        "updates": [],
-        "dlc": [16],
+        "updateVersions": [],
+        "dlcVersions": [16],
         "availableOnCdn": "No"
     },
     {
@@ -17,8 +17,8 @@
         "productCode": "WUP-N-HNPE",
         "companyCode": "00XB",
         "iconUrl": "https://kanzashi-wup.cdn.nintendo.net/i/8e4459c2f9c264b285da96da315058fd277e3dbac3ea810c841b105873e77525.jpg",
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "0005000010102e00",
@@ -27,8 +27,8 @@
         "productCode": "WUP-N-HNQE",
         "companyCode": "00WD",
         "iconUrl": "https://kanzashi-wup.cdn.nintendo.net/i/1bae55bf549aa908c84f5e94ac776792d7f55da10f7454fc5fb4aaaa6fbcadd9.jpg",
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "0005000010102f00",
@@ -37,8 +37,8 @@
         "productCode": "WUP-N-HNRP",
         "companyCode": "00WD",
         "iconUrl": "https://kanzashi-wup.cdn.nintendo.net/i/fbbbc2c7de55ad2a5bf85a8d83eaec0474cb193b71571ab5d437d41a304171de.jpg",
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "0005000010104c00",
@@ -47,8 +47,8 @@
         "productCode": "WUP-N-HNPJ",
         "companyCode": "00XB",
         "iconUrl": null,
-        "updates": [],
-        "dlc": [],
+        "updateVersions": [],
+        "dlcVersions": [],
         "availableOnCdn": "No"
     },
     {
@@ -58,8 +58,8 @@
         "productCode": "WUP-N-HNKA",
         "companyCode": "00WB",
         "iconUrl": null,
-        "updates": [],
-        "dlc": [],
+        "updateVersions": [],
+        "dlcVersions": [],
         "availableOnCdn": "No"
     },
     {
@@ -69,8 +69,8 @@
         "productCode": "WUP-N-HNNA",
         "companyCode": "00XN",
         "iconUrl": null,
-        "updates": [],
-        "dlc": [],
+        "updateVersions": [],
+        "dlcVersions": [],
         "availableOnCdn": "No"
     },
     {
@@ -80,8 +80,8 @@
         "productCode": "WUP-N-HNCE",
         "companyCode": "00WB",
         "iconUrl": "https://kanzashi-wup.cdn.nintendo.net/i/a5bea79de0dac4c476f67339b901ea48f2578e9b2f68fc379c46adb0d4f3fcad.jpg",
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "0005000010154800",
@@ -90,8 +90,8 @@
         "productCode": "WUP-N-HNSP",
         "companyCode": "006H",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "0005000010172a00",
@@ -100,8 +100,8 @@
         "productCode": "WUP-N-HRLE",
         "companyCode": "009Z",
         "iconUrl": "https://kanzashi-wup.cdn.nintendo.net/i/f08b2c70133a1d5f3acd5634caff9bc63b342c31a710f3dffe7e7acf9f562a78.jpg",
-        "updates": [49],
-        "dlc": []
+        "updateVersions": [49],
+        "dlcVersions": []
     },
     {
         "titleId": "0005000010172b00",
@@ -110,18 +110,18 @@
         "productCode": "WUP-N-HRLP",
         "companyCode": "009Z",
         "iconUrl": "https://kanzashi-wup.cdn.nintendo.net/i/320c1ccf2505b4f3fa88ed3cefde207c5bd65dffec6c27276835bdf26358afb6.jpg",
-        "updates": [49],
-        "dlc": []
+        "updateVersions": [49],
+        "dlcVersions": []
     },
     {
         "titleId": "000500001017e300",
-        "name": "Splatoon\nGlobal Testfire",
+        "name": "Splatoon Global Testfire",
         "region": "ALL",
         "productCode": "WUP-P-AGEA",
         "companyCode": "0001",
         "iconUrl": "https://kanzashi-wup.cdn.nintendo.net/i/098c13348f95e38554bc08922026ffbf590232a942e7b1e21b3f0929179dc9af.jpg",
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101bca00",
@@ -130,8 +130,8 @@
         "productCode": "WUP-N-ANAP",
         "companyCode": "013H",
         "iconUrl": "https://kanzashi-wup.cdn.nintendo.net/i/3b2a94da76e89f3124aa078789c2fcbcb8247554678e8529ec6443a13339f66a.jpg",
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cb400",
@@ -140,8 +140,8 @@
         "productCode": "WUP-N-SNBE",
         "companyCode": "0170",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cb500",
@@ -150,8 +150,8 @@
         "productCode": "WUP-N-SNCE",
         "companyCode": "0167",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cb600",
@@ -160,18 +160,18 @@
         "productCode": "WUP-N-SNDE",
         "companyCode": "0171",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cb700",
-        "name": "Mutant Mudds\nSuper Challenge (Event Preview)",
+        "name": "Mutant Mudds Super Challenge (Event Preview)",
         "region": "USA",
         "productCode": "WUP-N-SNEE",
         "companyCode": "00X9",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cb900",
@@ -180,8 +180,8 @@
         "productCode": "WUP-N-SNGE",
         "companyCode": "010P",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cba00",
@@ -190,8 +190,8 @@
         "productCode": "WUP-N-SNHE",
         "companyCode": "009V",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cbb00",
@@ -200,18 +200,18 @@
         "productCode": "WUP-N-SNJE",
         "companyCode": "016J",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cbe00",
-        "name": "Extreme Exorcism\n(Event Preview Version)",
+        "name": "Extreme Exorcism (Event Preview Version)",
         "region": "USA",
         "productCode": "WUP-N-SNKE",
         "companyCode": "00CY",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cbf00",
@@ -220,8 +220,8 @@
         "productCode": "WUP-N-SNLE",
         "companyCode": "00TW",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cd100",
@@ -230,28 +230,28 @@
         "productCode": "WUP-N-SNHP",
         "companyCode": "009V",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cd200",
-        "name": "Extreme Exorcism\n(Event Preview Version)",
+        "name": "Extreme Exorcism (Event Preview Version)",
         "region": "EUR",
         "productCode": "WUP-N-SNKP",
         "companyCode": "00CY",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cd300",
-        "name": "Mutant Mudds\nSuper Challenge (Event Preview)",
+        "name": "Mutant Mudds Super Challenge (Event Preview)",
         "region": "EUR",
         "productCode": "WUP-N-SNEP",
         "companyCode": "00X9",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cd400",
@@ -260,8 +260,8 @@
         "productCode": "WUP-N-SNJP",
         "companyCode": "016J",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cd500",
@@ -270,8 +270,8 @@
         "productCode": "WUP-N-SNCP",
         "companyCode": "0167",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cd600",
@@ -280,8 +280,8 @@
         "productCode": "WUP-N-SNLP",
         "companyCode": "00TW",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cd700",
@@ -290,8 +290,8 @@
         "productCode": "WUP-N-SNDP",
         "companyCode": "0171",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cd800",
@@ -300,8 +300,8 @@
         "productCode": "WUP-N-SNBP",
         "companyCode": "0170",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cd900",
@@ -310,68 +310,68 @@
         "productCode": "WUP-N-SNGP",
         "companyCode": "010P",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cdb00",
-        "name": "Splatoon\nPre-Launch Review",
+        "name": "Splatoon Pre-Launch Review",
         "region": "JPN",
         "productCode": "WUP-P-AGDJ",
         "companyCode": "0001",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cdc00",
-        "name": "Splatoon\nPre-Launch Review",
+        "name": "Splatoon Pre-Launch Review",
         "region": "USA",
         "productCode": "WUP-P-AGDE",
         "companyCode": "0001",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101cdd00",
-        "name": "Splatoon\nPre-Launch Review",
+        "name": "Splatoon Pre-Launch Review",
         "region": "EUR",
         "productCode": "WUP-P-AGDP",
         "companyCode": "0001",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101d6a00",
-        "name": "Splatoon\nTestfire",
+        "name": "Splatoon Testfire",
         "region": "JPN",
         "productCode": "WUP-P-AGGJ",
         "companyCode": "0001",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101d6b00",
-        "name": "Splatoon\nTestfire",
+        "name": "Splatoon™ Testfire",
         "region": "USA",
         "productCode": "WUP-P-AGGE",
         "companyCode": "0001",
         "iconUrl": "https://kanzashi-wup.cdn.nintendo.net/i/248fca1cf5bf8126f8451f45630257ba2d778ea6cc7e47957a5f38951bc80171.jpg",
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101d6c00",
-        "name": "Splatoon\nTestfire",
+        "name": "Splatoon Testfire",
         "region": "EUR",
         "productCode": "WUP-P-AGGP",
         "companyCode": "0001",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101dcc00",
@@ -380,28 +380,28 @@
         "productCode": "WUP-P-BWGJ",
         "companyCode": "0001",
         "iconUrl": "https://kanzashi-wup.cdn.nintendo.net/i/ec9bf6666880afa1192721a0e8141a38ae1e22ef8dab49629b01e24f0e23d027.jpg",
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101dcd00",
-        "name": "Star Fox Guard Special Demo",
+        "name": "Star Fox™ Guard Special Demo",
         "region": "USA",
         "productCode": "WUP-P-BWGE",
         "companyCode": "0001",
         "iconUrl": "https://kanzashi-wup.cdn.nintendo.net/i/8e156842224c251e28870f74eb66f1750f7974b3775ff0a1ec19fc8daeb52fab.jpg",
-        "updates": [16],
-        "dlc": []
+        "updateVersions": [16],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101dce00",
-        "name": "Star Fox Guard:\nSpecial Demo Version",
+        "name": "Star Fox Guard: Special Demo Version",
         "region": "EUR",
         "productCode": "WUP-P-BWGP",
         "companyCode": "0001",
         "iconUrl": "https://kanzashi-wup.cdn.nintendo.net/i/6a5bddd8067ad9fe624f6bf542966b61dccd593466052644ebe6136aef4ec394.jpg",
-        "updates": [16],
-        "dlc": []
+        "updateVersions": [16],
+        "dlcVersions": []
     },
     {
         "titleId": "00050000101fe600",
@@ -410,8 +410,8 @@
         "productCode": "WUP-N-AKUJ",
         "companyCode": "00WD",
         "iconUrl": null,
-        "updates": [],
-        "dlc": [],
+        "updateVersions": [],
+        "dlcVersions": [],
         "availableOnCdn": "No"
     },
     {
@@ -421,8 +421,8 @@
         "productCode": "WUP-N-HAPJ",
         "companyCode": "00WD",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "0005000010202a00",
@@ -431,8 +431,8 @@
         "productCode": "WUP-N-HAPE",
         "companyCode": "00WD",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "000500001f700700",
@@ -441,8 +441,8 @@
         "productCode": "WUP-P-ABCD",
         "companyCode": "ZZZZ",
         "iconUrl": null,
-        "updates": [],
-        "dlc": [],
+        "updateVersions": [],
+        "dlcVersions": [],
         "availableOnCdn": "No"
     },
     {
@@ -452,8 +452,8 @@
         "productCode": "WUP-P-ABCD",
         "companyCode": "ZZZZ",
         "iconUrl": null,
-        "updates": [],
-        "dlc": [],
+        "updateVersions": [],
+        "dlcVersions": [],
         "availableOnCdn": "No"
     },
     {
@@ -463,8 +463,8 @@
         "productCode": "WUP-P-ABCD",
         "companyCode": "ZZZZ",
         "iconUrl": null,
-        "updates": [],
-        "dlc": [],
+        "updateVersions": [],
+        "dlcVersions": [],
         "availableOnCdn": "No"
     },
     {
@@ -474,8 +474,8 @@
         "productCode": "WUP-P-ABCD",
         "companyCode": "ZZZZ",
         "iconUrl": null,
-        "updates": [],
-        "dlc": [],
+        "updateVersions": [],
+        "dlcVersions": [],
         "availableOnCdn": "No"
     },
     {
@@ -485,8 +485,8 @@
         "productCode": "WUP-P-2MAA",
         "companyCode": "ZZZZ",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "000500001f940f00",
@@ -495,8 +495,8 @@
         "productCode": "WUP-P-2BLA",
         "companyCode": "ZZZZ",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "000500001f943100",
@@ -505,8 +505,8 @@
         "productCode": "WUP-N-HAEJ",
         "companyCode": "0001",
         "iconUrl": null,
-        "updates": [],
-        "dlc": []
+        "updateVersions": [],
+        "dlcVersions": []
     },
     {
         "titleId": "000500001f947000",
@@ -515,8 +515,8 @@
         "productCode": "WUP-P-ABCD",
         "companyCode": "ZZZZ",
         "iconUrl": null,
-        "updates": [],
-        "dlc": [],
+        "updateVersions": [],
+        "dlcVersions": [],
         "availableOnCdn": "No"
     },
     {
@@ -526,8 +526,8 @@
         "productCode": "WUP-P-ABCD",
         "companyCode": "ZZZZ",
         "iconUrl": null,
-        "updates": [32],
-        "dlc": []
+        "updateVersions": [32],
+        "dlcVersions": []
     },
     {
         "titleId": "000500001fd00400",
@@ -536,8 +536,8 @@
         "productCode": "WUP-N-HAAJ",
         "companyCode": "0001",
         "iconUrl": null,
-        "updates": [],
-        "dlc": [],
+        "updateVersions": [],
+        "dlcVersions": [],
         "availableOnCdn": "No"
     },
     {
@@ -547,8 +547,8 @@
         "productCode": "WUP-P-255A",
         "companyCode": "ZZZZ",
         "iconUrl": null,
-        "updates": [],
-        "dlc": [],
+        "updateVersions": [],
+        "dlcVersions": [],
         "availableOnCdn": "No"
     },
     {
@@ -558,8 +558,8 @@
         "productCode": "WUP-P-ABCD",
         "companyCode": "ZZZZ",
         "iconUrl": null,
-        "updates": [],
-        "dlc": [],
+        "updateVersions": [],
+        "dlcVersions": [],
         "availableOnCdn": "No"
     }
 ]

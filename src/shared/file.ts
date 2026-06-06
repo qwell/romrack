@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { lstat, readdir } from 'node:fs/promises';
+import { lstat, readFile, readdir } from 'node:fs/promises';
 
 import { mapConcurrent } from './shared.js';
 
@@ -14,6 +14,23 @@ export type PathFileSize = {
     relativePath: string;
     sizeBytes: number;
 };
+
+export async function readOptionalFile(
+    filePath: string
+): Promise<Buffer | null> {
+    try {
+        return await readFile(filePath);
+    } catch (error) {
+        if (
+            error instanceof Error &&
+            'code' in error &&
+            error.code === 'ENOENT'
+        ) {
+            return null;
+        }
+        throw error;
+    }
+}
 
 export function isSameOrNestedPath(left: string, right: string): boolean {
     const root = path.resolve(left);

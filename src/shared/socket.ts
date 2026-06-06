@@ -27,6 +27,7 @@ export const SOCKET_EVENT = {
     storageCopyChanged: 'storage.copyChanged',
     deleteChanged: 'delete.changed',
     libraryValidateStatus: 'library.validateStatus',
+    libraryConvertStatus: 'library.convertStatus',
     titleVerifyChanged: 'title.verify.changed',
 } as const;
 
@@ -77,6 +78,10 @@ export const DELETE_SOCKET_EVENT = {
 
 export const LIBRARY_VALIDATE_SOCKET_EVENT = {
     status: SOCKET_EVENT.libraryValidateStatus,
+} as const;
+
+export const LIBRARY_CONVERT_SOCKET_EVENT = {
+    status: SOCKET_EVENT.libraryConvertStatus,
 } as const;
 
 export const TITLE_VERIFY_SOCKET_EVENT = {
@@ -198,6 +203,17 @@ export type LibraryValidateStatusEvent = {
     error?: string | null;
 };
 
+export type LibraryConvertStatusEvent = {
+    type: typeof SOCKET_EVENT.libraryConvertStatus;
+    status: 'started' | 'converting' | 'complete' | 'failed';
+    titleId: string;
+    currentFileName?: string | null;
+    current?: number;
+    total?: number;
+    converted?: number;
+    error?: string | null;
+};
+
 export type TitleVerifyCopyResult = {
     sourcePath: string;
     titleId: string | null;
@@ -223,6 +239,7 @@ export type SocketEvent =
     | StorageCopySocketEvent
     | DeleteSocketEvent
     | LibraryValidateStatusEvent
+    | LibraryConvertStatusEvent
     | TitleVerifySocketEvent;
 
 export function isSocketCommand<T extends SocketCommand['type']>(

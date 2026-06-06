@@ -7,8 +7,11 @@ import {
     scanWiiUTitleRoots,
     validateWiiUTitleRoots,
 } from '../wiiu.js';
+import { convertWudImagesInRoots } from '../wud.js';
+import { getStringQuery } from '../request.js';
 import { clearAllTitleVerificationResults } from './title.js';
 import {
+    type LibraryConvertResponse,
     type LibraryResponse,
     type LibraryValidateResponse,
 } from '../../shared/api.js';
@@ -16,8 +19,10 @@ import { getConfig } from '../../shared/config.js';
 import logger from '../../shared/logger.js';
 import { formatLogError } from '../../shared/shared.js';
 import {
+    LIBRARY_CONVERT_SOCKET_EVENT,
     LIBRARY_VALIDATE_SOCKET_COMMAND,
     LIBRARY_VALIDATE_SOCKET_EVENT,
+    type LibraryConvertStatusEvent,
     type LibraryValidateSocketCommand,
     type LibraryValidateStatusEvent,
 } from '../../shared/socket.js';
@@ -95,6 +100,10 @@ function clearScheduledLibraryValidateStatus(): void {
     }
 
     pendingLibraryValidateStatus = null;
+}
+
+function broadcastLibraryConvertStatus(event: LibraryConvertStatusEvent): void {
+    broadcastAppSocketEvent(event);
 }
 
 export function createLibraryRouter(): Router {
@@ -195,6 +204,84 @@ export function createLibraryRouter(): Router {
             if (activeLibraryValidateAbortController === abortController) {
                 activeLibraryValidateAbortController = null;
             }
+        }
+    });
+
+    router.get('/convert', async (req, res) => {
+        const titleId = getStringQuery(req, 'titleId');
+
+        if (!titleId) {
+            res.status(400).json({
+                error: 'Missing titleId',
+            });
+            return;
+        }
+
+        try {
+            broadcastLibraryConvertStatus({
+                type: LIBRARY_CONVERT_SOCKET_EVENT.status,
+                status: 'started',
+                titleId,
+            });
+            const result = await convertWudImagesInRoots(
+                getConfig().wiiuRoots,
+                titleId,
+                {
+                    onProgress: (progress) => {
+                        broadcastLibraryConvertStatus({
+                            type: LIBRARY_CONVERT_SOCKET_EVENT.status,
+                            status: 'converting',
+                            titleId,
+                            currentFileName: progress.currentFileName,
+                            current: progress.completedFiles + 1,
+                            total: progress.totalFiles,
+                        });
+                    },
+                }
+            );
+
+            clearTitleScanCache();
+            broadcastLibraryConvertStatus({
+                type: LIBRARY_CONVERT_SOCKET_EVENT.status,
+                status: 'complete',
+                titleId,
+                converted: result.converted.reduce(
+                    (total, image) => total + image.titles.length,
+                    0
+                ),
+            });
+            const response: LibraryConvertResponse = {
+                converted: result.converted.map((item) => ({
+                    sourcePath: item.sourcePath,
+                    titles: item.titles.map((title) => ({
+                        name: title.name,
+                        titleVersion: title.titleVersion,
+                        outputDir: title.outputDir,
+                        sizeBytes: title.sizeBytes,
+                    })),
+                })),
+            };
+
+            res.json(response);
+        } catch (error) {
+            broadcastLibraryConvertStatus({
+                type: LIBRARY_CONVERT_SOCKET_EVENT.status,
+                status: 'failed',
+                titleId,
+                error: error instanceof Error ? error.message : String(error),
+            });
+            logger.warn(
+                'server',
+                `Failed to convert WUD/WUX library entries: ${formatLogError(error)}`
+            );
+            sendServerError(
+                res,
+                'Failed to convert WUD/WUX library entries',
+                error,
+                {
+                    includeDetails: true,
+                }
+            );
         }
     });
 

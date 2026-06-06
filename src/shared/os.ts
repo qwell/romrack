@@ -72,21 +72,29 @@ async function resolveRuntimeOperations(): Promise<OsOperations | null> {
 }
 
 export async function resolveReadablePath(targetPath: string): Promise<string> {
+    const readablePath = await findReadablePath(targetPath);
+    if (!readablePath) {
+        throw new Error(`Path is not accessible from WSL: ${targetPath}`);
+    }
+
+    return readablePath;
+}
+
+export async function findReadablePath(
+    targetPath: string
+): Promise<string | null> {
     if ((await getRuntimeOs()) !== 'wsl2') {
         return targetPath;
     }
 
     const inspected = await inspectWslPath(targetPath);
-    if (!inspected.path) {
-        throw new Error(`Path is not accessible from WSL: ${targetPath}`);
-    }
-
     return inspected.path;
 }
 
 export const runtimeOs = {
     getRuntimeOs,
     listFat32Volumes,
+    findReadablePath,
     resolveReadablePath,
     resolveFat32Destination,
 };

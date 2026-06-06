@@ -1,22 +1,25 @@
 import { build } from 'vite';
+import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { readAppVersion } from '../src/shared/scripts.js';
 
 const root = process.cwd();
 
-async function copyTitlesFileIntoDist(name: string) {
-    await fs.mkdir(path.join(root, 'dist', 'titles'), { recursive: true });
-    await fs.copyFile(
-        path.join(root, 'titles', name),
-        path.join(root, 'dist', 'titles', name)
-    );
+async function copyFileIntoDist(relativePath: string) {
+    const source = path.join(root, relativePath);
+    if (!existsSync(source)) {
+        return;
+    }
+
+    const destination = path.join(root, 'dist', relativePath);
+    await fs.mkdir(path.dirname(destination), { recursive: true });
+    await fs.copyFile(source, destination);
 }
 
-async function copyFilesIntoDist() {
-    await copyTitlesFileIntoDist('titles.json');
-    await copyTitlesFileIntoDist('extra.json');
-    await copyTitlesFileIntoDist('wiiutdb.json');
+async function copyFiles() {
+    await copyFileIntoDist('titles/titles.json');
+    await copyFileIntoDist('titles/wiiutdb.json');
 }
 
 async function main() {
@@ -56,7 +59,7 @@ async function main() {
         }),
 
         // other
-        copyFilesIntoDist(),
+        copyFiles(),
     ]);
 }
 

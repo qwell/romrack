@@ -6,6 +6,7 @@ import { type Fat32Volume, type RuntimeOs } from './os.js';
 import { type DeleteItem } from './delete.js';
 import { type StorageCopyItem } from './storage.js';
 import { type TitleGroup, type TitleKinds } from './titles.js';
+import { HttpError } from './download.js';
 
 export type ApiErrorResponse = {
     error: string;
@@ -43,6 +44,13 @@ export type LibraryValidateResponse = {
     total: number;
     failed: number;
     titles: LibraryValidateTitle[];
+};
+
+export type LibraryConvertResponse = {
+    converted: {
+        sourcePath: string;
+        titles: TitleDownloadResponse[];
+    }[];
 };
 
 export type StorageTransferQueuedResponse = {
@@ -92,7 +100,7 @@ export async function requestJson<T>(
 ): Promise<T> {
     const response = await fetch(url, init);
     if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
+        throw new HttpError(url, response.status);
     }
 
     return (await response.json()) as T;

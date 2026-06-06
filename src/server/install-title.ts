@@ -1,0 +1,491 @@
+import path from 'path';
+import { safeDirectoryName } from '../shared/string.js';
+import {
+    decryptContentWithBigIntIv,
+    decryptTitleKey,
+    encryptTitleKey,
+    findGeneratedTitleKey,
+} from './decryption.js';
+import {
+    downloadContent,
+    downloadTicket,
+    downloadTmd,
+    NUS_BASE_URL,
+} from './download-title.js';
+import {
+    assertExistingContentFileSize,
+    getEncryptedContentFileSize,
+    isHashedContent,
+    verifyContentInstallFiles,
+} from './nus/content.js';
+import { looksLikeFst } from './nus/fst.js';
+import {
+    CERT_TITLE_FILE,
+    ContentInstallFiles,
+    ContentTreeVerification,
+    createGeneratedCert,
+    downloadTitleContentFile,
+    extractMetaXmlFromTitle,
+    formatInstallDirectoryKind,
+    GeneratedTitleInstallFiles,
+    getContentInstallFiles,
+    InstalledTitleValidation,
+    InstalledTitleValidationProgress,
+    normalizeDownloadableTitleId,
+    readCommonKey,
+    readMetaXml,
+    readTikFromBuffer,
+    readTikHeader,
+    readTmd,
+    readTmdFromBuffer,
+    Tik,
+    TIK_TITLE_FILE,
+    TitleDownloadProgress,
+    TitleMetadataError,
+    Tmd,
+    TmdContent,
+    writeGeneratedTik,
+} from './title.js';
+import { mapConcurrent } from '../shared/shared.js';
+import { mkdir, stat, writeFile } from 'fs/promises';
+import { normalizeTitleName } from '../shared/titles.js';
+import { getTitleIdHex, TMD_TITLE_FILE } from './nus/tmd.js';
+import { getImmediatePathSizeBytes } from '../shared/file.js';
+import logger from '../shared/logger.js';
+import { isHttpErrorStatus } from '../shared/download.js';
+
+type ResolvedTitleKey = {
+    titleKey: Uint8Array;
+    decryptedFst: Uint8Array;
+    encryptedTitleKey: Uint8Array | null;
+    titleKeyPassword: string | null;
+};
+
+const TITLE_DOWNLOAD_CONCURRENCY = 8;
+
+export function resolveTitleKey({
+    commonKey,
+    encryptedFst,
+    normalizedTitleId,
+    ticket,
+    tmd,
+}: {
+    commonKey: Uint8Array;
+    encryptedFst: Uint8Array;
+    normalizedTitleId: string;
+    ticket: Tik | null;
+    tmd: Tmd;
+}): ResolvedTitleKey {
+    const ticketTitleKey =
+        ticket !== null
+            ? decryptTitleKey(ticket.encryptedKey, commonKey, ticket.titleId)
+            : null;
+    const ticketDecryptedFst =
+        ticketTitleKey !== null
+            ? decryptContentWithBigIntIv(encryptedFst, ticketTitleKey, 0)
+            : null;
+
+    if (
+        ticket !== null &&
+        ticketTitleKey !== null &&
+        ticketDecryptedFst !== null &&
+        looksLikeFst(ticketDecryptedFst)
+    ) {
+        return {
+            titleKey: ticketTitleKey,
+            decryptedFst: ticketDecryptedFst,
+            encryptedTitleKey: ticket.encryptedKey,
+            titleKeyPassword: null,
+        };
+    }
+
+    const generatedMatch = findGeneratedTitleKey(
+        tmd.header.titleId,
+        (candidate) =>
+            looksLikeFst(
+                decryptContentWithBigIntIv(encryptedFst, candidate.titleKey, 0)
+            )
+    );
+
+    if (!generatedMatch) {
+        throw new TitleMetadataError(
+            'resolve_title_key',
+            `No usable title key produced an FST for ${normalizedTitleId}`
+        );
+    }
+
+    return {
+        titleKey: generatedMatch.titleKey,
+        decryptedFst: decryptContentWithBigIntIv(
+            encryptedFst,
+            generatedMatch.titleKey,
+            0
+        ),
+        encryptedTitleKey: encryptTitleKey(
+            generatedMatch.titleKey,
+            commonKey,
+            tmd.header.titleId
+        ),
+        titleKeyPassword: generatedMatch.password,
+    };
+}
+
+export async function generateTitleInstallFiles(
+    titleId: string,
+    romRoot: string,
+    options: {
+        onProgress?: (progress: TitleDownloadProgress) => void;
+        signal?: AbortSignal;
+    } = {}
+): Promise<GeneratedTitleInstallFiles> {
+    const baseUrl = NUS_BASE_URL;
+    const { titleId: normalizedTitleId, kind } =
+        normalizeDownloadableTitleId(titleId);
+    const commonKey = await readCommonKey();
+    throwIfAborted(options.signal);
+    const tmdBytes = await downloadTmd(
+        baseUrl,
+        normalizedTitleId,
+        options.signal
+    );
+    throwIfAborted(options.signal);
+    const tmd = readTmdFromBuffer(Buffer.from(tmdBytes));
+
+    if (!tmd) {
+        throw new TitleMetadataError(
+            'parse_tmd',
+            `Failed to parse TMD for ${normalizedTitleId}`
+        );
+    }
+
+    const fstContent = tmd.contents[0];
+    if (!fstContent) {
+        throw new TitleMetadataError(
+            'missing_fst_content',
+            `TMD has no first content entry for ${normalizedTitleId}`
+        );
+    }
+
+    const encryptedFst = await downloadContent(
+        baseUrl,
+        normalizedTitleId,
+        fstContent.id,
+        options.signal
+    );
+    throwIfAborted(options.signal);
+    const ticketBytes = await downloadTicket(
+        baseUrl,
+        normalizedTitleId,
+        options.signal
+    ).catch((error: unknown) => {
+        if (isHttpErrorStatus(error, 404)) {
+            return null;
+        }
+
+        throw error;
+    });
+    const ticket = ticketBytes
+        ? readTikFromBuffer(Buffer.from(ticketBytes))
+        : null;
+    const { encryptedTitleKey, titleKey, decryptedFst, titleKeyPassword } =
+        resolveTitleKey({
+            commonKey,
+            encryptedFst,
+            normalizedTitleId,
+            ticket,
+            tmd,
+        });
+
+    if (
+        encryptedTitleKey === null ||
+        titleKey === null ||
+        decryptedFst === null
+    ) {
+        throw new TitleMetadataError(
+            'resolve_title_key',
+            `Failed to produce an encrypted title key for ${normalizedTitleId}`
+        );
+    }
+
+    const metaXml = await extractMetaXmlFromTitle(
+        decryptedFst,
+        tmd,
+        titleKey,
+        baseUrl,
+        normalizedTitleId,
+        options.signal
+    );
+    const meta = metaXml ? readMetaXml(metaXml) : null;
+    const directoryKind = formatInstallDirectoryKind(kind);
+    const outputDir = path.join(
+        romRoot,
+        `${safeDirectoryName(meta?.name ?? normalizedTitleId)} [${directoryKind}] [${normalizedTitleId}]`
+    );
+    const tmdFile = path.join(outputDir, TMD_TITLE_FILE);
+    const certFile = path.join(outputDir, CERT_TITLE_FILE);
+    const files = {
+        tmd: TMD_TITLE_FILE,
+        tik: TIK_TITLE_FILE,
+        cert: CERT_TITLE_FILE,
+        app: [] as string[],
+        h3: [] as string[],
+    };
+    const verification: ContentTreeVerification[] = [];
+    await mkdir(outputDir, { recursive: true });
+
+    await Promise.all([
+        writeFile(tmdFile, tmdBytes),
+        writeGeneratedTik(outputDir, {
+            titleId: tmd.header.titleId,
+            encryptedTitleKey,
+            titleVersion: tmd.header.titleVersion,
+        }),
+        writeFile(
+            certFile,
+            await createGeneratedCert(tmd, {
+                ticketBytes: ticketBytes ?? undefined,
+            })
+        ),
+    ]);
+
+    const totalFiles = tmd.contents.length;
+    let completedFiles = 0;
+
+    const downloadedContentFiles = await mapConcurrent(
+        tmd.contents,
+        TITLE_DOWNLOAD_CONCURRENCY,
+        async (content) => {
+            throwIfAborted(options.signal);
+            const files = getContentInstallFiles(outputDir, content);
+            options.onProgress?.({
+                completedFiles,
+                totalFiles,
+                currentFileName: files.appName,
+            });
+
+            const downloadedContentFile = await downloadTitleContentFile({
+                content,
+                outputDir,
+                titleKey,
+                baseUrl,
+                titleId: normalizedTitleId,
+                signal: options.signal,
+            });
+
+            throwIfAborted(options.signal);
+            completedFiles += 1;
+
+            options.onProgress?.({
+                completedFiles,
+                totalFiles,
+                currentFileName:
+                    downloadedContentFile.app ?? downloadedContentFile.h3,
+            });
+
+            return downloadedContentFile;
+        }
+    );
+
+    for (const downloadedContentFile of downloadedContentFiles) {
+        if (downloadedContentFile.app) {
+            files.app.push(downloadedContentFile.app);
+        }
+        if (downloadedContentFile.h3) {
+            files.h3.push(downloadedContentFile.h3);
+        }
+        verification.push(downloadedContentFile.verification);
+    }
+
+    const name = normalizeTitleName(meta?.name ?? normalizedTitleId);
+    const sizeBytes = await getImmediatePathSizeBytes(outputDir);
+
+    logger.log(
+        'metadata',
+        `finished downloading: [${normalizedTitleId}] ${name} ${kind}`
+    );
+
+    return {
+        titleId: normalizedTitleId,
+        kind,
+        name,
+        titleVersion: tmd.header.titleVersion,
+        titleKey: Buffer.from(titleKey).toString('hex'),
+        titleKeyPassword,
+        outputDir,
+        sizeBytes,
+        files,
+        verification,
+    };
+}
+
+export async function validateTitleInstallFiles(
+    dirPath: string,
+    onProgress?: (progress: InstalledTitleValidationProgress) => void
+): Promise<InstalledTitleValidation> {
+    const tmd = await readTmd(dirPath);
+    if (!tmd) {
+        return createFailedInstalledValidation(
+            null,
+            null,
+            `Missing or invalid ${TMD_TITLE_FILE}`
+        );
+    }
+
+    const titleId = getTitleIdHex(tmd.header.titleId);
+    const titleVersion = tmd.header.titleVersion;
+    const ticket = await readTikHeader(dirPath);
+    if (!ticket) {
+        return createFailedInstalledValidation(
+            titleId,
+            titleVersion,
+            `Missing or invalid ${TIK_TITLE_FILE}`
+        );
+    }
+
+    let titleKey: Uint8Array;
+    try {
+        titleKey = decryptTitleKey(
+            ticket.encryptedKey,
+            await readCommonKey(),
+            ticket.titleId
+        );
+    } catch (error) {
+        return createFailedInstalledValidation(
+            titleId,
+            titleVersion,
+            error instanceof Error ? error.message : String(error)
+        );
+    }
+
+    const verification: ContentTreeVerification[] = [];
+    for (const content of tmd.contents) {
+        const files = getContentInstallFiles(dirPath, content);
+        onProgress?.({ currentFileName: files.appName });
+        verification.push(
+            await verifyInstalledContent({
+                dirPath,
+                content,
+                files,
+                titleKey,
+            })
+        );
+    }
+
+    return {
+        titleId,
+        titleVersion,
+        status: verification.every((result) => result.status === 'ok')
+            ? 'ok'
+            : 'failed',
+        error: null,
+        verification,
+    };
+}
+
+export async function validateTitleInstallFileSizes(
+    dirPath: string
+): Promise<InstalledTitleValidation> {
+    const tmd = await readTmd(dirPath);
+    if (!tmd) {
+        return createFailedInstalledValidation(
+            null,
+            null,
+            `Missing or invalid ${TMD_TITLE_FILE}`
+        );
+    }
+
+    const titleId = getTitleIdHex(tmd.header.titleId);
+    const titleVersion = tmd.header.titleVersion;
+    const verification: ContentTreeVerification[] = [];
+
+    for (const content of tmd.contents) {
+        verification.push(
+            await verifyInstalledContentFileSize(dirPath, content)
+        );
+    }
+
+    return {
+        titleId,
+        titleVersion,
+        status: verification.every((result) => result.status === 'ok')
+            ? 'ok'
+            : 'failed',
+        error: null,
+        verification,
+    };
+}
+
+async function verifyInstalledContentFileSize(
+    dirPath: string,
+    content: TmdContent
+): Promise<ContentTreeVerification> {
+    const files = getContentInstallFiles(dirPath, content);
+    const expectedSize = getEncryptedContentFileSize(content);
+
+    try {
+        await assertExistingContentFileSize(
+            files.appFile,
+            expectedSize,
+            files.contentId
+        );
+
+        if (isHashedContent(content)) {
+            if (!files.h3File) {
+                return {
+                    contentId: files.contentId,
+                    status: 'failed',
+                    error: 'Missing H3 file path for hashed content',
+                };
+            }
+
+            await stat(files.h3File);
+        }
+
+        return {
+            contentId: files.contentId,
+            status: 'ok',
+        };
+    } catch (error) {
+        return {
+            contentId: files.contentId,
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+        };
+    }
+}
+
+function createFailedInstalledValidation(
+    titleId: string | null,
+    titleVersion: number | null,
+    error: string
+): InstalledTitleValidation {
+    return {
+        titleId,
+        titleVersion,
+        status: 'failed',
+        error,
+        verification: [],
+    };
+}
+
+function verifyInstalledContent({
+    dirPath,
+    content,
+    files,
+    titleKey,
+}: {
+    dirPath: string;
+    content: TmdContent;
+    files?: ContentInstallFiles;
+    titleKey: Uint8Array;
+}): Promise<ContentTreeVerification> {
+    return verifyContentInstallFiles({
+        files: files ?? getContentInstallFiles(dirPath, content),
+        content,
+        titleKey,
+    });
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+    signal?.throwIfAborted();
+}

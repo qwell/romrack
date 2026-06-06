@@ -1,4 +1,10 @@
-export type Subsystems = 'server' | 'client' | 'metadata' | 'wiiu';
+export type Subsystems =
+    | 'server'
+    | 'client'
+    | 'metadata'
+    | 'wiiu'
+    | 'wud'
+    | 'download';
 
 export const ansi = {
     reset: '\x1b[0m',
@@ -20,4 +26,6 @@ export const SubsystemColors: Record<Subsystems, string> = {
     client: cyan,
     metadata: magenta,
     wiiu: blue,
+    wud: magenta,
+    download: yellow,
 };

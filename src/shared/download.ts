@@ -33,3 +33,17 @@ export type DownloadQueueItem = {
     installedTitleName: string | null;
     installedSourcePath: string | null;
 };
+
+export function isHttpErrorStatus(error: unknown, status: number): boolean {
+    return error instanceof HttpError && error.status === status;
+}
+
+export class HttpError extends Error {
+    status: number;
+
+    constructor(url: string, status: number) {
+        super(`download failed for ${url}: HTTP ${status.toString()}`);
+        this.name = 'HttpError';
+        this.status = status;
+    }
+}

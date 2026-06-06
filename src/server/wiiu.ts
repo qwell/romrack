@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { type Dirent } from 'node:fs';
 import path from 'node:path';
 import { normalizeRegion } from '../shared/regions.js';
-import { TMD_TITLE_FILE, validateTitleInstallFiles } from './metadata.js';
+import { validateTitleInstallFiles } from './install-title.js';
 
 import {
     type AvailableTitleEntry,
@@ -28,11 +28,12 @@ import {
 } from '../shared/shared.js';
 import { getAppRoot } from './paths.js';
 import { getImmediatePathSizeBytes } from '../shared/file.js';
-import { readTmd } from './metadata.js';
+import { readTmd } from './title.js';
 import logger from '../shared/logger.js';
 import { ansi } from '../shared/ansi.js';
 import { LibraryValidateTitle } from '../shared/api.js';
 import { resolveReadablePath } from '../shared/os.js';
+import { TMD_TITLE_FILE } from './nus/tmd.js';
 
 type GameTdbLocale = {
     '@lang'?: string;
@@ -186,8 +187,8 @@ function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
                 entry.baseVersions?.filter((version) =>
                     Number.isFinite(version)
                 ) ?? [],
-            updateVersions: entry.updates ?? [],
-            dlcVersions: entry.dlc ?? [],
+            updateVersions: entry.updateVersions ?? [],
+            dlcVersions: entry.dlcVersions ?? [],
 
             family,
             availableOnCdn: entry.availableOnCdn,
@@ -396,14 +397,10 @@ async function readTitleDatabaseFile(
 async function readTitleDatabase(): Promise<Map<string, TitleDatabaseEntry>> {
     const titlesDir = path.join(getAppRoot(), 'titles');
     const titlesJsonPath = path.join(titlesDir, 'titles.json');
-    const extraJsonPath = path.join(titlesDir, 'extra.json');
 
-    const [titleEntries, extraEntries] = await Promise.all([
-        readTitleDatabaseFile(titlesJsonPath, true),
-        readTitleDatabaseFile(extraJsonPath),
-    ]);
+    const titleEntries = await readTitleDatabaseFile(titlesJsonPath, true);
 
-    for (const entry of [...titleEntries, ...extraEntries]) {
+    for (const entry of titleEntries) {
         if (entry.availableOnCdn !== undefined) {
             availableOnCdnByTitleId.set(
                 entry.titleId.toLowerCase(),
@@ -412,9 +409,7 @@ async function readTitleDatabase(): Promise<Map<string, TitleDatabaseEntry>> {
         }
     }
 
-    return new Map(
-        [...titleEntries, ...extraEntries].map((entry) => [entry.family, entry])
-    );
+    return new Map(titleEntries.map((entry) => [entry.family, entry]));
 }
 
 export async function getTitleIconUrl(family: string): Promise<string | null> {

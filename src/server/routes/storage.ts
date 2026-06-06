@@ -7,7 +7,6 @@ import { Router, type Request } from 'express';
 
 import { getStringQuery, requireTitleIdQuery } from '../request.js';
 import { sendServerError } from '../routes.js';
-import { downloadNusTitleMetadata } from '../metadata.js';
 import { broadcastAppSocketEvent } from '../socket.js';
 import {
     classifyTitleId,
@@ -52,6 +51,7 @@ import {
     deleteLocalTitleSourcePaths,
     getSafeLocalDeletePaths,
 } from './delete.js';
+import { downloadNusBaseMetadata } from '../title.js';
 
 type RouteResult<TBody> = {
     status: number;
@@ -596,7 +596,7 @@ async function processStorageCopyQueue(): Promise<void> {
         if (resolvedTitleId) {
             const copyId = nextItem.id;
             const kind = nextItem.titleKind;
-            void downloadNusTitleMetadata(resolvedTitleId)
+            void downloadNusBaseMetadata(resolvedTitleId)
                 .then((metadata) => {
                     if (!metadata?.name || shouldStopStorageCopy(copyId)) {
                         return;

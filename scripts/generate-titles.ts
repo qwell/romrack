@@ -14,6 +14,7 @@ import {
 } from '../src/shared/titles.js';
 import { toArray } from '../src/shared/shared.js';
 import { requestJson } from '../src/shared/api.js';
+import { isHttpErrorStatus } from '../src/shared/download.js';
 
 type Icon = {
     titleId: string;
@@ -28,14 +29,9 @@ type TitleAllResponse = {
     productCode?: string | null;
     companyCode?: string | null;
     baseVersions?: number[];
-    updates?: number[];
-    dlc?: number[];
+    updateVersions?: number[];
+    dlcVersions?: number[];
     availableOnCdn?: boolean;
-};
-
-type ChildMetadataResponse = {
-    exists?: boolean;
-    titleVersion?: number | null;
 };
 
 type CsvRow = Record<string, string>;
@@ -73,15 +69,23 @@ const ranges = [
     '000500001fbf1000:000500001fbf1000',
 ];
 
-const titleAllUrl = 'http://localhost:3000/api/title-all?titleId=%s';
-const updateMetadataUrl = 'http://localhost:3000/api/title-update?titleId=%s';
-const dlcMetadataUrl = 'http://localhost:3000/api/title-dlc?titleId=%s';
+const titleUrl = 'http://localhost:3000/api/title?titleId=%s';
 const samuraiContentsUrl =
     'https://samurai.wup.shop.nintendo.net/samurai/ws/US/contents/?shop_id=2&limit=10000';
 const wiiUTdbZipUrl = 'https://www.gametdb.com/wiiutdb.zip';
+
+// Maybe useful later?
+// https://ninja.ctr.shop.nintendo.net/ninja/ws/titles/id_pair?ns_uid[]=
+// https://ninja.ctr.shop.nintendo.net/ninja/ws/titles/id_pair?title_id[]=
+// https://ninja.ctr.shop.nintendo.net/ninja/ws/{countryCode}/title/{eShopId}/ec_info
+// https://samurai.wup.shop.nintendo.net/samurai/ws/{countryCode}/titles?shop_id=2&limit=10000
+// https://samurai.wup.shop.nintendo.net/samurai/ws/{countryCode}/title/{eShopId}
+// https://tagaya.wup.shop.nintendo.net/tagaya/versionlist/ZZZ/ZZ/latest_version
+// https://tagaya-wup.cdn.nintendo.net/tagaya/versionlist/ZZZ/ZZ/list/{latestVersion}.versionlist
+
 const userAgent = 'WiiU Vault';
 
-const parallel = Number.parseInt(process.env.parallel ?? '16', 10);
+const parallel = 16;
 
 const parser = new XMLParser({
     ignoreAttributes: false,
@@ -92,7 +96,6 @@ const root = process.cwd();
 const titlesDir = path.join(root, 'titles');
 
 const titlesFile = path.join(titlesDir, 'titles.json');
-const extraFile = path.join(titlesDir, 'extra.json');
 const iconsFile = path.join(titlesDir, 'icons.json');
 const excludeFile = path.join(titlesDir, 'exclude.json');
 const titledbFile = path.join(titlesDir, 'titledb.csv');
@@ -122,7 +125,7 @@ function titleIdSet(entries: unknown[]): Set<string> {
     for (const entry of entries) {
         if (stringFieldRecord(entry, ['titleId'])) {
             const titleId = normalizeTitleId(entry.titleId);
-            if (titleId !== null) {
+            if (titleId !== '') {
                 titleIds.add(titleId);
             }
         }
@@ -260,22 +263,82 @@ function generateTitleIds(excluded: Set<string>): string[] {
     return titleIds;
 }
 
+function isSkippableCdnError(error: unknown): boolean {
+    return isHttpErrorStatus(error, 404) || isHttpErrorStatus(error, 504);
+}
+
+function formatTitleLogStatus(index: number, status: string): string {
+    return `[${index + 1}] ${status.padEnd(4)} `;
+}
+
+function logTitleResult(
+    index: number,
+    status: 'HIT' | 'MISS' | 'CSV',
+    titleId: string,
+    title?: RawTitleDatabaseEntry
+): void {
+    const statusPrefix = formatTitleLogStatus(index, status);
+    const titleName = title?.name ?? 'Unknown';
+    const lines = [`${statusPrefix}${titleId} ${titleName}`];
+
+    if (title) {
+        lines.push(
+            `${''.padEnd(statusPrefix.length)}base=${versionsText(title.baseVersions)} update=${versionsText(title.updateVersions)} dlc=${versionsText(title.dlcVersions)}`
+        );
+    }
+
+    console.log(lines.join('\n'));
+}
+
+function hasBaseMetadata(metadata: TitleAllResponse | null): boolean {
+    return (
+        metadata !== null &&
+        metadata.titleId !== undefined &&
+        (metadata.baseVersions?.length ?? 0) > 0
+    );
+}
+
 async function processTitle(
     titleId: string,
-    index: number
+    index: number,
+    fallbackTitle?: RawTitleDatabaseEntry
 ): Promise<RawTitleDatabaseEntry | null> {
-    const metadata = await requestJson<TitleAllResponse>(
-        formatUrl(titleAllUrl, titleId)
-    );
+    let metadata: TitleAllResponse | null;
 
-    if (
-        !metadata ||
-        !metadata.titleId ||
-        (metadata.name == null &&
-            metadata.productCode == null &&
-            metadata.companyCode == null)
-    ) {
-        console.log(`[${index + 1}] MISS ${titleId}`);
+    try {
+        metadata = await requestJson<TitleAllResponse>(
+            formatUrl(titleUrl, titleId)
+        );
+    } catch (error) {
+        if (isSkippableCdnError(error)) {
+            metadata = null;
+        } else {
+            throw error;
+        }
+    }
+
+    const updateVersions = metadata?.updateVersions ?? [];
+    const dlcVersions = metadata?.dlcVersions ?? [];
+
+    if (!hasBaseMetadata(metadata)) {
+        if (fallbackTitle) {
+            const title: RawTitleDatabaseEntry = {
+                ...fallbackTitle,
+                updateVersions,
+                dlcVersions,
+                availableOnCdn: false,
+            };
+
+            logTitleResult(index, 'CSV', title.titleId, title);
+
+            return title;
+        }
+
+        logTitleResult(index, 'MISS', titleId);
+        return null;
+    }
+
+    if (!metadata) {
         return null;
     }
 
@@ -287,14 +350,12 @@ async function processTitle(
         companyCode: metadata.companyCode ?? null,
         iconUrl: null,
         baseVersions: metadata.baseVersions ?? [],
-        updates: metadata.updates ?? [],
-        dlc: metadata.dlc ?? [],
-        availableOnCdn: metadata.availableOnCdn ?? false,
+        updateVersions,
+        dlcVersions,
+        availableOnCdn: true,
     };
 
-    console.log(
-        `[${index + 1}] HIT  ${titleId} base=${versionsText(title.baseVersions)} update=${versionsText(title.updates)} dlc=${versionsText(title.dlc)}`
-    );
+    logTitleResult(index, 'HIT', title.titleId, title);
 
     return title;
 }
@@ -306,88 +367,55 @@ function versionsText(versions: number[]): string {
 async function loadTitles(
     excluded: Set<string>
 ): Promise<RawTitleDatabaseEntry[]> {
-    const titleIds = generateTitleIds(excluded);
-    const titles = await mapPool(titleIds, parallel, processTitle);
+    const fallbackTitles = await loadTitledbTitles();
+    const fallbackByTitleId = new Map(
+        fallbackTitles.map((title) => [title.titleId, title])
+    );
+    const titleIds = uniqueTitleIds([
+        ...generateTitleIds(excluded),
+        ...fallbackTitles.map((title) => title.titleId),
+    ]).filter((titleId) => !excluded.has(titleId));
+    const titles = await mapPool(titleIds, parallel, (titleId, index) =>
+        processTitle(titleId, index, fallbackByTitleId.get(titleId))
+    );
 
     return sortByTitleId(titles.filter((title) => title !== null));
 }
 
-async function loadChildVersion(
-    urlTemplate: string,
-    titleId: string
-): Promise<number | null> {
-    const metadata = await requestJson<ChildMetadataResponse>(
-        formatUrl(urlTemplate, titleId)
-    );
-
-    if (
-        metadata?.exists === true &&
-        typeof metadata.titleVersion === 'number'
-    ) {
-        return metadata.titleVersion;
-    }
-
-    return null;
+function uniqueTitleIds(titleIds: string[]): string[] {
+    return [...new Set(titleIds.filter((titleId) => titleId !== ''))];
 }
 
-async function processExtraTitle(
-    title: RawTitleDatabaseEntry,
-    index: number
-): Promise<RawTitleDatabaseEntry> {
-    const [updateVersion, dlcVersion] = await Promise.all([
-        loadChildVersion(updateMetadataUrl, title.titleId),
-        loadChildVersion(dlcMetadataUrl, title.titleId),
-    ]);
-
-    const updatedTitle: RawTitleDatabaseEntry = {
-        ...title,
-        updates: updateVersion === null ? [] : [updateVersion],
-        dlc: dlcVersion === null ? [] : [dlcVersion],
-    };
-
-    console.log(
-        `[${index + 1}] EXTRA ${title.titleId} base=${versionsText(updatedTitle.baseVersions)} update=${versionsText(updatedTitle.updates)} dlc=${versionsText(updatedTitle.dlc)}`
-    );
-
-    return updatedTitle;
-}
-
-async function loadExtraTitles(
-    existingTitles: RawTitleDatabaseEntry[],
-    excluded: Set<string>
-): Promise<RawTitleDatabaseEntry[] | null> {
+async function loadTitledbTitles(): Promise<RawTitleDatabaseEntry[]> {
     if (!(await fileExists(titledbFile))) {
-        return null;
+        return [];
     }
 
-    const existing = new Set(existingTitles.map((title) => title.titleId));
     const rows = parseCsvRows(await fs.readFile(titledbFile, 'utf8'));
-    const titles = rows
+    return rows
         .map((row): RawTitleDatabaseEntry | null => {
+            const titleId = normalizeTitleId(row['Title ID']);
+            if (titleId === '') {
+                return null;
+            }
+
             return {
-                titleId: normalizeTitleId(row['Title ID']),
+                titleId,
                 name: normalizeTitleName(row.Description),
                 region: normalizeRegion(row.Region, row['Product Code']),
                 productCode: row['Product Code'] ?? null,
                 companyCode: row['Company Code'] ?? null,
                 iconUrl: null,
                 baseVersions: parseVersions(row.Versions),
-                updates: [],
-                dlc: [],
+                updateVersions: [],
+                dlcVersions: [],
                 availableOnCdn:
                     (row['Available on CDN?'] ?? '').toLowerCase() === 'yes'
                         ? true
                         : false,
             };
         })
-        .filter(
-            (title): title is RawTitleDatabaseEntry =>
-                title !== null &&
-                !existing.has(title.titleId) &&
-                !excluded.has(title.titleId)
-        );
-
-    return sortByTitleId(await mapPool(titles, parallel, processExtraTitle));
+        .filter((title): title is RawTitleDatabaseEntry => title !== null);
 }
 
 function parseCsvRows(text: string): CsvRow[] {
@@ -424,7 +452,7 @@ async function loadSamuraiIcons(): Promise<Icon[] | null> {
             const titleId = normalizeTitleId(title?.['@id'] ?? '');
             const iconUrl = title?.icon_url ?? '';
 
-            if (titleId !== null && iconUrl !== '') {
+            if (titleId !== '' && iconUrl !== '') {
                 icons.push({ titleId, iconUrl });
             }
         }
@@ -460,9 +488,10 @@ async function mergeSamuraiIcons(): Promise<void> {
     const icons = (await readJsonArray(iconsFile))
         .filter(isIcon)
         .map((icon) => ({
-            titleId: icon.titleId.toLowerCase(),
+            titleId: normalizeTitleId(icon.titleId),
             iconUrl: icon.iconUrl,
-        }));
+        }))
+        .filter((icon) => icon.titleId !== '');
     const existing = new Set(icons.map((icon) => icon.titleId));
 
     await writeJson(
@@ -548,17 +577,10 @@ async function main() {
     await writeJson(titlesFile, titles);
     console.log(`Title data saved to ${titlesFile}`);
 
-    const extraTitles = await loadExtraTitles(titles, excluded);
-    if (extraTitles !== null) {
-        await writeJson(extraFile, extraTitles);
-        console.log(`Extra title data saved to ${extraFile}`);
-    }
-
     await mergeSamuraiIcons();
 
     const icons = (await readJsonArray(iconsFile)).filter(isIcon);
     await applyIcons(titlesFile, icons);
-    await applyIcons(extraFile, icons);
 }
 
 main().catch((error) => {
