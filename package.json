@@ -55,7 +55,7 @@
         "@types/prettier": "^3.0.0",
         "@types/ws": "^8.18.1",
         "@typescript-eslint/eslint-plugin": "^8.60.0",
-        "@typescript-eslint/parser": "^8.60.0",
+        "@typescript-eslint/parser": "^8.60.1",
         "@yarnpkg/sdks": "^3.2.3",
         "adm-zip": "^0.5.17",
         "eslint": "^10.4.0",
