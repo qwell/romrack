@@ -1,8 +1,10 @@
 import { Router } from 'express';
+import { randomUUID } from 'node:crypto';
 
 import { sendServerError } from '../routes.js';
 import { broadcastAppSocketEvent } from '../socket.js';
 import {
+    classifyTitleId,
     clearTitleScanCache,
     scanWiiUTitleRoots,
     validateWiiUTitleRoots,
@@ -11,7 +13,6 @@ import { convertWudImagesInRoots } from '../wud.js';
 import { getStringQuery } from '../request.js';
 import { clearAllTitleVerificationResults } from './title.js';
 import {
-    type LibraryConvertResponse,
     type LibraryResponse,
     type LibraryValidateResponse,
 } from '../../shared/api.js';
@@ -19,10 +20,12 @@ import { getConfig } from '../../shared/config.js';
 import logger from '../../shared/logger.js';
 import { formatLogError } from '../../shared/shared.js';
 import {
+    LIBRARY_CONVERT_SOCKET_COMMAND,
     LIBRARY_CONVERT_SOCKET_EVENT,
     LIBRARY_VALIDATE_SOCKET_COMMAND,
     LIBRARY_VALIDATE_SOCKET_EVENT,
-    type LibraryConvertStatusEvent,
+    type LibraryConvertSocketCommand,
+    type LibraryConvertItem,
     type LibraryValidateSocketCommand,
     type LibraryValidateStatusEvent,
 } from '../../shared/socket.js';
@@ -32,6 +35,9 @@ let latestLibraryValidateStatus: LibraryValidateStatusEvent | null = null;
 let activeLibraryValidateAbortController: AbortController | null = null;
 let libraryValidateStatusTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingLibraryValidateStatus: LibraryValidateStatusEvent | null = null;
+let libraryConversions: LibraryConvertItem[] = [];
+let activeLibraryConvertId: string | null = null;
+let activeLibraryConvertAbortController: AbortController | null = null;
 
 let libraryGroups: TitleGroup[] = [];
 
@@ -60,6 +66,10 @@ export function getLibraryCacheEntry(
 
 export function getLatestLibraryValidateStatus(): LibraryValidateStatusEvent | null {
     return latestLibraryValidateStatus;
+}
+
+export function getLibraryConversions(): LibraryConvertItem[] {
+    return libraryConversions;
 }
 
 function broadcastLibraryValidateStatus(
@@ -102,8 +112,11 @@ function clearScheduledLibraryValidateStatus(): void {
     pendingLibraryValidateStatus = null;
 }
 
-function broadcastLibraryConvertStatus(event: LibraryConvertStatusEvent): void {
-    broadcastAppSocketEvent(event);
+function broadcastLibraryConversions(): void {
+    broadcastAppSocketEvent({
+        type: LIBRARY_CONVERT_SOCKET_EVENT.changed,
+        items: libraryConversions,
+    });
 }
 
 export function createLibraryRouter(): Router {
@@ -207,7 +220,7 @@ export function createLibraryRouter(): Router {
         }
     });
 
-    router.get('/convert', async (req, res) => {
+    router.get('/convert', (req, res) => {
         const titleId = getStringQuery(req, 'titleId');
 
         if (!titleId) {
@@ -217,75 +230,155 @@ export function createLibraryRouter(): Router {
             return;
         }
 
-        try {
-            broadcastLibraryConvertStatus({
-                type: LIBRARY_CONVERT_SOCKET_EVENT.status,
-                status: 'started',
-                titleId,
-            });
-            const result = await convertWudImagesInRoots(
-                getConfig().wiiuRoots,
-                titleId,
-                {
-                    onProgress: (progress) => {
-                        broadcastLibraryConvertStatus({
-                            type: LIBRARY_CONVERT_SOCKET_EVENT.status,
-                            status: 'converting',
-                            titleId,
-                            currentFileName: progress.currentFileName,
-                            current: progress.completedFiles + 1,
-                            total: progress.totalFiles,
-                        });
-                    },
-                }
-            );
-
-            clearTitleScanCache();
-            broadcastLibraryConvertStatus({
-                type: LIBRARY_CONVERT_SOCKET_EVENT.status,
-                status: 'complete',
-                titleId,
-                converted: result.converted.reduce(
-                    (total, image) => total + image.titles.length,
-                    0
-                ),
-            });
-            const response: LibraryConvertResponse = {
-                converted: result.converted.map((item) => ({
-                    sourcePath: item.sourcePath,
-                    titles: item.titles.map((title) => ({
-                        name: title.name,
-                        titleVersion: title.titleVersion,
-                        outputDir: title.outputDir,
-                        sizeBytes: title.sizeBytes,
-                    })),
-                })),
-            };
-
-            res.json(response);
-        } catch (error) {
-            broadcastLibraryConvertStatus({
-                type: LIBRARY_CONVERT_SOCKET_EVENT.status,
-                status: 'failed',
-                titleId,
-                error: error instanceof Error ? error.message : String(error),
-            });
-            logger.warn(
-                'server',
-                `Failed to convert WUD/WUX library entries: ${formatLogError(error)}`
-            );
-            sendServerError(
-                res,
-                'Failed to convert WUD/WUX library entries',
-                error,
-                {
-                    includeDetails: true,
-                }
-            );
-        }
+        const normalizedTitleId = titleId.toLowerCase();
+        const cached = getLibraryCacheEntry(normalizedTitleId);
+        const item: LibraryConvertItem = {
+            id: randomUUID(),
+            titleId: normalizedTitleId,
+            name: cached?.name ?? null,
+            kind: classifyTitleId(normalizedTitleId).kind,
+            version: cached?.version ?? null,
+            state: 'queued',
+            currentFileName: null,
+            current: null,
+            total: null,
+            currentFileSizeBytes: null,
+            converted: null,
+            error: null,
+        };
+        libraryConversions = [...libraryConversions, item];
+        broadcastLibraryConversions();
+        void processLibraryConvertQueue();
+        res.status(202).json({ conversionId: item.id, item });
     });
 
     return router;
+}
+
+export function handleLibraryConvertSocketCommand(
+    command: LibraryConvertSocketCommand
+): void {
+    switch (command.type) {
+        case LIBRARY_CONVERT_SOCKET_COMMAND.cancel:
+            cancelLibraryConversion(command.id);
+            return;
+        case LIBRARY_CONVERT_SOCKET_COMMAND.clear:
+            if (activeLibraryConvertId === command.id) {
+                cancelLibraryConversion(command.id);
+                return;
+            }
+            libraryConversions = libraryConversions.filter(
+                (item) => item.id !== command.id
+            );
+            broadcastLibraryConversions();
+            void processLibraryConvertQueue();
+            return;
+        case LIBRARY_CONVERT_SOCKET_COMMAND.retry: {
+            const item = libraryConversions.find(
+                (candidate) => candidate.id === command.id
+            );
+            if (!item || item.state !== 'failed') {
+                return;
+            }
+            Object.assign(item, {
+                state: 'queued',
+                currentFileName: null,
+                current: null,
+                total: null,
+                currentFileSizeBytes: null,
+                converted: null,
+                error: null,
+            } satisfies Partial<LibraryConvertItem>);
+            broadcastLibraryConversions();
+            void processLibraryConvertQueue();
+            return;
+        }
+    }
+}
+
+function cancelLibraryConversion(id: string): void {
+    libraryConversions = libraryConversions.filter((item) => item.id !== id);
+    if (activeLibraryConvertId === id) {
+        activeLibraryConvertAbortController?.abort();
+    }
+    broadcastLibraryConversions();
+    void processLibraryConvertQueue();
+}
+
+async function processLibraryConvertQueue(): Promise<void> {
+    if (activeLibraryConvertId) {
+        return;
+    }
+
+    const item = libraryConversions.find(
+        (candidate) => candidate.state === 'queued'
+    );
+    if (!item) {
+        broadcastLibraryConversions();
+        return;
+    }
+
+    activeLibraryConvertId = item.id;
+    const abortController = new AbortController();
+    activeLibraryConvertAbortController = abortController;
+    item.state = 'converting';
+    broadcastLibraryConversions();
+
+    try {
+        const result = await convertWudImagesInRoots(
+            getConfig().wiiuRoots,
+            item.titleId,
+            {
+                onProgress: (progress) => {
+                    if (activeLibraryConvertId !== item.id) {
+                        return;
+                    }
+                    item.currentFileName = progress.currentFileName;
+                    item.current = progress.completedFiles + 1;
+                    item.total = progress.totalFiles;
+                    item.currentFileSizeBytes = progress.currentFileSizeBytes;
+                    broadcastLibraryConversions();
+                },
+                signal: abortController.signal,
+            }
+        );
+        if (
+            activeLibraryConvertId !== item.id ||
+            abortController.signal.aborted
+        ) {
+            return;
+        }
+        clearTitleScanCache();
+        item.state = 'complete';
+        item.currentFileName = null;
+        item.currentFileSizeBytes = null;
+        item.current = item.total;
+        item.converted = result.converted.reduce(
+            (total, image) => total + image.titles.length,
+            0
+        );
+        broadcastLibraryConversions();
+    } catch (error) {
+        if (
+            activeLibraryConvertId !== item.id ||
+            abortController.signal.aborted
+        ) {
+            return;
+        }
+        item.state = 'failed';
+        item.error = error instanceof Error ? error.message : String(error);
+        logger.warn(
+            'server',
+            `Failed to convert WUD/WUX library entries: ${formatLogError(error)}`
+        );
+        broadcastLibraryConversions();
+    } finally {
+        if (activeLibraryConvertId === item.id) {
+            activeLibraryConvertId = null;
+            activeLibraryConvertAbortController = null;
+        }
+        void processLibraryConvertQueue();
+    }
 }
 
 export function handleLibraryValidateSocketCommand(

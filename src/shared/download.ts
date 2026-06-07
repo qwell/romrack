@@ -28,6 +28,7 @@ export type DownloadQueueItem = {
     completedFiles: number | null;
     totalFiles: number | null;
     currentFileName: string | null;
+    currentFileSizeBytes: number | null;
     installedSizeBytes: number | null;
     installedVersion: number | null;
     installedTitleName: string | null;

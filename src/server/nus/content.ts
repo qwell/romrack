@@ -32,6 +32,7 @@ export const HASHED_BLOCK_SIZE = 0x10000;
 export const HASHED_BLOCK_DATA_OFFSET = 0x400;
 export const HASHED_BLOCK_DATA_SIZE = 0xfc00;
 export const HASH_ENTRY_SIZE = 0x14;
+const H3_CONTENT_CLUSTER_SPAN = 0x1000;
 
 const HASH_ENTRIES_PER_LEVEL = 0x10;
 const HASH_H0_START = 0x000;
@@ -63,6 +64,18 @@ export function getEncryptedContentFileSize(content: TmdContent): bigint {
 
     const blockSize = BigInt(AES_BLOCK_SIZE);
     return ((content.size + blockSize - 1n) / blockSize) * blockSize;
+}
+
+export function getContentH3FileSize(content: TmdContent): number {
+    return (
+        (Math.floor(
+            Number(getEncryptedContentFileSize(content)) /
+                HASHED_BLOCK_SIZE /
+                H3_CONTENT_CLUSTER_SPAN
+        ) +
+            1) *
+        HASH_ENTRY_SIZE
+    );
 }
 
 export function isHashedContent(content: TmdContent): boolean {

@@ -5,6 +5,7 @@ import {
 import { type Fat32Volume, type RuntimeOs } from './os.js';
 import { type DeleteItem } from './delete.js';
 import { type StorageCopyItem } from './storage.js';
+import { type LibraryConvertItem } from './socket.js';
 import { type TitleGroup, type TitleKinds } from './titles.js';
 import { HttpError } from './download.js';
 
@@ -46,11 +47,9 @@ export type LibraryValidateResponse = {
     titles: LibraryValidateTitle[];
 };
 
-export type LibraryConvertResponse = {
-    converted: {
-        sourcePath: string;
-        titles: TitleDownloadResponse[];
-    }[];
+export type LibraryConvertQueuedResponse = {
+    conversionId: string;
+    item: LibraryConvertItem;
 };
 
 export type StorageTransferQueuedResponse = {

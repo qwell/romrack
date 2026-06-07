@@ -4,6 +4,7 @@ import { type TitleGroup, TitleKinds } from '../shared/titles.js';
 import { DOWNLOAD_SOCKET_COMMAND } from '../shared/socket.js';
 import {
     createActionBarCell,
+    createActionBarRow,
     createActionButton,
     updateActionBar,
 } from './actionbar.js';
@@ -62,6 +63,10 @@ export function formatDownloadIcon(state: DownloadQueueState | null): string {
 }
 
 export function formatDownloadProgress(item: DownloadQueueItem): string {
+    if (item.state === 'queued') {
+        return '-';
+    }
+
     if (item.state === 'failed') {
         return `${Math.round(item.progress)}%`;
     }
@@ -77,16 +82,16 @@ export function formatDownloadProgress(item: DownloadQueueItem): string {
     return 'Downloading';
 }
 
-function formatDownloadFileCount(item: DownloadQueueItem): string {
-    return item.completedFiles !== null && item.totalFiles !== null
-        ? `${item.completedFiles}/${item.totalFiles} files`
-        : '';
-}
+export function formatDownloadFileCount(item: DownloadQueueItem): string {
+    if (item.completedFiles === null || item.totalFiles === null) {
+        return '';
+    }
 
-function formatDownloadSize(item: DownloadQueueItem): string {
-    return item.totalBytes !== null
-        ? formatSize(item.totalBytes)
-        : (item.sizeText ?? '');
+    const current =
+        item.currentFileName && item.state === 'downloading'
+            ? Math.min(item.completedFiles + 1, item.totalFiles)
+            : item.completedFiles;
+    return `${current}/${item.totalFiles} files`;
 }
 
 export function formatDownloadState(item: DownloadQueueItem): string {
@@ -154,13 +159,6 @@ export function syncDownloadQueue(
 }
 
 export function renderDownloadActionRow(item: DownloadQueueItem): HTMLElement {
-    const row = document.createElement('div');
-    row.className = `action-bar-row action-bar-row-${item.state}`;
-    row.dataset.itemId = item.id;
-    row.dataset.itemState = item.state;
-    row.dataset.downloadItemId = item.id;
-    row.dataset.state = item.state;
-
     const progress = createActionBarCell(
         'action-bar-progress',
         formatDownloadProgress(item)
@@ -175,7 +173,7 @@ export function renderDownloadActionRow(item: DownloadQueueItem): HTMLElement {
 
     const icon = createActionBarCell(
         'action-bar-icon',
-        formatDownloadIcon(item.state) || '↓'
+        formatDownloadIcon(item.state)
     );
     icon.dataset.downloadIcon = 'true';
 
@@ -187,7 +185,7 @@ export function renderDownloadActionRow(item: DownloadQueueItem): HTMLElement {
 
     const size = createActionBarCell(
         'action-bar-size',
-        formatDownloadSize(item)
+        formatSize(item.currentFileSizeBytes)
     );
 
     const downloadTitle = formatDownloadTitle(item);
@@ -197,8 +195,12 @@ export function renderDownloadActionRow(item: DownloadQueueItem): HTMLElement {
 
     const detailsCell = renderDownloadControls(item);
 
-    row.append(progress, files, icon, state, size, title, detailsCell);
-    return row;
+    return createActionBarRow({
+        id: item.id,
+        state: item.state,
+        cells: [progress, files, icon, state, size, title, detailsCell],
+        itemIdDataKey: 'downloadItemId',
+    });
 }
 
 function renderDownloadControls(item: DownloadQueueItem): HTMLDivElement {
@@ -422,6 +424,7 @@ export function collectSelectedDownloads(
             completedFiles: null,
             totalFiles: null,
             currentFileName: null,
+            currentFileSizeBytes: null,
             installedSizeBytes: null,
             installedVersion: null,
             installedTitleName: null,

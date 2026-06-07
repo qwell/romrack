@@ -17,6 +17,7 @@ import {
     createDeleteRouter,
     getDeletes,
     createLibraryRouter,
+    getLibraryConversions,
     getLatestLibraryValidateStatus,
     createTitleRouter,
     getDownloadQueue,
@@ -76,6 +77,7 @@ createAppSocket({
         storageCopies: getStorageCopies(),
         deletes: getDeletes(),
         libraryValidateStatus: getLatestLibraryValidateStatus(),
+        libraryConversions: getLibraryConversions(),
     }),
     onCommand: handleAppSocketCommand,
 });

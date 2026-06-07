@@ -25,6 +25,7 @@ import {
     ensureContentInstallFiles,
     extractHashedContentSlice,
     getContentInstallFiles,
+    getContentH3FileSize,
     getEncryptedContentFileSize,
     isHashedContent,
     type ContentInstallFiles,
@@ -154,6 +155,7 @@ export type TitleDownloadProgress = {
     completedFiles: number;
     totalFiles: number;
     currentFileName: string | null;
+    currentFileSizeBytes: number;
 };
 
 export type InstalledTitleValidation = {
@@ -398,6 +400,8 @@ export async function downloadTitleContentFile({
     titleKey,
     baseUrl,
     titleId,
+    onFileStart,
+    onFileComplete,
     signal,
 }: {
     content: TmdContent;
@@ -405,10 +409,13 @@ export async function downloadTitleContentFile({
     titleKey: Uint8Array;
     baseUrl: string;
     titleId: string;
+    onFileStart?: (fileName: string, fileSizeBytes: number) => void;
+    onFileComplete?: (fileName: string, fileSizeBytes: number) => void;
     signal?: AbortSignal;
 }): Promise<DownloadedContentFile> {
     throwIfAborted(signal);
     const files = getContentInstallFiles(outputDir, content);
+    const appSizeBytes = Number(getEncryptedContentFileSize(content));
 
     if (!isHashedContent(content)) {
         const verification = await ensureContentInstallFiles({
@@ -416,14 +423,17 @@ export async function downloadTitleContentFile({
             content,
             titleKey,
             signal,
-            download: (targetFile) =>
-                downloadContentToFile(
+            download: async (targetFile) => {
+                onFileStart?.(files.appName, appSizeBytes);
+                await downloadContentToFile(
                     baseUrl,
                     titleId,
                     content.id,
                     targetFile,
                     signal
-                ),
+                );
+                onFileComplete?.(files.appName, appSizeBytes);
+            },
         });
 
         return {
@@ -433,27 +443,34 @@ export async function downloadTitleContentFile({
         };
     }
 
+    const h3SizeBytes = getContentH3FileSize(content);
     const verification = await ensureContentInstallFiles({
         files,
         content,
         titleKey,
         signal,
-        downloadApp: (targetFile) =>
-            downloadContentToFile(
+        downloadApp: async (targetFile) => {
+            onFileStart?.(files.appName, appSizeBytes);
+            await downloadContentToFile(
                 baseUrl,
                 titleId,
                 content.id,
                 targetFile,
                 signal
-            ),
-        downloadH3: (targetFile) =>
-            downloadContentH3ToFile(
+            );
+            onFileComplete?.(files.appName, appSizeBytes);
+        },
+        downloadH3: async (targetFile) => {
+            onFileStart?.(files.h3Name ?? '', h3SizeBytes);
+            await downloadContentH3ToFile(
                 baseUrl,
                 titleId,
                 content.id,
                 targetFile,
                 signal
-            ),
+            );
+            onFileComplete?.(files.h3Name ?? '', h3SizeBytes);
+        },
     });
 
     return {

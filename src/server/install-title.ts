@@ -248,7 +248,10 @@ export async function generateTitleInstallFiles(
         ),
     ]);
 
-    const totalFiles = tmd.contents.length;
+    const totalFiles = tmd.contents.reduce(
+        (total, content) => total + (isHashedContent(content) ? 2 : 1),
+        0
+    );
     let completedFiles = 0;
 
     const downloadedContentFiles = await mapConcurrent(
@@ -256,31 +259,36 @@ export async function generateTitleInstallFiles(
         TITLE_DOWNLOAD_CONCURRENCY,
         async (content) => {
             throwIfAborted(options.signal);
-            const files = getContentInstallFiles(outputDir, content);
-            options.onProgress?.({
-                completedFiles,
-                totalFiles,
-                currentFileName: files.appName,
-            });
-
             const downloadedContentFile = await downloadTitleContentFile({
                 content,
                 outputDir,
                 titleKey,
                 baseUrl,
                 titleId: normalizedTitleId,
+                onFileStart: (currentFileName, currentFileSizeBytes) => {
+                    options.onProgress?.({
+                        completedFiles,
+                        totalFiles,
+                        currentFileName,
+                        currentFileSizeBytes,
+                    });
+                },
+                onFileComplete: (currentFileName, currentFileSizeBytes) => {
+                    completedFiles += 1;
+                    options.onProgress?.({
+                        completedFiles,
+                        totalFiles,
+                        currentFileName,
+                        currentFileSizeBytes,
+                    });
+                },
                 signal: options.signal,
             });
 
             throwIfAborted(options.signal);
-            completedFiles += 1;
-
-            options.onProgress?.({
-                completedFiles,
-                totalFiles,
-                currentFileName:
-                    downloadedContentFile.app ?? downloadedContentFile.h3,
-            });
+            if (downloadedContentFile.verification.cached) {
+                completedFiles += isHashedContent(content) ? 2 : 1;
+            }
 
             return downloadedContentFile;
         }

@@ -134,6 +134,7 @@ yarn generate:titles
 
 - `GET /api/library`: Scan the configured library.
 - `GET /api/library/validate`: Validate library file integrity and report progress.
+- `GET /api/library/convert?titleId=...`: Queue WUD/WUX conversion for a title.
 - `GET /api/title-icon/:family`: Proxy/cache a title icon from the title database.
 - `GET /api/title?titleId=...`: Fetch base NUS metadata plus update and DLC availability.
 - `GET /api/storage/list-fat32`: List FAT32 storage destinations. On WSL, unmounted Windows-only drives are returned for display but must be mounted in WSL before use.
@@ -147,11 +148,12 @@ The browser connects to `/api/socket`. On connection the server sends an `app.co
 
 Server events:
 
-- `app.connected`: Initial app state payload (downloads, storageCopies, deletes, libraryValidateStatus).
+- `app.connected`: Initial app state payload (downloads, storageCopies, deletes, libraryValidateStatus, libraryConversions).
 - `download.queueChanged`: Current download queue updates.
 - `storage.copyChanged`: Current storage copy/move queue updates.
 - `delete.changed`: Current delete queue updates.
 - `library.validateStatus`: Library validation progress and status updates.
+- `library.convertChanged`: Current WUD/WUX conversion queue.
 - `title.verify.changed`: Title verification progress and results.
 
 Client commands:
@@ -169,6 +171,9 @@ Client commands:
 - `library.validate.clear`: Clear current validation status.
 - `library.validate.failure.clear`: Clear recorded validation failures.
 - `library.validate.failure.download`: Queue downloads for validation failures.
+- `library.convert.cancel`: Cancel the active WUD/WUX conversion.
+- `library.convert.clear`: Clear a WUD/WUX conversion queue entry.
+- `library.convert.retry`: Retry a failed WUD/WUX conversion.
 - `title.verify.queue`: Queue verification for a title (payload: `{ titleId, name }`).
 
 ## Title Data

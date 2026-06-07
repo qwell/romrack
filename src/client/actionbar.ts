@@ -4,12 +4,14 @@ import {
 } from '../shared/download.js';
 import {
     DOWNLOAD_SOCKET_COMMAND,
+    LIBRARY_CONVERT_SOCKET_COMMAND,
     LIBRARY_VALIDATE_SOCKET_COMMAND,
     STORAGE_COPY_SOCKET_COMMAND,
     DELETE_SOCKET_COMMAND,
+    type LibraryConvertItem,
     type LibraryValidateStatusEvent,
 } from '../shared/socket.js';
-import { formatTitleDisplay } from '../shared/shared.js';
+import { formatSize, formatTitleDisplay } from '../shared/shared.js';
 import {
     type DeleteActionBarCommand,
     type DeleteItem,
@@ -23,7 +25,6 @@ import {
     formatStorageCopyFileCount,
     formatStorageCopyIcon,
     formatStorageCopyProgress,
-    formatStorageCopySize,
     formatStorageCopyState,
     formatStorageCopyTitle,
     renderStorageCopyActionRow,
@@ -44,6 +45,7 @@ import {
 
 import {
     cancelDownload,
+    formatDownloadFileCount,
     formatDownloadIcon,
     formatDownloadProgress,
     formatDownloadState,
@@ -72,6 +74,9 @@ export const ACTION_BAR_COMMAND = {
     libraryValidateFailureClear: LIBRARY_VALIDATE_SOCKET_COMMAND.failureClear,
     libraryValidateFailureDownload:
         LIBRARY_VALIDATE_SOCKET_COMMAND.failureDownload,
+    libraryConvertCancel: LIBRARY_CONVERT_SOCKET_COMMAND.cancel,
+    libraryConvertClear: LIBRARY_CONVERT_SOCKET_COMMAND.clear,
+    libraryConvertRetry: LIBRARY_CONVERT_SOCKET_COMMAND.retry,
 } as const;
 
 export type ActionBarCommand =
@@ -86,6 +91,7 @@ type ActionBarOptions = {
     deletes: DeleteItem[];
     libraryValidate: LibraryValidateStatusEvent | null;
     libraryValidateFailures: LibraryValidateStatusEvent[];
+    libraryConversions: LibraryConvertItem[];
     onCommand: (action: ActionBarCommand, itemId: string) => void;
 };
 
@@ -128,7 +134,8 @@ function isClearableActionBarItem(options: ActionBarOptions): boolean {
         options.libraryValidateFailures.length > 0 ||
         (options.libraryValidate !== null &&
             getLibraryValidateActionState(options.libraryValidate) !==
-                'validating')
+                'validating') ||
+        options.libraryConversions.some((item) => item.state !== 'converting')
     );
 }
 
@@ -156,6 +163,15 @@ function clearAllActionBarItems(options: ActionBarOptions): void {
         getLibraryValidateActionState(options.libraryValidate) !== 'validating'
     ) {
         setLibraryValidateAction(null);
+    }
+
+    for (const item of options.libraryConversions) {
+        if (item.state !== 'converting') {
+            sendAppSocketCommand({
+                type: LIBRARY_CONVERT_SOCKET_COMMAND.clear,
+                id: item.id,
+            });
+        }
     }
 
     options.libraryValidateFailures.splice(
@@ -273,6 +289,27 @@ export function createActionBarCommandHandler(
             case LIBRARY_VALIDATE_SOCKET_COMMAND.failureDownload:
                 queueLibraryValidateFailureDownload(options.downloads, itemId);
                 return;
+
+            case LIBRARY_CONVERT_SOCKET_COMMAND.cancel:
+                sendAppSocketCommand({
+                    type: LIBRARY_CONVERT_SOCKET_COMMAND.cancel,
+                    id: itemId,
+                });
+                return;
+
+            case LIBRARY_CONVERT_SOCKET_COMMAND.clear:
+                sendAppSocketCommand({
+                    type: LIBRARY_CONVERT_SOCKET_COMMAND.clear,
+                    id: itemId,
+                });
+                return;
+
+            case LIBRARY_CONVERT_SOCKET_COMMAND.retry:
+                sendAppSocketCommand({
+                    type: LIBRARY_CONVERT_SOCKET_COMMAND.retry,
+                    id: itemId,
+                });
+                return;
         }
     };
 }
@@ -303,6 +340,7 @@ function getActionBarSignature(options: ActionBarOptions): string {
                 titleKind: item.kind ?? null,
             })
         ),
+        libraryConversions: options.libraryConversions,
     });
 }
 
@@ -331,6 +369,11 @@ type ActionBarEntry =
           key: string;
           type: 'libraryValidateFailure';
           item: LibraryValidateStatusEvent;
+      }
+    | {
+          key: string;
+          type: 'libraryConvert';
+          item: LibraryConvertItem;
       };
 
 function getActionBarEntryState(entry: ActionBarEntry): string {
@@ -342,6 +385,8 @@ function getActionBarEntryState(entry: ActionBarEntry): string {
         case 'libraryValidate':
         case 'libraryValidateFailure':
             return getLibraryValidateActionState(entry.item);
+        case 'libraryConvert':
+            return getLibraryConvertActionState(entry.item);
     }
 }
 
@@ -382,6 +427,11 @@ function getOrderedActionBarEntries(
                   },
               ]
             : []),
+        ...options.libraryConversions.map((item) => ({
+            key: `library-convert:${item.id}`,
+            type: 'libraryConvert' as const,
+            item,
+        })),
         ...options.libraryValidateFailures.map((item) => ({
             key: `library-validate-failure:${getLibraryValidateFailureKey(item)}`,
             type: 'libraryValidateFailure' as const,
@@ -426,6 +476,19 @@ export function setLibraryValidateAction(
     }
 
     actionBarOptions.libraryValidate = event;
+    updateActionBar();
+}
+
+export function syncLibraryConvertActions(items: LibraryConvertItem[]): void {
+    if (!actionBarOptions) {
+        return;
+    }
+
+    actionBarOptions.libraryConversions.splice(
+        0,
+        actionBarOptions.libraryConversions.length,
+        ...items
+    );
     updateActionBar();
 }
 
@@ -497,6 +560,7 @@ function queueLibraryValidateFailureDownload(
             completedFiles: null,
             totalFiles: null,
             currentFileName: null,
+            currentFileSizeBytes: null,
             installedSizeBytes: null,
             installedVersion: null,
             installedTitleName: null,
@@ -524,7 +588,6 @@ function updateActionBarRowsInPlace(options: ActionBarOptions): void {
 
         row.className = `action-bar-row action-bar-row-${item.state}`;
         row.dataset.itemState = item.state;
-        row.dataset.state = item.state;
 
         const progress = row.querySelector<HTMLElement>(
             '[data-download-progress]'
@@ -532,6 +595,7 @@ function updateActionBarRowsInPlace(options: ActionBarOptions): void {
         const files = row.querySelector<HTMLElement>('[data-download-files]');
         const icon = row.querySelector<HTMLElement>('[data-download-icon]');
         const state = row.querySelector<HTMLElement>('[data-download-state]');
+        const size = row.querySelector<HTMLElement>('.action-bar-size');
         const title = row.querySelector<HTMLElement>('[data-download-title]');
         const detail = row.querySelector<HTMLElement>('[data-download-detail]');
 
@@ -540,10 +604,7 @@ function updateActionBarRowsInPlace(options: ActionBarOptions): void {
         }
 
         if (files) {
-            files.textContent =
-                item.completedFiles !== null && item.totalFiles !== null
-                    ? `${item.completedFiles}/${item.totalFiles} files`
-                    : '';
+            files.textContent = formatDownloadFileCount(item);
         }
 
         if (icon) {
@@ -552,6 +613,10 @@ function updateActionBarRowsInPlace(options: ActionBarOptions): void {
 
         if (state) {
             state.textContent = formatDownloadState(item);
+        }
+
+        if (size) {
+            size.textContent = formatSize(item.currentFileSizeBytes);
         }
 
         if (title) {
@@ -579,7 +644,6 @@ function updateActionBarRowsInPlace(options: ActionBarOptions): void {
 
         row.className = `action-bar-row action-bar-row-${item.state}`;
         row.dataset.itemState = item.state;
-        row.dataset.state = item.state;
 
         const progress = row.querySelector<HTMLElement>(
             '[data-storage-copy-progress]'
@@ -616,7 +680,7 @@ function updateActionBarRowsInPlace(options: ActionBarOptions): void {
         }
 
         if (size) {
-            size.textContent = formatStorageCopySize(item);
+            size.textContent = formatSize(item.currentSizeBytes);
         }
 
         if (title) {
@@ -642,7 +706,6 @@ function updateActionBarRowsInPlace(options: ActionBarOptions): void {
 
         row.className = `action-bar-row action-bar-row-${item.state}`;
         row.dataset.itemState = item.state;
-        row.dataset.state = item.state;
 
         const progress = row.querySelector<HTMLElement>(
             '[data-delete-progress]'
@@ -684,7 +747,6 @@ function updateActionBarRowsInPlace(options: ActionBarOptions): void {
         const stateName = getLibraryValidateActionState(event);
         validateRow.className = `action-bar-row action-bar-row-validate action-bar-row-${stateName}`;
         validateRow.dataset.itemState = stateName;
-        validateRow.dataset.state = stateName;
 
         const progress = validateRow.querySelector<HTMLElement>(
             '[data-library-validate-progress]'
@@ -775,7 +837,11 @@ function formatLibraryValidateFileCount(
     event: LibraryValidateStatusEvent
 ): string {
     if (event.current !== undefined && event.total !== undefined) {
-        return `${event.current}/${event.total} titles`;
+        const current =
+            event.status === 'validating'
+                ? Math.min(event.current + 1, event.total)
+                : event.current;
+        return `${current}/${event.total} titles`;
     }
 
     return '';
@@ -783,7 +849,7 @@ function formatLibraryValidateFileCount(
 
 function formatLibraryValidateIcon(event: LibraryValidateStatusEvent): string {
     const state = getLibraryValidateActionState(event);
-    return state === 'complete' ? '✓' : state === 'failed' ? '!' : '...';
+    return state === 'complete' ? '✓' : state === 'failed' ? '!' : '⋯';
 }
 
 function formatLibraryValidateState(event: LibraryValidateStatusEvent): string {
@@ -815,7 +881,7 @@ function formatLibraryValidateTitle(event: LibraryValidateStatusEvent): string {
 function formatLibraryValidateSize(event: LibraryValidateStatusEvent): string {
     return event.status === 'validating' && event.sizeText
         ? event.sizeText
-        : '-';
+        : '';
 }
 
 function formatLibraryValidateDetails(
@@ -953,25 +1019,22 @@ function isLibraryValidateFailureDownloadQueued(
 function renderLibraryValidateFailureRow(
     event: LibraryValidateStatusEvent
 ): HTMLElement {
-    const row = document.createElement('div');
-    row.className =
-        'action-bar-row action-bar-row-validate-failure action-bar-row-failed';
-    row.dataset.libraryValidateFailure = 'true';
-    row.dataset.itemState = 'failed';
-    row.dataset.state = 'failed';
-
     const progress = createActionBarCell('action-bar-progress', '-');
     const files = createActionBarCell('action-bar-files', '');
     const icon = createActionBarCell('action-bar-icon', '!');
     const state = createActionBarCell('action-bar-state', 'Failed');
-    const size = createActionBarCell('action-bar-size', '-');
+    const size = createActionBarCell('action-bar-size', '');
     const titleText = formatLibraryValidateTitle(event);
     const title = createActionBarCell('action-bar-title', titleText);
     title.title = titleText;
     const details = renderLibraryValidateFailureDetails(event);
 
-    row.append(progress, files, icon, state, size, title, details);
-    return row;
+    return createActionBarRow({
+        state: 'failed',
+        cells: [progress, files, icon, state, size, title, details],
+        className: 'action-bar-row-validate-failure',
+        data: { libraryValidateFailure: 'true' },
+    });
 }
 
 function getLibraryValidateActionState(
@@ -991,12 +1054,7 @@ function getLibraryValidateActionState(
 function renderLibraryValidateActionRow(
     event: LibraryValidateStatusEvent
 ): HTMLElement {
-    const row = document.createElement('div');
     const stateName = getLibraryValidateActionState(event);
-    row.className = `action-bar-row action-bar-row-validate action-bar-row-${stateName}`;
-    row.dataset.libraryValidate = 'true';
-    row.dataset.itemState = stateName;
-    row.dataset.state = stateName;
 
     const progress = createActionBarCell(
         'action-bar-progress',
@@ -1035,8 +1093,113 @@ function renderLibraryValidateActionRow(
 
     const details = renderLibraryValidateDetails(event);
 
-    row.append(progress, files, icon, state, size, title, details);
-    return row;
+    return createActionBarRow({
+        state: stateName,
+        cells: [progress, files, icon, state, size, title, details],
+        className: 'action-bar-row-validate',
+        data: { libraryValidate: 'true' },
+    });
+}
+
+function getLibraryConvertActionState(
+    event: LibraryConvertItem
+): LibraryConvertItem['state'] {
+    return event.state;
+}
+
+function renderLibraryConvertActionRow(event: LibraryConvertItem): HTMLElement {
+    const stateName = getLibraryConvertActionState(event);
+    const progress =
+        stateName === 'complete'
+            ? 'Done'
+            : event.current !== null && event.total
+              ? `${Math.round((event.current / event.total) * 100)}%`
+              : '-';
+    const files =
+        event.current !== null && event.total !== null
+            ? `${event.current}/${event.total} files`
+            : '';
+    const state =
+        stateName === 'queued'
+            ? 'Queued'
+            : stateName === 'converting'
+              ? 'Converting'
+              : stateName === 'complete'
+                ? 'Complete'
+                : 'Failed';
+    const details =
+        event.currentFileName ??
+        event.error ??
+        (event.state === 'complete'
+            ? `${event.converted ?? 0} title(s) converted`
+            : event.state === 'queued'
+              ? 'Queued'
+              : 'Reading WUD/WUX image...');
+    const detailsCell = createActionBarCell('action-bar-details-cell', '');
+    detailsCell.classList.add('action-bar-controls');
+    detailsCell.append(createActionBarCell('action-bar-control-text', details));
+    if (stateName === 'queued' || stateName === 'converting') {
+        detailsCell.append(
+            createActionButton(
+                'Cancel',
+                LIBRARY_CONVERT_SOCKET_COMMAND.cancel,
+                event.id
+            )
+        );
+    } else if (stateName === 'failed') {
+        detailsCell.append(
+            createActionButton(
+                'Retry',
+                LIBRARY_CONVERT_SOCKET_COMMAND.retry,
+                event.id
+            ),
+            createActionButton(
+                'Clear',
+                LIBRARY_CONVERT_SOCKET_COMMAND.clear,
+                event.id
+            )
+        );
+    } else {
+        detailsCell.append(
+            createActionButton(
+                'Clear',
+                LIBRARY_CONVERT_SOCKET_COMMAND.clear,
+                event.id
+            )
+        );
+    }
+    const titleText = formatTitleDisplay(
+        event.name,
+        event.titleId,
+        event.kind,
+        event.version
+    );
+    const title = createActionBarCell('action-bar-title', titleText);
+    title.title = titleText;
+
+    return createActionBarRow({
+        state: stateName,
+        cells: [
+            createActionBarCell('action-bar-progress', progress),
+            createActionBarCell('action-bar-files', files),
+            createActionBarCell(
+                'action-bar-icon',
+                stateName === 'complete'
+                    ? '✓'
+                    : stateName === 'failed'
+                      ? '!'
+                      : '⋯'
+            ),
+            createActionBarCell('action-bar-state', state),
+            createActionBarCell(
+                'action-bar-size',
+                formatSize(event.currentFileSizeBytes)
+            ),
+            title,
+            detailsCell,
+        ],
+        className: 'action-bar-row-convert',
+    });
 }
 
 export function updateActionBar(): void {
@@ -1049,6 +1212,7 @@ export function updateActionBar(): void {
         actionBarOptions.storageCopies.length === 0 &&
         actionBarOptions.deletes.length === 0 &&
         actionBarOptions.libraryValidate === null &&
+        actionBarOptions.libraryConversions.length === 0 &&
         actionBarOptions.libraryValidateFailures.length === 0;
     actionBarRoot.hidden = isEmpty;
 
@@ -1083,6 +1247,37 @@ export function createActionBarCell(
     return cell;
 }
 
+export function createActionBarRow({
+    id,
+    state,
+    cells,
+    itemIdDataKey,
+    className,
+    data,
+}: {
+    id?: string;
+    state: string;
+    cells: HTMLElement[];
+    itemIdDataKey?: string;
+    className?: string;
+    data?: Record<string, string>;
+}): HTMLDivElement {
+    const row = document.createElement('div');
+    row.className = ['action-bar-row', `action-bar-row-${state}`, className]
+        .filter(Boolean)
+        .join(' ');
+    row.dataset.itemState = state;
+    if (id) {
+        row.dataset.itemId = id;
+        if (itemIdDataKey) {
+            row.dataset[itemIdDataKey] = id;
+        }
+    }
+    Object.assign(row.dataset, data);
+    row.append(...cells);
+    return row;
+}
+
 export function createActionButton(
     text: string,
     action: ActionBarCommand,
@@ -1104,29 +1299,36 @@ function rebuildActionBar(options: ActionBarOptions): void {
     const validateState = options.libraryValidate
         ? getLibraryValidateActionState(options.libraryValidate)
         : null;
+    const convertStates = options.libraryConversions.map(
+        getLibraryConvertActionState
+    );
     const activeCount =
         options.downloads.filter((item) => item.state === 'downloading')
             .length +
         options.storageCopies.filter((item) => item.state === 'copying')
             .length +
         options.deletes.filter((item) => item.state === 'deleting').length +
-        (validateState === 'validating' ? 1 : 0);
+        (validateState === 'validating' ? 1 : 0) +
+        convertStates.filter((state) => state === 'converting').length;
     const queuedCount =
         options.downloads.filter((item) => item.state === 'queued').length +
         options.storageCopies.filter((item) => item.state === 'queued').length +
-        options.deletes.filter((item) => item.state === 'queued').length;
+        options.deletes.filter((item) => item.state === 'queued').length +
+        convertStates.filter((state) => state === 'queued').length;
     const failedCount =
         options.downloads.filter((item) => item.state === 'failed').length +
         options.storageCopies.filter((item) => item.state === 'failed').length +
         options.deletes.filter((item) => item.state === 'failed').length +
         options.libraryValidateFailures.length +
-        (validateState === 'failed' ? 1 : 0);
+        (validateState === 'failed' ? 1 : 0) +
+        convertStates.filter((state) => state === 'failed').length;
     const finishedCount =
         options.downloads.filter((item) => item.state === 'complete').length +
         options.storageCopies.filter((item) => item.state === 'complete')
             .length +
         options.deletes.filter((item) => item.state === 'complete').length +
-        (validateState === 'complete' ? 1 : 0);
+        (validateState === 'complete' ? 1 : 0) +
+        convertStates.filter((state) => state === 'complete').length;
 
     actionBarRoot.replaceChildren();
 
@@ -1135,6 +1337,7 @@ function rebuildActionBar(options: ActionBarOptions): void {
         options.storageCopies.length === 0 &&
         options.deletes.length === 0 &&
         options.libraryValidate === null &&
+        options.libraryConversions.length === 0 &&
         options.libraryValidateFailures.length === 0
     ) {
         return;
@@ -1179,6 +1382,9 @@ function rebuildActionBar(options: ActionBarOptions): void {
                 break;
             case 'libraryValidateFailure':
                 details.append(renderLibraryValidateFailureRow(entry.item));
+                break;
+            case 'libraryConvert':
+                details.append(renderLibraryConvertActionRow(entry.item));
                 break;
         }
     }

@@ -8,7 +8,10 @@ import {
 } from '../shared/titles.js';
 import { type DeleteItem } from '../shared/delete.js';
 import { type StorageCopyItem } from '../shared/storage.js';
-import { LIBRARY_VALIDATE_SOCKET_COMMAND } from '../shared/socket.js';
+import {
+    LIBRARY_CONVERT_SOCKET_COMMAND,
+    LIBRARY_VALIDATE_SOCKET_COMMAND,
+} from '../shared/socket.js';
 
 export type SlotBadgeState =
     | 'complete'
@@ -24,7 +27,8 @@ type MarkStorageCompleteOptions = {
 };
 
 export type LibraryActionBarCommand =
-    (typeof LIBRARY_VALIDATE_SOCKET_COMMAND)[keyof typeof LIBRARY_VALIDATE_SOCKET_COMMAND];
+    | (typeof LIBRARY_VALIDATE_SOCKET_COMMAND)[keyof typeof LIBRARY_VALIDATE_SOCKET_COMMAND]
+    | (typeof LIBRARY_CONVERT_SOCKET_COMMAND)[keyof typeof LIBRARY_CONVERT_SOCKET_COMMAND];
 
 export function getEntry(
     group: TitleGroup,

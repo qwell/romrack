@@ -3,6 +3,7 @@ import { requestJson, type DeleteQueuedResponse } from '../shared/api.js';
 import { DELETE_SOCKET_COMMAND } from '../shared/socket.js';
 import {
     createActionBarCell,
+    createActionBarRow,
     createActionButton,
     updateActionBar,
 } from './actionbar.js';
@@ -44,7 +45,7 @@ export function formatDeleteProgress(item: DeleteItem): string {
         return `${item.deletedCount}/${item.totalCount}`;
     }
 
-    return item.state === 'queued' ? '0' : '-';
+    return '-';
 }
 
 export function formatDeleteTitle(item: DeleteItem): string {
@@ -86,13 +87,6 @@ export function formatDeleteDetails(item: DeleteItem): string {
 }
 
 export function renderDeleteActionRow(item: DeleteItem): HTMLElement {
-    const row = document.createElement('div');
-    row.className = `action-bar-row action-bar-row-${item.state}`;
-    row.dataset.itemId = item.id;
-    row.dataset.itemState = item.state;
-    row.dataset.deleteItemId = item.id;
-    row.dataset.state = item.state;
-
     const progress = createActionBarCell(
         'action-bar-progress',
         formatDeleteProgress(item)
@@ -123,8 +117,12 @@ export function renderDeleteActionRow(item: DeleteItem): HTMLElement {
 
     const detailsCell = renderDeleteControls(item);
 
-    row.append(progress, files, icon, state, size, title, detailsCell);
-    return row;
+    return createActionBarRow({
+        id: item.id,
+        state: item.state,
+        cells: [progress, files, icon, state, size, title, detailsCell],
+        itemIdDataKey: 'deleteItemId',
+    });
 }
 
 function renderDeleteControls(item: DeleteItem): HTMLDivElement {

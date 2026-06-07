@@ -3,6 +3,7 @@ import { STORAGE_COPY_SOCKET_COMMAND } from '../shared/socket.js';
 import { type StorageCopyItem } from '../shared/storage.js';
 import {
     createActionBarCell,
+    createActionBarRow,
     createActionButton,
     updateActionBar,
 } from './actionbar.js';
@@ -32,32 +33,30 @@ export function syncStorageCopies(
 
 export function formatStorageCopyProgress(item: StorageCopyItem): string {
     if (item.state === 'queued') {
-        return '0%';
+        return '-';
     }
 
     if (item.state === 'failed') {
-        return item.progress !== null ? `${Math.round(item.progress)}%` : '0%';
+        return item.progress !== null ? `${Math.round(item.progress)}%` : '-';
     }
 
     if (item.state === 'complete') {
         return 'Done';
     }
 
-    return item.progress !== null ? `${Math.round(item.progress)}%` : '0%';
+    return item.progress !== null ? `${Math.round(item.progress)}%` : '-';
 }
 
 export function formatStorageCopyFileCount(item: StorageCopyItem): string {
     if (item.completedFiles !== null && item.totalFiles !== null) {
-        return `${item.completedFiles}/${item.totalFiles} files`;
+        const current =
+            item.currentFileName && item.state === 'copying'
+                ? Math.min(item.completedFiles + 1, item.totalFiles)
+                : item.completedFiles;
+        return `${current}/${item.totalFiles} files`;
     }
 
     return item.state === 'copying' ? '-' : '';
-}
-
-export function formatStorageCopySize(item: StorageCopyItem): string {
-    return item.sourceSizeBytes !== null
-        ? formatSize(item.sourceSizeBytes)
-        : '-';
 }
 
 export function formatStorageCopyTitle(item: StorageCopyItem): string {
@@ -101,19 +100,10 @@ export function formatStorageCopyDetails(item: StorageCopyItem): string {
         return item.message ?? formatStorageCopyState(item);
     }
 
-    return item.currentSizeBytes !== null
-        ? `${item.currentFileName} (${formatSize(item.currentSizeBytes)})`
-        : item.currentFileName;
+    return item.currentFileName;
 }
 
 export function renderStorageCopyActionRow(item: StorageCopyItem): HTMLElement {
-    const row = document.createElement('div');
-    row.className = `action-bar-row action-bar-row-${item.state}`;
-    row.dataset.itemId = item.id;
-    row.dataset.itemState = item.state;
-    row.dataset.storageCopyItemId = item.id;
-    row.dataset.state = item.state;
-
     const progress = createActionBarCell(
         'action-bar-progress',
         formatStorageCopyProgress(item)
@@ -140,7 +130,7 @@ export function renderStorageCopyActionRow(item: StorageCopyItem): HTMLElement {
 
     const size = createActionBarCell(
         'action-bar-size',
-        formatStorageCopySize(item)
+        formatSize(item.currentSizeBytes)
     );
     size.dataset.storageCopySize = 'true';
 
@@ -153,8 +143,12 @@ export function renderStorageCopyActionRow(item: StorageCopyItem): HTMLElement {
 
     const detailsCell = renderStorageCopyControls(item);
 
-    row.append(progress, files, icon, state, size, title, detailsCell);
-    return row;
+    return createActionBarRow({
+        id: item.id,
+        state: item.state,
+        cells: [progress, files, icon, state, size, title, detailsCell],
+        itemIdDataKey: 'storageCopyItemId',
+    });
 }
 
 function renderStorageCopyControls(item: StorageCopyItem): HTMLDivElement {

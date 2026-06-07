@@ -92,6 +92,7 @@ async function processDownloadQueue(): Promise<void> {
     nextItem.completedFiles = null;
     nextItem.totalFiles = null;
     nextItem.currentFileName = null;
+    nextItem.currentFileSizeBytes = null;
     nextItem.installedSizeBytes = null;
     nextItem.installedVersion = null;
     nextItem.installedTitleName = null;
@@ -124,6 +125,7 @@ async function processDownloadQueue(): Promise<void> {
                 nextItem.completedFiles = progress.completedFiles;
                 nextItem.totalFiles = progress.totalFiles;
                 nextItem.currentFileName = progress.currentFileName;
+                nextItem.currentFileSizeBytes = progress.currentFileSizeBytes;
 
                 scheduleBroadcastDownloadQueue();
             },
@@ -146,6 +148,7 @@ async function processDownloadQueue(): Promise<void> {
         nextItem.completedFiles = null;
         nextItem.totalFiles = null;
         nextItem.currentFileName = null;
+        nextItem.currentFileSizeBytes = null;
         nextItem.installedSizeBytes = result.sizeBytes;
         nextItem.installedVersion = result.titleVersion;
         nextItem.installedTitleName = result.name;
@@ -270,6 +273,7 @@ export function handleDownloadSocketCommand(
                     completedFiles: null,
                     totalFiles: null,
                     currentFileName: null,
+                    currentFileSizeBytes: null,
                     installedSizeBytes: null,
                     installedVersion: null,
                     installedTitleName: null,
@@ -304,6 +308,7 @@ export function handleDownloadSocketCommand(
             item.completedFiles = null;
             item.totalFiles = null;
             item.currentFileName = null;
+            item.currentFileSizeBytes = null;
             item.installedSizeBytes = null;
             item.installedVersion = null;
             item.installedTitleName = null;

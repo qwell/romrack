@@ -5,6 +5,7 @@ import {
     type SocketCommand,
     type SocketEvent,
     DOWNLOAD_SOCKET_COMMAND,
+    LIBRARY_CONVERT_SOCKET_COMMAND,
     LIBRARY_VALIDATE_SOCKET_COMMAND,
     STORAGE_COPY_SOCKET_COMMAND,
     DELETE_SOCKET_COMMAND,
@@ -16,6 +17,7 @@ import {
     handleStorageCopySocketCommand,
     handleDeleteSocketCommand,
     handleDownloadSocketCommand,
+    handleLibraryConvertSocketCommand,
     handleLibraryValidateSocketCommand,
     handleTitleVerifySocketCommand,
 } from './routes.js';
@@ -132,6 +134,9 @@ export function handleAppSocketCommand(command: SocketCommand): void {
     } else if (isSocketCommand(command, LIBRARY_VALIDATE_SOCKET_COMMAND)) {
         handleLibraryValidateSocketCommand(command);
         return;
+    } else if (isSocketCommand(command, LIBRARY_CONVERT_SOCKET_COMMAND)) {
+        handleLibraryConvertSocketCommand(command);
+        return;
     } else if (isSocketCommand(command, TITLE_VERIFY_SOCKET_COMMAND)) {
         handleTitleVerifySocketCommand(command);
         return;
@@ -183,10 +188,10 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
         }
 
         return command;
-    } else if (
-        isSocketCommand(command, LIBRARY_VALIDATE_SOCKET_COMMAND.cancel)
-    ) {
+    } else if (isSocketCommand(command, LIBRARY_VALIDATE_SOCKET_COMMAND)) {
         return command;
+    } else if (isSocketCommand(command, LIBRARY_CONVERT_SOCKET_COMMAND)) {
+        return hasId() ? command : null;
     } else if (isSocketCommand(command, TITLE_VERIFY_SOCKET_COMMAND.queue)) {
         const titleId = (command as { titleId?: unknown }).titleId;
 

@@ -2,6 +2,7 @@ import { renderDownloadMarkers } from './download.js';
 import { getLibrary, listFat32Volumes, validateLibrary } from './api.js';
 import { type StorageFat32ListResponse } from '../shared/api.js';
 import {
+    type LibraryConvertItem,
     type TitleVerifySocketEvent,
     type LibraryValidateStatusEvent,
     LIBRARY_VALIDATE_SOCKET_EVENT,
@@ -11,6 +12,7 @@ import { type StorageCopyItem } from '../shared/storage.js';
 import {
     createActionBarCommandHandler,
     mountActionBar,
+    syncLibraryConvertActions,
     setLibraryValidateAction,
 } from './actionbar.js';
 import {
@@ -83,6 +85,7 @@ let libraryControlState: LibraryControlState = {
     search: '',
 };
 let libraryValidate: LibraryValidateStatusEvent | null = null;
+const libraryConversions: LibraryConvertItem[] = [];
 let validatingLibrary = false;
 let libraryLoading = false;
 let activeLibraryRequestId = 0;
@@ -242,13 +245,13 @@ function maybeNumber(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-export function getAvailableSizeText(entry: unknown): string | null {
+export function getAvailableSizeText(entry: unknown): string {
     if (!entry || typeof entry !== 'object') {
-        return null;
+        return '';
     }
 
     const sizeBytes = maybeNumber((entry as { sizeBytes?: unknown }).sizeBytes);
-    return sizeBytes === null ? null : formatSize(sizeBytes);
+    return formatSize(sizeBytes);
 }
 
 export function getAvailableSizeBytes(entry: unknown): number | null {
@@ -1033,6 +1036,7 @@ mountActionBar({
     deletes: deletes,
     libraryValidate,
     libraryValidateFailures,
+    libraryConversions,
     onCommand: createActionBarCommandHandler({
         downloads: downloadQueue,
     }),
@@ -1057,6 +1061,9 @@ connectAppSocket({
         onLibraryValidateChanged(event) {
             libraryValidate = event;
             setLibraryValidateAction(libraryValidate);
+        },
+        onLibraryConvertChanged(items) {
+            syncLibraryConvertActions(items);
         },
         onDownloadComplete(item) {
             titleVerify.delete(item.titleId);

@@ -16,7 +16,7 @@ export function isObject(value: unknown): value is Record<string, unknown> {
 
 export function formatSize(sizeBytes: number | null): string {
     if (sizeBytes === null || sizeBytes === undefined) {
-        return '-';
+        return '';
     }
 
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];

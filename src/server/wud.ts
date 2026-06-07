@@ -80,6 +80,7 @@ type WudGamePartition = {
 
 export type WudConvertProgress = {
     currentFileName: string | null;
+    currentFileSizeBytes: number;
     completedFiles: number;
     totalFiles: number;
 };
@@ -741,6 +742,7 @@ async function convertWudGamePartition({
         onProgress?.({
             completedFiles,
             totalFiles,
+            currentFileSizeBytes: Number(getEncryptedContentFileSize(content)),
             currentFileName: installFiles.appName,
         });
 
@@ -762,15 +764,14 @@ async function convertWudGamePartition({
             installFiles.h3File &&
             installFiles.h3Name
         ) {
+            const h3 = readPartitionH3(partition, content.index, content.size);
             onProgress?.({
                 completedFiles,
                 totalFiles,
+                currentFileSizeBytes: h3.byteLength,
                 currentFileName: installFiles.h3Name,
             });
-            await writeFile(
-                installFiles.h3File,
-                readPartitionH3(partition, content.index, content.size)
-            );
+            await writeFile(installFiles.h3File, h3);
             logger.log(
                 'wud',
                 `wrote ${titleId} content ${installFiles.contentId} h3`

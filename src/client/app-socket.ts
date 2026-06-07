@@ -5,7 +5,7 @@ import {
     type SocketCommand,
     type SocketEvent,
     type TitleVerifySocketEvent,
-    type LibraryConvertStatusEvent,
+    type LibraryConvertSocketEvent,
     type LibraryValidateStatusEvent,
     APP_SOCKET_EVENT,
     DOWNLOAD_SOCKET_EVENT,
@@ -37,7 +37,9 @@ type AppEventOptions = {
     onServerAvailable: () => void;
     onGroupChanged: (group: TitleGroup) => void;
     onValidationStateChanged: (validating: boolean) => void;
-    onLibraryConvertChanged?: (event: LibraryConvertStatusEvent) => void;
+    onLibraryConvertChanged?: (
+        items: LibraryConvertSocketEvent['items']
+    ) => void;
     onLibraryValidateChanged: (event: LibraryValidateStatusEvent) => void;
     onTitleVerificationChanged: (event: TitleVerifySocketEvent) => void;
     onDownloadComplete?: (item: DownloadQueueItem) => void;
@@ -152,6 +154,7 @@ export function createAppEventHandler(
                 if (event.libraryValidateStatus) {
                     handle(event.libraryValidateStatus);
                 }
+                options.onLibraryConvertChanged?.(event.libraryConversions);
                 return;
 
             case DOWNLOAD_SOCKET_EVENT.changed:
@@ -191,9 +194,9 @@ export function createAppEventHandler(
                 return;
             }
 
-            case LIBRARY_CONVERT_SOCKET_EVENT.status:
+            case LIBRARY_CONVERT_SOCKET_EVENT.changed:
                 options.onServerAvailable();
-                options.onLibraryConvertChanged?.(event);
+                options.onLibraryConvertChanged?.(event.items);
                 return;
 
             case TITLE_VERIFY_SOCKET_EVENT.changed:

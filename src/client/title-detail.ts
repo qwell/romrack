@@ -223,7 +223,7 @@ export function renderDownloadAvailabilityRow(
     checkbox.dataset.kind = entry.kind;
     checkbox.dataset.label = label;
     checkbox.dataset.titleId = entry.titleId;
-    checkbox.dataset.sizeText = sizeText ?? '';
+    checkbox.dataset.sizeText = sizeText;
 
     const sizeBytes = getAvailableSizeBytes(entry);
     if (sizeBytes !== null) {
@@ -245,7 +245,7 @@ export function renderDownloadAvailabilityRow(
 
     const size = document.createElement('span');
     size.className = 'title-download-size';
-    size.textContent = entry.availableOnCdn ? (sizeText ?? '') : 'Not on CDN';
+    size.textContent = entry.availableOnCdn ? sizeText : 'Not on CDN';
 
     row.append(checkbox, slot, titleId, size);
     return row;

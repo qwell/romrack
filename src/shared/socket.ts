@@ -18,6 +18,9 @@ export const SOCKET_COMMAND = {
     libraryValidateClear: 'library.validate.clear',
     libraryValidateFailureClear: 'library.validate.failure.clear',
     libraryValidateFailureDownload: 'library.validate.failure.download',
+    libraryConvertCancel: 'library.convert.cancel',
+    libraryConvertClear: 'library.convert.clear',
+    libraryConvertRetry: 'library.convert.retry',
     titleVerifyQueue: 'title.verify.queue',
 } as const;
 
@@ -27,7 +30,7 @@ export const SOCKET_EVENT = {
     storageCopyChanged: 'storage.copyChanged',
     deleteChanged: 'delete.changed',
     libraryValidateStatus: 'library.validateStatus',
-    libraryConvertStatus: 'library.convertStatus',
+    libraryConvertChanged: 'library.convertChanged',
     titleVerifyChanged: 'title.verify.changed',
 } as const;
 
@@ -81,7 +84,13 @@ export const LIBRARY_VALIDATE_SOCKET_EVENT = {
 } as const;
 
 export const LIBRARY_CONVERT_SOCKET_EVENT = {
-    status: SOCKET_EVENT.libraryConvertStatus,
+    changed: SOCKET_EVENT.libraryConvertChanged,
+} as const;
+
+export const LIBRARY_CONVERT_SOCKET_COMMAND = {
+    cancel: SOCKET_COMMAND.libraryConvertCancel,
+    clear: SOCKET_COMMAND.libraryConvertClear,
+    retry: SOCKET_COMMAND.libraryConvertRetry,
 } as const;
 
 export const TITLE_VERIFY_SOCKET_EVENT = {
@@ -144,6 +153,20 @@ export type LibraryValidateSocketCommand =
           type: typeof LIBRARY_VALIDATE_SOCKET_COMMAND.failureDownload;
       };
 
+export type LibraryConvertSocketCommand =
+    | {
+          type: typeof LIBRARY_CONVERT_SOCKET_COMMAND.cancel;
+          id: string;
+      }
+    | {
+          type: typeof LIBRARY_CONVERT_SOCKET_COMMAND.clear;
+          id: string;
+      }
+    | {
+          type: typeof LIBRARY_CONVERT_SOCKET_COMMAND.retry;
+          id: string;
+      };
+
 export type TitleVerifySocketCommand = {
     type: typeof TITLE_VERIFY_SOCKET_COMMAND.queue;
     titleId: string;
@@ -155,6 +178,7 @@ export type SocketCommand =
     | StorageCopySocketCommand
     | DeleteSocketCommand
     | LibraryValidateSocketCommand
+    | LibraryConvertSocketCommand
     | TitleVerifySocketCommand;
 
 export type AppConnectedEvent = {
@@ -163,6 +187,7 @@ export type AppConnectedEvent = {
     storageCopies: StorageCopyItem[];
     deletes: DeleteItem[];
     libraryValidateStatus?: LibraryValidateStatusEvent | null;
+    libraryConversions: LibraryConvertItem[];
 };
 
 export type DownloadSocketEvent = {
@@ -203,15 +228,24 @@ export type LibraryValidateStatusEvent = {
     error?: string | null;
 };
 
-export type LibraryConvertStatusEvent = {
-    type: typeof SOCKET_EVENT.libraryConvertStatus;
-    status: 'started' | 'converting' | 'complete' | 'failed';
+export type LibraryConvertItem = {
+    id: string;
     titleId: string;
-    currentFileName?: string | null;
-    current?: number;
-    total?: number;
-    converted?: number;
-    error?: string | null;
+    name: string | null;
+    kind: TitleKinds;
+    version: number | null;
+    state: 'queued' | 'converting' | 'complete' | 'failed';
+    currentFileName: string | null;
+    current: number | null;
+    total: number | null;
+    currentFileSizeBytes: number | null;
+    converted: number | null;
+    error: string | null;
+};
+
+export type LibraryConvertSocketEvent = {
+    type: typeof SOCKET_EVENT.libraryConvertChanged;
+    items: LibraryConvertItem[];
 };
 
 export type TitleVerifyCopyResult = {
@@ -239,7 +273,7 @@ export type SocketEvent =
     | StorageCopySocketEvent
     | DeleteSocketEvent
     | LibraryValidateStatusEvent
-    | LibraryConvertStatusEvent
+    | LibraryConvertSocketEvent
     | TitleVerifySocketEvent;
 
 export function isSocketCommand<T extends SocketCommand['type']>(
