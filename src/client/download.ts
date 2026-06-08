@@ -1,4 +1,5 @@
 import { type DownloadQueueItem } from '../shared/download.js';
+import { formatActionStateIcon, type ActionState } from '../shared/action.js';
 import { formatSize, formatTitleDisplay } from '../shared/shared.js';
 import { type TitleGroup, TitleKinds } from '../shared/titles.js';
 import { DOWNLOAD_SOCKET_COMMAND } from '../shared/socket.js';
@@ -16,17 +17,11 @@ import { refreshOpenDetailSidebarForGroup } from './sidebar.js';
 import { syncGroupStatusFromSlots } from './library.js';
 import { sendAppSocketCommand } from './app-socket.js';
 
-export type DownloadQueueState =
-    | 'queued'
-    | 'downloading'
-    | 'failed'
-    | 'complete';
-
 export function getDownloadState(
     queue: DownloadQueueItem[],
     family: string,
     kind: TitleKinds
-): DownloadQueueState | null {
+): ActionState | null {
     return getDownloadItem(queue, family, kind)?.state ?? null;
 }
 
@@ -42,24 +37,14 @@ export function getDownloadItem(
                 item.family === family &&
                 item.kind === kind &&
                 (!titleId || item.titleId === titleId) &&
-                item.state !== 'complete'
+                item.state !== 'complete' &&
+                item.state !== 'cancelled'
         ) ?? null
     );
 }
 
-export function formatDownloadIcon(state: DownloadQueueState | null): string {
-    switch (state) {
-        case 'downloading':
-            return '↓';
-        case 'queued':
-            return '○';
-        case 'complete':
-            return '✓';
-        case 'failed':
-            return '!';
-        default:
-            return '';
-    }
+export function formatDownloadIcon(state: ActionState | null): string {
+    return formatActionStateIcon(state, '↓');
 }
 
 export function formatDownloadProgress(item: DownloadQueueItem): string {
@@ -75,6 +60,10 @@ export function formatDownloadProgress(item: DownloadQueueItem): string {
         return 'Done';
     }
 
+    if (item.state === 'cancelled') {
+        return '-';
+    }
+
     if (item.progress !== null) {
         return `${Math.round(item.progress)}%`;
     }
@@ -88,7 +77,7 @@ export function formatDownloadFileCount(item: DownloadQueueItem): string {
     }
 
     const current =
-        item.currentFileName && item.state === 'downloading'
+        item.currentFileName && item.state === 'in-progress'
             ? Math.min(item.completedFiles + 1, item.totalFiles)
             : item.completedFiles;
     return `${current}/${item.totalFiles} files`;
@@ -96,7 +85,7 @@ export function formatDownloadFileCount(item: DownloadQueueItem): string {
 
 export function formatDownloadState(item: DownloadQueueItem): string {
     switch (item.state) {
-        case 'downloading':
+        case 'in-progress':
             return 'Downloading';
         case 'queued':
             return 'Queued';
@@ -104,6 +93,8 @@ export function formatDownloadState(item: DownloadQueueItem): string {
             return 'Failed';
         case 'complete':
             return 'Downloaded';
+        case 'cancelled':
+            return 'Cancelled';
     }
 }
 
@@ -229,7 +220,7 @@ function renderDownloadControls(item: DownloadQueueItem): HTMLDivElement {
         return detailsCell;
     }
 
-    if (item.state === 'complete') {
+    if (item.state === 'complete' || item.state === 'cancelled') {
         detailsCell.classList.add('action-bar-controls');
         detailsCell.append(
             createActionButton('Clear', DOWNLOAD_SOCKET_COMMAND.clear, item.id)
@@ -237,7 +228,7 @@ function renderDownloadControls(item: DownloadQueueItem): HTMLDivElement {
         return detailsCell;
     }
 
-    if (item.state === 'downloading') {
+    if (item.state === 'in-progress') {
         detailsCell.classList.add('action-bar-controls');
 
         const detailsText = formatDownloadDetails(item);

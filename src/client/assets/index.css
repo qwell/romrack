@@ -1170,15 +1170,7 @@ footer > div:last-child {
     min-width: 0;
 }
 
-.action-bar-row-downloading .action-bar-icon {
-    color: var(--complete);
-}
-
-.action-bar-row-copying .action-bar-icon {
-    color: var(--complete);
-}
-
-.action-bar-row-validating .action-bar-icon {
+.action-bar-row-in-progress .action-bar-icon {
     color: var(--incomplete);
 }
 
@@ -1191,6 +1183,10 @@ footer > div:last-child {
 }
 
 .action-bar-row-failed .action-bar-icon {
+    color: var(--unknown);
+}
+
+.action-bar-row-cancelled .action-bar-icon {
     color: var(--unknown);
 }
 

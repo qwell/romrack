@@ -41,7 +41,7 @@ export type LibraryValidateTitle = {
 };
 
 export type LibraryValidateResponse = {
-    status: 'ok' | 'failed';
+    status: 'ok' | 'failed' | 'cancelled';
     total: number;
     failed: number;
     titles: LibraryValidateTitle[];

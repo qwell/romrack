@@ -84,7 +84,7 @@ let libraryControlState: LibraryControlState = {
     vc: 'all',
     search: '',
 };
-let libraryValidate: LibraryValidateStatusEvent | null = null;
+const libraryValidations: LibraryValidateStatusEvent[] = [];
 const libraryConversions: LibraryConvertItem[] = [];
 let validatingLibrary = false;
 let libraryLoading = false;
@@ -93,7 +93,6 @@ let allLibraryGroups: TitleGroup[] = [];
 const downloadQueue: DownloadQueueItem[] = [];
 const storageCopies: StorageCopyItem[] = [];
 const deletes: DeleteItem[] = [];
-const libraryValidateFailures: LibraryValidateStatusEvent[] = [];
 const titleVerify = new Map<string, TitleVerifySocketEvent>();
 
 function handleTitleGroupChanged(group: TitleGroup): void {
@@ -689,8 +688,9 @@ function buildControls(
             }
 
             validatingLibrary = true;
-            libraryValidate = {
+            const libraryValidate: LibraryValidateStatusEvent = {
                 type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
+                state: 'in-progress',
                 status: 'started',
             };
             setLibraryValidateAction(libraryValidate);
@@ -699,19 +699,23 @@ function buildControls(
             try {
                 const response = await validateLibrary();
 
+                if (response.status === 'cancelled') {
+                    return;
+                }
+
                 const changedGroups = mergeFailedValidationsIntoAvailable(
                     currentGroups,
                     response.titles
                 );
-
                 for (const group of changedGroups) {
                     syncGroupStatusFromSlots(group);
                     handleTitleGroupChanged(group);
                 }
             } catch (error) {
                 console.error(error);
-                libraryValidate = {
+                const libraryValidate: LibraryValidateStatusEvent = {
                     type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
+                    state: 'failed',
                     status: 'failed',
                     error:
                         error instanceof Error ? error.message : String(error),
@@ -1034,8 +1038,7 @@ mountActionBar({
     downloads: downloadQueue,
     storageCopies,
     deletes: deletes,
-    libraryValidate,
-    libraryValidateFailures,
+    libraryValidations,
     libraryConversions,
     onCommand: createActionBarCommandHandler({
         downloads: downloadQueue,
@@ -1059,8 +1062,7 @@ connectAppSocket({
             updateValidationButtonState();
         },
         onLibraryValidateChanged(event) {
-            libraryValidate = event;
-            setLibraryValidateAction(libraryValidate);
+            setLibraryValidateAction(event);
         },
         onLibraryConvertChanged(items) {
             syncLibraryConvertActions(items);

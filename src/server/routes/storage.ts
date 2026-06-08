@@ -148,7 +148,7 @@ function queueStorageTransfer(
     const existingItem =
         storageCopyQueue.find(
             (item) =>
-                (item.state === 'queued' || item.state === 'copying') &&
+                (item.state === 'queued' || item.state === 'in-progress') &&
                 getStorageTransferKey({
                     titleId: item.requestedTitleId,
                     requestedDestination: item.requestedDestination,
@@ -412,8 +412,22 @@ function cancelStorageCopy(id: string): void {
             : `storage ${item.operation} cancel requested: ${item.sourceName} -> ${item.destinationName}`
     );
 
-    cancelledStorageCopyIds.add(id);
-    clearStorageCopyFromState(id);
+    if (wasActive) {
+        cancelledStorageCopyIds.add(id);
+    }
+    if (queueItem) {
+        queueItem.state = 'cancelled';
+        queueItem.message = 'Cancelled';
+        queueItem.currentFileName = null;
+        queueItem.currentFilePath = null;
+        queueItem.currentSizeBytes = null;
+    }
+    updateStorageCopy(id, {
+        state: 'cancelled',
+        message: 'Cancelled',
+        currentFileName: null,
+        currentSizeBytes: null,
+    });
     broadcastStorageCopies();
 
     try {
@@ -482,7 +496,7 @@ async function processStorageCopyQueue(): Promise<void> {
     const abortController = new AbortController();
     activeStorageCopyAbortController = abortController;
 
-    nextItem.state = 'copying';
+    nextItem.state = 'in-progress';
     nextItem.progress = 0;
     nextItem.message =
         nextItem.operation === 'move'
@@ -928,7 +942,7 @@ export async function hasConflictingStorageCopyPath(
     const deletePaths = await getSafeLocalDeletePaths(sourcePaths);
 
     for (const item of storageCopyQueue) {
-        if (item.state !== 'queued' && item.state !== 'copying') {
+        if (item.state !== 'queued' && item.state !== 'in-progress') {
             continue;
         }
 

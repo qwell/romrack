@@ -86,7 +86,7 @@ function queueDelete(
     const existingItem =
         deleteQueue.find(
             (item) =>
-                (item.state === 'queued' || item.state === 'deleting') &&
+                (item.state === 'queued' || item.state === 'in-progress') &&
                 item.titleId === normalizedTitleId
         ) ?? null;
 
@@ -158,7 +158,7 @@ async function processDeleteQueue(): Promise<void> {
     }
 
     activeDeleteId = nextItem.id;
-    nextItem.state = 'deleting';
+    nextItem.state = 'in-progress';
     nextItem.message =
         nextItem.sourcePaths.length > 0
             ? 'Deleting...'
@@ -339,9 +339,14 @@ function cancelDelete(id: string): void {
         return;
     }
 
-    removeDeleteFromState(id);
+    item.state = 'cancelled';
+    item.message = 'Cancelled';
+    updateDelete(id, {
+        state: item.state,
+        message: item.message,
+    });
     logger.log('server', `delete cancelled: ${item.titleId}`);
-    broadcastDeletes();
+    void processDeleteQueue();
 }
 
 function retryDelete(id: string): void {

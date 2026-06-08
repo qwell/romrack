@@ -1,14 +1,9 @@
 import { DOWNLOAD_SOCKET_COMMAND } from './socket.js';
 import { TitleKinds } from './titles.js';
+import { type ActionState } from './action.js';
 
 export type DownloadActionBarCommand =
     (typeof DOWNLOAD_SOCKET_COMMAND)[keyof typeof DOWNLOAD_SOCKET_COMMAND];
-
-export type DownloadQueueState =
-    | 'queued'
-    | 'downloading'
-    | 'failed'
-    | 'complete';
 
 export type DownloadQueueItem = {
     id: string;
@@ -19,7 +14,7 @@ export type DownloadQueueItem = {
     titleId: string;
     sizeText: string | null;
     totalBytes: number | null;
-    state: DownloadQueueState;
+    state: ActionState;
     error: string | null;
 
     progress: number;

@@ -84,7 +84,7 @@ async function processDownloadQueue(): Promise<void> {
     const abortController = new AbortController();
     activeDownloadAbortControllers.set(nextItem.id, abortController);
 
-    nextItem.state = 'downloading';
+    nextItem.state = 'in-progress';
     nextItem.error = null;
     nextItem.progress = 0;
     nextItem.downloadedBytes = null;
@@ -193,9 +193,10 @@ function cancelActiveDownload(item: DownloadQueueItem): void {
         `download cancel requested: ${item.groupName} ${item.label} ${item.titleId}`
     );
 
-    const key = getDownloadQueueKey(item);
-
     cancelledDownloadIds.add(item.id);
+    item.state = 'cancelled';
+    item.currentFileName = null;
+    item.currentFileSizeBytes = null;
 
     const abortController = activeDownloadAbortControllers.get(item.id);
     abortController?.abort();
@@ -203,10 +204,6 @@ function cancelActiveDownload(item: DownloadQueueItem): void {
     logger.log(
         'server',
         `download abort signaled: id=${item.id} signalAborted=${abortController?.signal.aborted ? 'yes' : 'no'}`
-    );
-
-    downloadQueue = downloadQueue.filter(
-        (candidate) => getDownloadQueueKey(candidate) !== key
     );
 
     broadcastDownloadQueue();
@@ -229,7 +226,11 @@ export function handleDownloadSocketCommand(
 
             const existingKeys = new Set(
                 downloadQueue
-                    .filter((item) => item.state !== 'complete')
+                    .filter(
+                        (item) =>
+                            item.state !== 'complete' &&
+                            item.state !== 'cancelled'
+                    )
                     .map(getDownloadQueueKey)
             );
 
@@ -336,7 +337,7 @@ export function handleDownloadSocketCommand(
             const activeItem =
                 downloadQueue.find(
                     (candidate) =>
-                        candidate.state === 'downloading' &&
+                        candidate.state === 'in-progress' &&
                         getDownloadQueueKey(candidate) === key
                 ) ?? null;
 
@@ -382,7 +383,7 @@ export function handleDownloadSocketCommand(
             const activeItem =
                 downloadQueue.find(
                     (candidate) =>
-                        candidate.state === 'downloading' &&
+                        candidate.state === 'in-progress' &&
                         getDownloadQueueKey(candidate) === key
                 ) ?? null;
 
@@ -403,11 +404,12 @@ export function handleDownloadSocketCommand(
                     `download queued items cancelled: ${item.groupName} ${item.label} ${item.titleId}`
                 );
 
-                downloadQueue = downloadQueue.filter(
-                    (candidate) => getDownloadQueueKey(candidate) !== key
-                );
+                for (const queuedItem of matchingQueuedItems) {
+                    queuedItem.state = 'cancelled';
+                }
 
                 broadcastDownloadQueue();
+                void processDownloadQueue();
                 return;
             }
 

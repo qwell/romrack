@@ -1,4 +1,5 @@
 import { type DeleteItem } from '../shared/delete.js';
+import { formatActionStateIcon } from '../shared/action.js';
 import { requestJson, type DeleteQueuedResponse } from '../shared/api.js';
 import { DELETE_SOCKET_COMMAND } from '../shared/socket.js';
 import {
@@ -41,6 +42,10 @@ export function formatDeleteProgress(item: DeleteItem): string {
         return 'Done';
     }
 
+    if (item.state === 'cancelled') {
+        return '-';
+    }
+
     if (item.totalCount !== null && item.totalCount > 0) {
         return `${item.deletedCount}/${item.totalCount}`;
     }
@@ -54,7 +59,7 @@ export function formatDeleteTitle(item: DeleteItem): string {
 
 export function formatDeleteState(item: DeleteItem): string {
     switch (item.state) {
-        case 'deleting':
+        case 'in-progress':
             return 'Deleting';
         case 'queued':
             return 'Queued';
@@ -62,20 +67,13 @@ export function formatDeleteState(item: DeleteItem): string {
             return 'Failed';
         case 'complete':
             return 'Deleted';
+        case 'cancelled':
+            return 'Cancelled';
     }
 }
 
 export function formatDeleteIcon(item: DeleteItem): string {
-    switch (item.state) {
-        case 'deleting':
-            return '⌫';
-        case 'queued':
-            return '○';
-        case 'complete':
-            return '✓';
-        case 'failed':
-            return '!';
-    }
+    return formatActionStateIcon(item.state, '⌫');
 }
 
 export function formatDeleteDetails(item: DeleteItem): string {
@@ -147,7 +145,7 @@ function renderDeleteControls(item: DeleteItem): HTMLDivElement {
         return detailsCell;
     }
 
-    if (item.state === 'complete') {
+    if (item.state === 'complete' || item.state === 'cancelled') {
         detailsCell.classList.add('action-bar-controls');
         detailsCell.append(
             createActionButton('Clear', DELETE_SOCKET_COMMAND.clear, item.id)

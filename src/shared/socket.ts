@@ -1,5 +1,6 @@
 import { type DownloadQueueItem } from './download.js';
 import { type DeleteItem } from './delete.js';
+import { type ActionState } from './action.js';
 
 import { type StorageCopyItem } from './storage.js';
 import { TitleKinds } from './titles.js';
@@ -216,10 +217,12 @@ export type LibraryValidateStatus =
     | 'validating'
     | 'validated'
     | 'complete'
-    | 'failed';
+    | 'failed'
+    | 'cancelled';
 
 export type LibraryValidateStatusEvent = {
     type: typeof SOCKET_EVENT.libraryValidateStatus;
+    state: ActionState;
     status: LibraryValidateStatus;
     titleId?: string;
     name?: string;
@@ -240,7 +243,7 @@ export type LibraryConvertItem = {
     name: string | null;
     kind: TitleKinds;
     version: number | null;
-    state: 'queued' | 'converting' | 'complete' | 'failed';
+    state: ActionState;
     currentFileName: string | null;
     current: number | null;
     total: number | null;

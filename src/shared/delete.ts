@@ -1,7 +1,6 @@
 import { DELETE_SOCKET_COMMAND } from './socket.js';
 import { type TitleKinds } from './titles.js';
-
-export type DeleteState = 'queued' | 'deleting' | 'failed' | 'complete';
+import { type ActionState } from './action.js';
 
 export type DeleteItem = {
     id: string;
@@ -9,7 +8,7 @@ export type DeleteItem = {
     titleName: string | null;
     titleVersion: number | null;
     titleKind: TitleKinds | null;
-    state: DeleteState;
+    state: ActionState;
     message: string | null;
     deletedCount: number;
     totalCount: number | null;

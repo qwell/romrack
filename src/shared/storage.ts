@@ -1,8 +1,8 @@
 import { STORAGE_COPY_SOCKET_COMMAND } from './socket.js';
 import { type TitleKinds } from './titles.js';
+import { type ActionState } from './action.js';
 
 export type StorageCopyOperation = 'copy' | 'move';
-export type StorageCopyState = 'queued' | 'copying' | 'failed' | 'complete';
 export type StorageCopyItem = {
     id: string;
     operation: StorageCopyOperation;
@@ -11,7 +11,7 @@ export type StorageCopyItem = {
     titleVersion: number | null;
     titleKind: TitleKinds | null;
     destinationName: string;
-    state: StorageCopyState;
+    state: ActionState;
     progress: number | null;
     message: string | null;
     sourceSizeBytes: number | null;

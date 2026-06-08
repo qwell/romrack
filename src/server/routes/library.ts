@@ -156,6 +156,7 @@ export function createLibraryRouter(): Router {
         try {
             broadcastLibraryValidateStatus({
                 type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
+                state: 'in-progress',
                 status: 'started',
             });
 
@@ -164,6 +165,7 @@ export function createLibraryRouter(): Router {
                 (progress) => {
                     const event: LibraryValidateStatusEvent = {
                         type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
+                        state: 'in-progress',
                         ...progress,
                     };
 
@@ -185,6 +187,7 @@ export function createLibraryRouter(): Router {
             clearTitleScanCache();
             broadcastLibraryValidateStatus({
                 type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
+                state: failed === 0 ? 'complete' : 'failed',
                 status: 'complete',
                 total: titles.length,
                 failed,
@@ -198,10 +201,27 @@ export function createLibraryRouter(): Router {
             };
             res.json(response);
         } catch (error) {
+            if (abortController.signal.aborted) {
+                broadcastLibraryValidateStatus({
+                    type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
+                    state: 'cancelled',
+                    status: 'cancelled',
+                });
+                const response: LibraryValidateResponse = {
+                    status: 'cancelled',
+                    total: 0,
+                    failed: 0,
+                    titles: [],
+                };
+                res.json(response);
+                return;
+            }
+
             const message =
                 error instanceof Error ? error.message : String(error);
             broadcastLibraryValidateStatus({
                 type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
+                state: 'failed',
                 status: 'failed',
                 error: message,
             });
@@ -297,7 +317,14 @@ export function handleLibraryConvertSocketCommand(
 }
 
 function cancelLibraryConversion(id: string): void {
-    libraryConversions = libraryConversions.filter((item) => item.id !== id);
+    const item = libraryConversions.find((candidate) => candidate.id === id);
+    if (!item || (item.state !== 'queued' && item.state !== 'in-progress')) {
+        return;
+    }
+
+    item.state = 'cancelled';
+    item.currentFileName = null;
+    item.currentFileSizeBytes = null;
     if (activeLibraryConvertId === id) {
         activeLibraryConvertAbortController?.abort();
     }
@@ -321,7 +348,7 @@ async function processLibraryConvertQueue(): Promise<void> {
     activeLibraryConvertId = item.id;
     const abortController = new AbortController();
     activeLibraryConvertAbortController = abortController;
-    item.state = 'converting';
+    item.state = 'in-progress';
     broadcastLibraryConversions();
 
     try {
@@ -330,7 +357,10 @@ async function processLibraryConvertQueue(): Promise<void> {
             item.titleId,
             {
                 onProgress: (progress) => {
-                    if (activeLibraryConvertId !== item.id) {
+                    if (
+                        activeLibraryConvertId !== item.id ||
+                        item.state !== 'in-progress'
+                    ) {
                         return;
                     }
                     item.currentFileName = progress.currentFileName;
