@@ -21,6 +21,7 @@ import {
     type PathFileSize,
 } from '../../shared/file.js';
 import logger from '../../shared/logger.js';
+import { isTerminalActionState } from '../../shared/action.js';
 import {
     getRuntimeOs,
     listFat32Volumes,
@@ -358,8 +359,11 @@ function clearStorageCopy(id: string): void {
     const queueItem =
         storageCopyQueue.find((candidate) => candidate.id === id) ?? null;
 
-    if (!item) {
-        logger.log('server', `storage copy clear ignored: missing id=${id}`);
+    if (!item || !isTerminalActionState(item.state)) {
+        logger.log(
+            'server',
+            `storage copy clear ignored: id=${id} item=${item?.state ?? 'missing'}`
+        );
         broadcastStorageCopies();
         return;
     }
@@ -371,18 +375,9 @@ function clearStorageCopy(id: string): void {
             : `storage ${item.operation} cleared: ${item.sourceName} -> ${item.destinationName}`
     );
 
-    if (activeStorageCopyId === id) {
-        cancelledStorageCopyIds.add(id);
-        activeStorageCopyAbortController?.abort();
-        cancelStorageCopyProcess(id, item);
-    }
-
     clearStorageCopyFromState(id);
     broadcastStorageCopies();
-
-    if (activeStorageCopyId !== id) {
-        void processStorageCopyQueue();
-    }
+    void processStorageCopyQueue();
 }
 
 function cancelStorageCopyProcess(id: string, item: StorageCopyItem): void {

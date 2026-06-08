@@ -17,6 +17,7 @@ import {
     type DeleteQueuedResponse,
 } from '../../shared/api.js';
 import logger from '../../shared/logger.js';
+import { isTerminalActionState } from '../../shared/action.js';
 import {
     DELETE_SOCKET_COMMAND,
     DELETE_SOCKET_EVENT,
@@ -325,10 +326,17 @@ function removeDeleteFromState(id: string): DeleteItem | null {
 }
 
 function clearDelete(id: string): void {
-    const item = removeDeleteFromState(id);
-    if (!item) {
-        logger.log('server', `delete clear ignored: missing id=${id}`);
+    const item = deletes.find((candidate) => candidate.id === id);
+    if (!item || !isTerminalActionState(item.state)) {
+        logger.log(
+            'server',
+            `delete clear ignored: id=${id} item=${item?.state ?? 'missing'}`
+        );
+        broadcastDeletes();
+        return;
     }
+
+    removeDeleteFromState(id);
     broadcastDeletes();
 }
 

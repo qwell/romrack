@@ -3,6 +3,7 @@ import { type TitleDownloadResponse } from '../../shared/api.js';
 import { getConfig } from '../../shared/config.js';
 import logger from '../../shared/logger.js';
 import { formatLogError } from '../../shared/shared.js';
+import { isTerminalActionState } from '../../shared/action.js';
 import {
     DOWNLOAD_SOCKET_COMMAND,
     DOWNLOAD_SOCKET_EVENT,
@@ -325,29 +326,11 @@ export function handleDownloadSocketCommand(
                 (candidate) => candidate.id === command.id
             );
 
-            if (!item) {
+            if (!item || !isTerminalActionState(item.state)) {
                 logger.log(
                     'server',
-                    `download clear ignored: id=${command.id} item=missing`
+                    `download clear ignored: id=${command.id} item=${item?.state ?? 'missing'}`
                 );
-                return;
-            }
-
-            const key = getDownloadQueueKey(item);
-            const activeItem =
-                downloadQueue.find(
-                    (candidate) =>
-                        candidate.state === 'in-progress' &&
-                        getDownloadQueueKey(candidate) === key
-                ) ?? null;
-
-            if (activeItem) {
-                logger.log(
-                    'server',
-                    `download clear received for active item; cancelling: ${activeItem.groupName} ${activeItem.label} ${activeItem.titleId}`
-                );
-
-                cancelActiveDownload(activeItem);
                 return;
             }
 
@@ -357,7 +340,7 @@ export function handleDownloadSocketCommand(
             );
 
             downloadQueue = downloadQueue.filter(
-                (candidate) => getDownloadQueueKey(candidate) !== key
+                (candidate) => candidate.id !== item.id
             );
 
             broadcastDownloadQueue();

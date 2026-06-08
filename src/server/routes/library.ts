@@ -18,6 +18,7 @@ import {
 } from '../../shared/api.js';
 import { getConfig } from '../../shared/config.js';
 import logger from '../../shared/logger.js';
+import { isTerminalActionState } from '../../shared/action.js';
 import { formatLogError } from '../../shared/shared.js';
 import {
     LIBRARY_CONVERT_SOCKET_COMMAND,
@@ -283,8 +284,13 @@ export function handleLibraryConvertSocketCommand(
             cancelLibraryConversion(command.id);
             return;
         case LIBRARY_CONVERT_SOCKET_COMMAND.clear:
-            if (activeLibraryConvertId === command.id) {
-                cancelLibraryConversion(command.id);
+            if (
+                !libraryConversions.some(
+                    (item) =>
+                        item.id === command.id &&
+                        isTerminalActionState(item.state)
+                )
+            ) {
                 return;
             }
             libraryConversions = libraryConversions.filter(

@@ -469,8 +469,6 @@ function renderGroups(
     );
 
     observer.observe(sentinel);
-
-    //renderDownloadMarkers(downloadQueue);
 }
 
 function buildControls(

@@ -244,11 +244,7 @@ export function createActionBarCommandHandler(
                 return;
 
             case DOWNLOAD_SOCKET_COMMAND.clear:
-                sendDownloadCommandForMatches(
-                    itemId,
-                    options.downloads,
-                    clearDownload
-                );
+                clearDownload(itemId);
                 return;
 
             case DOWNLOAD_SOCKET_COMMAND.retry:
