@@ -368,7 +368,10 @@ export async function validateTitleInstallFiles(
     const verification: ContentTreeVerification[] = [];
     for (const content of tmd.contents) {
         const files = getContentInstallFiles(dirPath, content);
-        onProgress?.({ currentFileName: files.appName });
+        onProgress?.({
+            currentFileName: files.appName,
+            currentFileSizeBytes: getEncryptedContentFileSize(content),
+        });
         verification.push(
             await verifyInstalledContent({
                 dirPath,

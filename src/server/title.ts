@@ -168,6 +168,7 @@ export type InstalledTitleValidation = {
 
 export type InstalledTitleValidationProgress = {
     currentFileName: string;
+    currentFileSizeBytes: number;
 };
 
 export class TitleMetadataError extends Error {

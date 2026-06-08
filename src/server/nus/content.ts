@@ -57,13 +57,12 @@ export function getContentInstallFiles(
     };
 }
 
-export function getEncryptedContentFileSize(content: TmdContent): bigint {
+export function getEncryptedContentFileSize(content: TmdContent): number {
     if (isHashedContent(content)) {
         return content.size;
     }
 
-    const blockSize = BigInt(AES_BLOCK_SIZE);
-    return ((content.size + blockSize - 1n) / blockSize) * blockSize;
+    return Math.ceil(content.size / AES_BLOCK_SIZE) * AES_BLOCK_SIZE;
 }
 
 export function getContentH3FileSize(content: TmdContent): number {
@@ -195,11 +194,11 @@ export async function ensureContentInstallFiles({
 
 export async function assertExistingContentFileSize(
     appFile: string,
-    expectedSize: bigint,
+    expectedSize: number,
     contentId: string
 ): Promise<void> {
     const { size } = await stat(appFile);
-    if (BigInt(size) !== expectedSize) {
+    if (size !== expectedSize) {
         throw new Error(
             `Content size mismatch for ${contentId}: expected ${expectedSize.toString()} bytes, got ${size} bytes`
         );
@@ -507,7 +506,7 @@ async function verifyContentHash({
     }
 }
 
-function logExistingContentSkipped(contentId: string, size: bigint): void {
+function logExistingContentSkipped(contentId: string, size: number): void {
     logger.log(
         'download',
         `content ${contentId} (${size.toString()} bytes, cached)`
@@ -532,7 +531,7 @@ async function hashDecryptedContentFile(
     appFile: string,
     titleKey: Uint8Array,
     contentIndex: number,
-    contentSize: bigint,
+    contentSize: number,
     signal?: AbortSignal
 ): Promise<Uint8Array> {
     throwIfAborted(signal);
@@ -549,29 +548,23 @@ async function hashDecryptedContentFile(
     for await (const chunk of readFileChunks(appFile, signal)) {
         throwIfAborted(signal);
         const decrypted = decipher.update(chunk);
-        const hashLength = Number(
-            remaining < BigInt(decrypted.length)
-                ? remaining
-                : BigInt(decrypted.length)
-        );
+        const hashLength = Math.min(remaining, decrypted.length);
 
         if (hashLength > 0) {
             hash.update(decrypted.subarray(0, hashLength));
-            remaining -= BigInt(hashLength);
+            remaining -= hashLength;
         }
     }
 
     throwIfAborted(signal);
     const final = decipher.final();
-    const finalHashLength = Number(
-        remaining < BigInt(final.length) ? remaining : BigInt(final.length)
-    );
+    const finalHashLength = Math.min(remaining, final.length);
     if (finalHashLength > 0) {
         hash.update(final.subarray(0, finalHashLength));
-        remaining -= BigInt(finalHashLength);
+        remaining -= finalHashLength;
     }
 
-    if (remaining !== 0n) {
+    if (remaining !== 0) {
         throw new Error(
             `Decrypted content was shorter than expected: missing ${remaining.toString()} bytes`
         );

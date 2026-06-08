@@ -350,7 +350,9 @@ export function formatLibraryValidateTitle(
 export function formatLibraryValidateSize(
     item: LibraryValidateStatusEvent
 ): string {
-    return item.status === 'validating' && item.sizeText ? item.sizeText : '';
+    return item.status === 'validating'
+        ? formatSize(item.currentFileSizeBytes ?? null)
+        : '';
 }
 
 export function formatLibraryValidateDetails(

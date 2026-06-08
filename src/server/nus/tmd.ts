@@ -16,7 +16,7 @@ export type TmdContent = {
     id: number;
     index: number;
     type: number;
-    size: bigint;
+    size: number;
     hash: Uint8Array;
 };
 
@@ -235,7 +235,7 @@ function readTmdContent(buffer: Buffer): TmdContent {
         id: buffer.readUInt32BE(0),
         index: buffer.readUInt16BE(4),
         type: buffer.readUInt16BE(6),
-        size: buffer.readBigUInt64BE(8),
+        size: Number(buffer.readBigUInt64BE(8)),
         hash: new Uint8Array(
             buffer.subarray(
                 TMD_CONTENT_HASH_OFFSET,

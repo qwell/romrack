@@ -849,7 +849,7 @@ async function writePartitionContent(
         createWudReadStream(
             image,
             contentOffset,
-            getEncryptedContentFileSize(content),
+            BigInt(getEncryptedContentFileSize(content)),
             signal
         ),
         createWriteStream(targetFile)
@@ -916,7 +916,7 @@ function findTmdContentByIndex(tmd: Tmd, contentIndex: number) {
 function readPartitionH3(
     partition: WudGamePartition,
     contentIndex: number,
-    encryptedSize: bigint
+    encryptedSize: number
 ): Uint8Array {
     const hashedContents = partition.tmd.contents.filter(
         (content) => isHashedContent(content) && (content.type & 1) === 1

@@ -761,8 +761,8 @@ type LibraryValidateProgress =
           name: string;
           kind: TitleKinds;
           version: number | null;
-          sizeText: string;
           currentFileName?: string | null;
+          currentFileSizeBytes?: number | null;
           current: number;
           total: number;
       }
@@ -830,7 +830,6 @@ export async function validateWiiUTitles(
             name: titleName,
             kind: titleKind,
             version: titleVersion,
-            sizeText,
             current: offset + index,
             total,
         });
@@ -853,8 +852,8 @@ export async function validateWiiUTitles(
                     name: titleName,
                     kind: titleKind,
                     version: titleVersion,
-                    sizeText,
                     currentFileName: progress.currentFileName,
+                    currentFileSizeBytes: progress.currentFileSizeBytes,
                     current: offset + index,
                     total,
                 });
