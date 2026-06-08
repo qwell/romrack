@@ -111,7 +111,7 @@ function queueDelete(
             deleteCached?.name ?? null,
             normalizedTitleId,
             deleteTitleKind,
-            deleteCached?.version ?? null
+            null
         ),
         titleVersion: deleteCached?.version ?? null,
         titleKind: deleteTitleKind,
@@ -206,7 +206,7 @@ async function processDeleteQueue(): Promise<void> {
                 deleteCached?.name ?? null,
                 nextItem.titleId,
                 nextItem.titleKind,
-                nextItem.titleVersion
+                null
             );
 
             nextItem.message = 'Deleting...';

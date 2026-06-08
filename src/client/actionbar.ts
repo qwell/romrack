@@ -871,7 +871,7 @@ function formatLibraryValidateTitle(event: LibraryValidateStatusEvent): string {
             event.name ?? null,
             event.titleId,
             event.kind,
-            event.version ?? null
+            null
         );
     }
 
@@ -1172,7 +1172,7 @@ function renderLibraryConvertActionRow(event: LibraryConvertItem): HTMLElement {
         event.name,
         event.titleId,
         event.kind,
-        event.version
+        null
     );
     const title = createActionBarCell('action-bar-title', titleText);
     title.title = titleText;

@@ -112,7 +112,7 @@ export function formatDownloadTitle(item: DownloadQueueItem): string {
         item.installedTitleName ?? item.groupName,
         item.titleId,
         item.kind,
-        item.installedVersion
+        null
     );
 }
 

@@ -174,7 +174,7 @@ function queueStorageTransfer(
     const cached = getLibraryCacheEntry(titleId);
     const titleKind = classifyTitleId(titleId).kind;
     const sourceName = cached
-        ? formatTitleDisplay(cached.name, titleId, titleKind, cached.version)
+        ? formatTitleDisplay(cached.name, titleId, titleKind, null)
         : formatTitleDisplay(null, titleId, titleKind);
 
     const copyItem: StorageCopyItem = {
@@ -582,7 +582,7 @@ async function processStorageCopyQueue(): Promise<void> {
                   copyCached?.name ?? null,
                   nextItem.titleId,
                   nextItem.titleKind,
-                  nextItem.titleVersion
+                  null
               )
             : getStorageCopySourceName(readableSourcePath);
 
@@ -605,7 +605,7 @@ async function processStorageCopyQueue(): Promise<void> {
                         metadata.name,
                         resolvedTitleId,
                         kind,
-                        nextItem.titleVersion
+                        null
                     );
                     updateStorageCopy(copyId, {
                         sourceName: namedSourceName,
