@@ -178,8 +178,8 @@ function renderStorageCopyControls(item: StorageCopyItem): HTMLDivElement {
         detailsCell.classList.add('action-bar-controls');
         detailsCell.append(
             createActionButton(
-                'Clear',
-                STORAGE_COPY_SOCKET_COMMAND.clear,
+                'Cancel',
+                STORAGE_COPY_SOCKET_COMMAND.cancel,
                 item.id
             )
         );

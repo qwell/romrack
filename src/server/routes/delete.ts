@@ -315,7 +315,7 @@ function updateDeleteProgress(
     scheduleBroadcastDeletes();
 }
 
-function clearDeleteFromState(id: string): DeleteItem | null {
+function removeDeleteFromState(id: string): DeleteItem | null {
     const item = deletes.find((candidate) => candidate.id === id) ?? null;
 
     deletes = deletes.filter((candidate) => candidate.id !== id);
@@ -325,10 +325,22 @@ function clearDeleteFromState(id: string): DeleteItem | null {
 }
 
 function clearDelete(id: string): void {
-    const item = clearDeleteFromState(id);
+    const item = removeDeleteFromState(id);
     if (!item) {
         logger.log('server', `delete clear ignored: missing id=${id}`);
     }
+    broadcastDeletes();
+}
+
+function cancelDelete(id: string): void {
+    const item = deleteQueue.find((candidate) => candidate.id === id);
+    if (!item || item.state !== 'queued') {
+        logger.log('server', `delete cancel ignored: missing queued id=${id}`);
+        return;
+    }
+
+    removeDeleteFromState(id);
+    logger.log('server', `delete cancelled: ${item.titleId}`);
     broadcastDeletes();
 }
 
@@ -360,6 +372,10 @@ export function handleDeleteSocketCommand(command: DeleteSocketCommand): void {
     switch (command.type) {
         case DELETE_SOCKET_COMMAND.clear:
             clearDelete(command.id);
+            return;
+
+        case DELETE_SOCKET_COMMAND.cancel:
+            cancelDelete(command.id);
             return;
 
         case DELETE_SOCKET_COMMAND.retry:

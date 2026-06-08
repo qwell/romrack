@@ -14,6 +14,7 @@ export const SOCKET_COMMAND = {
     storageCopyCancel: 'storage.copy.cancel',
     deleteRetry: 'delete.retry',
     deleteClear: 'delete.clear',
+    deleteCancel: 'delete.cancel',
     libraryValidateCancel: 'library.validate.cancel',
     libraryValidateClear: 'library.validate.clear',
     libraryValidateFailureClear: 'library.validate.failure.clear',
@@ -50,6 +51,7 @@ export const STORAGE_COPY_SOCKET_COMMAND = {
 export const DELETE_SOCKET_COMMAND = {
     retry: SOCKET_COMMAND.deleteRetry,
     clear: SOCKET_COMMAND.deleteClear,
+    cancel: SOCKET_COMMAND.deleteCancel,
 } as const;
 
 export const LIBRARY_VALIDATE_SOCKET_COMMAND = {
@@ -136,6 +138,10 @@ export type DeleteSocketCommand =
       }
     | {
           type: typeof DELETE_SOCKET_COMMAND.clear;
+          id: string;
+      }
+    | {
+          type: typeof DELETE_SOCKET_COMMAND.cancel;
           id: string;
       };
 

@@ -400,7 +400,7 @@ export function handleDownloadSocketCommand(
             if (matchingQueuedItems.length > 0) {
                 logger.log(
                     'server',
-                    `download queued items cleared: ${item.groupName} ${item.label} ${item.titleId}`
+                    `download queued items cancelled: ${item.groupName} ${item.label} ${item.titleId}`
                 );
 
                 downloadQueue = downloadQueue.filter(

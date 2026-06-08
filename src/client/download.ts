@@ -220,7 +220,11 @@ function renderDownloadControls(item: DownloadQueueItem): HTMLDivElement {
     if (item.state === 'queued') {
         detailsCell.classList.add('action-bar-controls');
         detailsCell.append(
-            createActionButton('Clear', DOWNLOAD_SOCKET_COMMAND.clear, item.id)
+            createActionButton(
+                'Cancel',
+                DOWNLOAD_SOCKET_COMMAND.cancel,
+                item.id
+            )
         );
         return detailsCell;
     }

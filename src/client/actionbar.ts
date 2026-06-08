@@ -33,6 +33,7 @@ import {
     retryStorageCopy,
 } from './storage.js';
 import {
+    cancelDelete,
     clearDelete,
     formatDeleteDetails,
     formatDeleteIcon,
@@ -69,6 +70,7 @@ export const ACTION_BAR_COMMAND = {
     storageCopyClear: STORAGE_COPY_SOCKET_COMMAND.clear,
     deleteRetry: DELETE_SOCKET_COMMAND.retry,
     deleteClear: DELETE_SOCKET_COMMAND.clear,
+    deleteCancel: DELETE_SOCKET_COMMAND.cancel,
     libraryValidateCancel: LIBRARY_VALIDATE_SOCKET_COMMAND.cancel,
     libraryValidateClear: LIBRARY_VALIDATE_SOCKET_COMMAND.clear,
     libraryValidateFailureClear: LIBRARY_VALIDATE_SOCKET_COMMAND.failureClear,
@@ -128,32 +130,40 @@ function isActionBarCommand<T extends ActionBarCommand>(
 
 function isClearableActionBarItem(options: ActionBarOptions): boolean {
     return (
-        options.downloads.some((item) => item.state !== 'downloading') ||
-        options.storageCopies.some((item) => item.state !== 'copying') ||
-        options.deletes.some((item) => item.state !== 'deleting') ||
+        options.downloads.some(
+            (item) => item.state === 'complete' || item.state === 'failed'
+        ) ||
+        options.storageCopies.some(
+            (item) => item.state === 'complete' || item.state === 'failed'
+        ) ||
+        options.deletes.some(
+            (item) => item.state === 'complete' || item.state === 'failed'
+        ) ||
         options.libraryValidateFailures.length > 0 ||
         (options.libraryValidate !== null &&
             getLibraryValidateActionState(options.libraryValidate) !==
                 'validating') ||
-        options.libraryConversions.some((item) => item.state !== 'converting')
+        options.libraryConversions.some(
+            (item) => item.state === 'complete' || item.state === 'failed'
+        )
     );
 }
 
 function clearAllActionBarItems(options: ActionBarOptions): void {
     for (const item of options.downloads) {
-        if (item.state !== 'downloading') {
+        if (item.state === 'complete' || item.state === 'failed') {
             options.onCommand(DOWNLOAD_SOCKET_COMMAND.clear, item.id);
         }
     }
 
     for (const item of options.storageCopies) {
-        if (item.state !== 'copying') {
+        if (item.state === 'complete' || item.state === 'failed') {
             options.onCommand(STORAGE_COPY_SOCKET_COMMAND.clear, item.id);
         }
     }
 
     for (const item of options.deletes) {
-        if (item.state !== 'deleting') {
+        if (item.state === 'complete' || item.state === 'failed') {
             options.onCommand(DELETE_SOCKET_COMMAND.clear, item.id);
         }
     }
@@ -166,7 +176,7 @@ function clearAllActionBarItems(options: ActionBarOptions): void {
     }
 
     for (const item of options.libraryConversions) {
-        if (item.state !== 'converting') {
+        if (item.state === 'complete' || item.state === 'failed') {
             sendAppSocketCommand({
                 type: LIBRARY_CONVERT_SOCKET_COMMAND.clear,
                 id: item.id,
@@ -266,6 +276,10 @@ export function createActionBarCommandHandler(
 
             case DELETE_SOCKET_COMMAND.clear:
                 clearDelete(itemId);
+                return;
+
+            case DELETE_SOCKET_COMMAND.cancel:
+                cancelDelete(itemId);
                 return;
 
             case DELETE_SOCKET_COMMAND.retry:

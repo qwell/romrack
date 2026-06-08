@@ -139,7 +139,15 @@ function renderDeleteControls(item: DeleteItem): HTMLDivElement {
         return detailsCell;
     }
 
-    if (item.state === 'queued' || item.state === 'complete') {
+    if (item.state === 'queued') {
+        detailsCell.classList.add('action-bar-controls');
+        detailsCell.append(
+            createActionButton('Cancel', DELETE_SOCKET_COMMAND.cancel, item.id)
+        );
+        return detailsCell;
+    }
+
+    if (item.state === 'complete') {
         detailsCell.classList.add('action-bar-controls');
         detailsCell.append(
             createActionButton('Clear', DELETE_SOCKET_COMMAND.clear, item.id)
@@ -167,6 +175,13 @@ export function retryDelete(itemId: string): void {
 export function clearDelete(itemId: string): void {
     sendAppSocketCommand({
         type: DELETE_SOCKET_COMMAND.clear,
+        id: itemId,
+    });
+}
+
+export function cancelDelete(itemId: string): void {
+    sendAppSocketCommand({
+        type: DELETE_SOCKET_COMMAND.cancel,
         id: itemId,
     });
 }
