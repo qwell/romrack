@@ -92,7 +92,6 @@ export function renderDeleteActionRow(item: DeleteItem): HTMLElement {
     progress.dataset.deleteProgress = 'true';
 
     const files = createActionBarCell('action-bar-files', '');
-    files.dataset.deleteFiles = 'true';
 
     const icon = createActionBarCell('action-bar-icon', formatDeleteIcon(item));
     icon.dataset.deleteIcon = 'true';
@@ -104,7 +103,6 @@ export function renderDeleteActionRow(item: DeleteItem): HTMLElement {
     state.dataset.deleteState = 'true';
 
     const size = createActionBarCell('action-bar-size', '');
-    size.dataset.deleteSize = 'true';
 
     const title = createActionBarCell(
         'action-bar-title',

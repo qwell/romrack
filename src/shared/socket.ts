@@ -18,8 +18,7 @@ export const SOCKET_COMMAND = {
     deleteCancel: 'delete.cancel',
     libraryValidateCancel: 'library.validate.cancel',
     libraryValidateClear: 'library.validate.clear',
-    libraryValidateFailureClear: 'library.validate.failure.clear',
-    libraryValidateFailureDownload: 'library.validate.failure.download',
+    libraryValidateDownload: 'library.validate.download',
     libraryConvertCancel: 'library.convert.cancel',
     libraryConvertClear: 'library.convert.clear',
     libraryConvertRetry: 'library.convert.retry',
@@ -58,8 +57,7 @@ export const DELETE_SOCKET_COMMAND = {
 export const LIBRARY_VALIDATE_SOCKET_COMMAND = {
     cancel: SOCKET_COMMAND.libraryValidateCancel,
     clear: SOCKET_COMMAND.libraryValidateClear,
-    failureClear: SOCKET_COMMAND.libraryValidateFailureClear,
-    failureDownload: SOCKET_COMMAND.libraryValidateFailureDownload,
+    download: SOCKET_COMMAND.libraryValidateDownload,
 } as const;
 
 export const TITLE_VERIFY_SOCKET_COMMAND = {
@@ -154,10 +152,7 @@ export type LibraryValidateSocketCommand =
           type: typeof LIBRARY_VALIDATE_SOCKET_COMMAND.clear;
       }
     | {
-          type: typeof LIBRARY_VALIDATE_SOCKET_COMMAND.failureClear;
-      }
-    | {
-          type: typeof LIBRARY_VALIDATE_SOCKET_COMMAND.failureDownload;
+          type: typeof LIBRARY_VALIDATE_SOCKET_COMMAND.download;
       };
 
 export type LibraryConvertSocketCommand =

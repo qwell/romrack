@@ -9,8 +9,21 @@ import {
 import { type DeleteItem } from '../shared/delete.js';
 import { type StorageCopyItem } from '../shared/storage.js';
 import {
-    LIBRARY_CONVERT_SOCKET_COMMAND,
+    createActionBarCell,
+    createActionBarRow,
+    createActionButton,
+} from './actionbar.js';
+import type {
+    LibraryValidateStatusEvent,
+    LibraryConvertItem,
+} from '../shared/socket.js';
+import type { DownloadQueueItem } from '../shared/download.js';
+import { formatTitleDisplay } from '../shared/shared.js';
+import { formatSize } from '../shared/shared.js';
+import { formatActionStateIcon } from '../shared/action.js';
+import {
     LIBRARY_VALIDATE_SOCKET_COMMAND,
+    LIBRARY_CONVERT_SOCKET_COMMAND,
 } from '../shared/socket.js';
 
 export type SlotBadgeState =
@@ -260,4 +273,414 @@ export function markDeletesComplete(
             options
         );
     }
+}
+
+export function formatLibraryValidateProgress(
+    item: LibraryValidateStatusEvent
+): string {
+    if (item.status === 'complete') {
+        return '100%';
+    }
+
+    if (item.status === 'failed') {
+        return item.current !== undefined && item.total
+            ? `${Math.round((item.current / item.total) * 100)}%`
+            : '-';
+    }
+
+    if (item.current !== undefined && item.total) {
+        return `${Math.round((item.current / item.total) * 100)}%`;
+    }
+
+    return '-';
+}
+
+export function formatLibraryValidateFileCount(
+    item: LibraryValidateStatusEvent
+): string {
+    if (item.current !== undefined && item.total !== undefined) {
+        const current =
+            item.status === 'validating'
+                ? Math.min(item.current + 1, item.total)
+                : item.current;
+        return `${current}/${item.total} titles`;
+    }
+
+    return '';
+}
+
+export function formatLibraryValidateIcon(
+    item: LibraryValidateStatusEvent
+): string {
+    return formatActionStateIcon(item.state);
+}
+
+export function formatLibraryValidateState(
+    item: LibraryValidateStatusEvent
+): string {
+    const state = item.state;
+    return state === 'complete'
+        ? 'Complete'
+        : state === 'failed'
+          ? 'Failed'
+          : state === 'cancelled'
+            ? 'Cancelled'
+            : 'Validating';
+}
+
+export function formatLibraryValidateTitle(
+    item: LibraryValidateStatusEvent
+): string {
+    if (
+        (item.status === 'validating' || item.status === 'validated') &&
+        item.kind &&
+        item.titleId
+    ) {
+        return formatTitleDisplay(
+            item.name ?? null,
+            item.titleId,
+            item.kind,
+            null
+        );
+    }
+
+    return '';
+}
+
+export function formatLibraryValidateSize(
+    item: LibraryValidateStatusEvent
+): string {
+    return item.status === 'validating' && item.sizeText ? item.sizeText : '';
+}
+
+export function formatLibraryValidateDetails(
+    item: LibraryValidateStatusEvent
+): string {
+    const state = item.state;
+    if (state === 'in-progress') {
+        return item.currentFileName
+            ? item.currentFileName
+            : 'Checking files...';
+    }
+
+    if (state === 'complete') {
+        return `${item.total ?? 0} titles`;
+    }
+
+    if (item.status === 'complete') {
+        return `${item.failed ?? 0}/${item.total ?? 0} failed`;
+    }
+
+    return '';
+}
+
+export function getLibraryValidateFailureKey(
+    item: LibraryValidateStatusEvent
+): string {
+    return item.titleId ?? item.name ?? 'unknown';
+}
+
+export function getLibraryValidateId(item: LibraryValidateStatusEvent): string {
+    return isLibraryValidateFailure(item)
+        ? getLibraryValidateFailureKey(item)
+        : 'main';
+}
+
+function isLibraryValidateFailureDownloadQueued(
+    item: LibraryValidateStatusEvent,
+    downloads?: DownloadQueueItem[]
+): boolean {
+    if (!item.titleId || !item.kind) {
+        return false;
+    }
+
+    const family = item.titleId.toLowerCase().slice(8);
+
+    return (
+        downloads?.some(
+            (download) =>
+                download.state !== 'complete' &&
+                download.state !== 'cancelled' &&
+                download.family === family &&
+                download.kind === item.kind &&
+                download.titleId.toLowerCase() === item.titleId?.toLowerCase()
+        ) ?? false
+    );
+}
+
+function createLibraryValidateFailureDownloadButton(
+    item: LibraryValidateStatusEvent,
+    downloads?: DownloadQueueItem[]
+): HTMLButtonElement {
+    const button = createActionButton(
+        'Download',
+        LIBRARY_VALIDATE_SOCKET_COMMAND.download,
+        getLibraryValidateFailureKey(item)
+    );
+    button.disabled = isLibraryValidateFailureDownloadQueued(item, downloads);
+    return button;
+}
+
+function renderLibraryValidateControls(
+    item: LibraryValidateStatusEvent,
+    downloads?: DownloadQueueItem[]
+): HTMLDivElement {
+    const detailsCell = document.createElement('div');
+    detailsCell.className = 'action-bar-details-cell action-bar-controls';
+
+    if (item.state === 'in-progress' || isLibraryValidateFailure(item)) {
+        const detailsText = formatLibraryValidateDetails(item);
+        const detailsTextElement = document.createElement('span');
+        detailsTextElement.className = 'action-bar-control-text';
+        detailsTextElement.title = detailsText;
+        detailsTextElement.textContent = detailsText;
+        detailsTextElement.dataset.libraryValidateDetail = 'true';
+        detailsCell.append(detailsTextElement);
+    }
+
+    if (isLibraryValidateFailure(item) && item.titleId) {
+        detailsCell.append(
+            createLibraryValidateFailureDownloadButton(item, downloads)
+        );
+    }
+
+    if (item.state === 'in-progress') {
+        detailsCell.append(
+            createActionButton(
+                'Cancel',
+                LIBRARY_VALIDATE_SOCKET_COMMAND.cancel,
+                getLibraryValidateId(item)
+            )
+        );
+    } else {
+        detailsCell.append(
+            createActionButton(
+                'Clear',
+                LIBRARY_VALIDATE_SOCKET_COMMAND.clear,
+                getLibraryValidateId(item)
+            )
+        );
+    }
+
+    return detailsCell;
+}
+
+export function isLibraryValidateFailure(
+    item: LibraryValidateStatusEvent
+): boolean {
+    return item.status === 'validated' && item.result === 'failed';
+}
+
+export function renderLibraryValidateActionRow(
+    item: LibraryValidateStatusEvent,
+    downloads?: DownloadQueueItem[]
+): HTMLElement {
+    const progress = createActionBarCell(
+        'action-bar-progress',
+        formatLibraryValidateProgress(item)
+    );
+    progress.dataset.libraryValidateProgress = 'true';
+
+    const files = createActionBarCell(
+        'action-bar-files',
+        formatLibraryValidateFileCount(item)
+    );
+    files.dataset.libraryValidateFiles = 'true';
+
+    const icon = createActionBarCell(
+        'action-bar-icon',
+        formatLibraryValidateIcon(item)
+    );
+    icon.dataset.libraryValidateIcon = 'true';
+
+    const state = createActionBarCell(
+        'action-bar-state',
+        formatLibraryValidateState(item)
+    );
+    state.dataset.libraryValidateState = 'true';
+
+    const size = createActionBarCell(
+        'action-bar-size',
+        formatLibraryValidateSize(item)
+    );
+    size.dataset.libraryValidateSize = 'true';
+
+    const titleText = formatLibraryValidateTitle(item);
+    const title = createActionBarCell('action-bar-title', titleText);
+    title.title = titleText;
+    title.dataset.libraryValidateTitle = 'true';
+
+    const detailsCell = renderLibraryValidateControls(item, downloads);
+    return createActionBarRow({
+        id: getLibraryValidateId(item),
+        state: item.state,
+        cells: [progress, files, icon, state, size, title, detailsCell],
+        itemIdDataKey: 'libraryValidateItemId',
+    });
+}
+
+export function formatLibraryConvertProgress(item: LibraryConvertItem): string {
+    if (item.state === 'complete') {
+        return 'Done';
+    }
+
+    return item.current !== null && item.total
+        ? `${Math.round((item.current / item.total) * 100)}%`
+        : '-';
+}
+
+export function formatLibraryConvertFileCount(
+    item: LibraryConvertItem
+): string {
+    return item.current !== null && item.total !== null
+        ? `${item.current}/${item.total} files`
+        : '';
+}
+
+export function formatLibraryConvertIcon(item: LibraryConvertItem): string {
+    return formatActionStateIcon(item.state);
+}
+
+export function formatLibraryConvertState(item: LibraryConvertItem): string {
+    switch (item.state) {
+        case 'queued':
+            return 'Queued';
+        case 'in-progress':
+            return 'Converting';
+        case 'complete':
+            return 'Complete';
+        case 'cancelled':
+            return 'Cancelled';
+        case 'failed':
+            return 'Failed';
+    }
+}
+
+export function formatLibraryConvertTitle(item: LibraryConvertItem): string {
+    return formatTitleDisplay(item.name, item.titleId, item.kind, null);
+}
+
+export function formatLibraryConvertDetails(item: LibraryConvertItem): string {
+    return (
+        item.error ??
+        item.currentFileName ??
+        (item.state === 'complete'
+            ? `${item.converted ?? 0} title(s) converted`
+            : item.state === 'queued'
+              ? 'Queued'
+              : item.state === 'cancelled'
+                ? ''
+                : 'Reading WUD/WUX image...')
+    );
+}
+
+function renderLibraryConvertControls(
+    item: LibraryConvertItem
+): HTMLDivElement {
+    const detailsCell = createActionBarCell('action-bar-details-cell', '');
+    detailsCell.classList.add('action-bar-controls');
+
+    if (item.state === 'in-progress') {
+        const details = formatLibraryConvertDetails(item);
+        const detailsTextCell = createActionBarCell(
+            'action-bar-control-text',
+            details
+        );
+        detailsTextCell.title = details;
+        detailsTextCell.dataset.libraryConvertDetail = 'true';
+        detailsCell.append(
+            detailsTextCell,
+            createActionButton(
+                'Cancel',
+                LIBRARY_CONVERT_SOCKET_COMMAND.cancel,
+                item.id
+            )
+        );
+        return detailsCell;
+    }
+
+    if (item.state === 'queued') {
+        detailsCell.append(
+            createActionButton(
+                'Cancel',
+                LIBRARY_CONVERT_SOCKET_COMMAND.cancel,
+                item.id
+            )
+        );
+        return detailsCell;
+    }
+
+    if (item.state === 'failed') {
+        detailsCell.append(
+            createActionButton(
+                'Retry',
+                LIBRARY_CONVERT_SOCKET_COMMAND.retry,
+                item.id
+            ),
+            createActionButton(
+                'Clear',
+                LIBRARY_CONVERT_SOCKET_COMMAND.clear,
+                item.id
+            )
+        );
+        return detailsCell;
+    }
+
+    detailsCell.append(
+        createActionButton(
+            'Clear',
+            LIBRARY_CONVERT_SOCKET_COMMAND.clear,
+            item.id
+        )
+    );
+
+    return detailsCell;
+}
+
+export function renderLibraryConvertActionRow(
+    item: LibraryConvertItem
+): HTMLElement {
+    const progress = createActionBarCell(
+        'action-bar-progress',
+        formatLibraryConvertProgress(item)
+    );
+    progress.dataset.libraryConvertProgress = 'true';
+
+    const files = createActionBarCell(
+        'action-bar-files',
+        formatLibraryConvertFileCount(item)
+    );
+    files.dataset.libraryConvertFiles = 'true';
+
+    const icon = createActionBarCell(
+        'action-bar-icon',
+        formatLibraryConvertIcon(item)
+    );
+    icon.dataset.libraryConvertIcon = 'true';
+
+    const state = createActionBarCell(
+        'action-bar-state',
+        formatLibraryConvertState(item)
+    );
+    state.dataset.libraryConvertState = 'true';
+
+    const size = createActionBarCell(
+        'action-bar-size',
+        formatSize(item.currentFileSizeBytes)
+    );
+    size.dataset.libraryConvertSize = 'true';
+
+    const titleText = formatLibraryConvertTitle(item);
+    const title = createActionBarCell('action-bar-title', titleText);
+    title.title = titleText;
+    title.dataset.libraryConvertTitle = 'true';
+
+    const detailsCell = renderLibraryConvertControls(item);
+
+    return createActionBarRow({
+        id: item.id,
+        state: item.state,
+        cells: [progress, files, icon, state, size, title, detailsCell],
+        itemIdDataKey: 'libraryConvertItemId',
+    });
 }

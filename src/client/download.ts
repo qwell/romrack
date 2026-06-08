@@ -43,8 +43,8 @@ export function getDownloadItem(
     );
 }
 
-export function formatDownloadIcon(state: ActionState | null): string {
-    return formatActionStateIcon(state, '↓');
+export function formatDownloadIcon(item: DownloadQueueItem): string {
+    return formatActionStateIcon(item.state, '↓');
 }
 
 export function formatDownloadProgress(item: DownloadQueueItem): string {
@@ -107,7 +107,7 @@ export function formatDownloadTitle(item: DownloadQueueItem): string {
     );
 }
 
-function formatDownloadDetails(item: DownloadQueueItem): string {
+export function formatDownloadDetails(item: DownloadQueueItem): string {
     if (item.error) {
         return item.error;
     }
@@ -164,7 +164,7 @@ export function renderDownloadActionRow(item: DownloadQueueItem): HTMLElement {
 
     const icon = createActionBarCell(
         'action-bar-icon',
-        formatDownloadIcon(item.state)
+        formatDownloadIcon(item)
     );
     icon.dataset.downloadIcon = 'true';
 
@@ -178,6 +178,7 @@ export function renderDownloadActionRow(item: DownloadQueueItem): HTMLElement {
         'action-bar-size',
         formatSize(item.currentFileSizeBytes)
     );
+    size.dataset.downloadSize = 'true';
 
     const downloadTitle = formatDownloadTitle(item);
     const title = createActionBarCell('action-bar-title', downloadTitle);
@@ -324,7 +325,7 @@ export function renderDownloadMarkers(queue: DownloadQueueItem[]): void {
         }
 
         const state = getDownloadState(queue, family, kind);
-        marker.textContent = formatDownloadIcon(state);
+        marker.textContent = formatActionStateIcon(state, '↓');
         marker.hidden = state === null;
         badge.dataset.downloadState = state ?? '';
     }

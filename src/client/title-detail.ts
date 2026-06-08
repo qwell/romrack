@@ -9,6 +9,7 @@ import {
     type TitleVerifySocketEvent,
 } from '../shared/socket.js';
 import { formatSize, formatTitleDisplay } from '../shared/shared.js';
+import { formatActionStateIcon } from '../shared/action.js';
 import {
     AvailableTitleEntry,
     PARENT_KINDS,
@@ -23,7 +24,6 @@ import { queueStorageCopy } from './api.js';
 import { queueDelete } from './delete.js';
 import {
     collectSelectedDownloads,
-    formatDownloadIcon,
     formatDownloadProgress,
     getDownloadItem,
     getDownloadState,
@@ -717,7 +717,7 @@ function renderSlotBadge(
         group.family,
         label
     );
-    downloadMarker.textContent = formatDownloadIcon(downloadState);
+    downloadMarker.textContent = formatActionStateIcon(downloadState, '↓');
     downloadMarker.hidden = downloadState === null;
     badge.dataset.downloadState = downloadState ?? '';
 
