@@ -33,30 +33,37 @@
         ></script>
     </head>
     <body>
-        <header>
-            <img class="logo" src="/assets/logo-64x64.png" />
-            <h1>WiiU Vault</h1>
+        <main class="page-content">
+            <header>
+                <img class="logo" src="/assets/logo-64x64.png" />
+                <h1>WiiU Vault</h1>
 
-            <button id="theme-toggle" type="button" aria-label="Toggle theme">
-                <img
-                    id="theme-icon-light"
-                    src="/assets/light-mode-64x64.png"
-                    alt=""
-                    width="24"
-                    height="24"
-                />
-                <img
-                    id="theme-icon-dark"
-                    src="/assets/dark-mode-64x64.png"
-                    alt=""
-                    width="24"
-                    height="24"
-                />
-            </button>
-        </header>
+                <button
+                    id="theme-toggle"
+                    type="button"
+                    aria-label="Toggle theme"
+                >
+                    <img
+                        id="theme-icon-light"
+                        src="/assets/light-mode-64x64.png"
+                        alt=""
+                        width="24"
+                        height="24"
+                    />
+                    <img
+                        id="theme-icon-dark"
+                        src="/assets/dark-mode-64x64.png"
+                        alt=""
+                        width="24"
+                        height="24"
+                    />
+                </button>
+            </header>
+
+            <div id="output">Waiting...</div>
+        </main>
 
         <div id="settings-root"></div>
-        <div id="output">Waiting...</div>
 
         <div
             id="server-status-modal"
