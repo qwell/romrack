@@ -1,0 +1,740 @@
+import { type DownloadQueueItem } from '../shared/download.js';
+import { formatActionStateIcon } from '../shared/action.js';
+import { formatSize } from '../shared/shared.js';
+import {
+    getVirtualConsolePlatform,
+    PARENT_KINDS,
+    type TitleGroup,
+    type TitleGroupStatus,
+    TitleKinds,
+    VirtualConsolePlatform,
+} from '../shared/titles.js';
+import {
+    buildDetailSidebar,
+    getSelectedDetailFamily,
+    toggleDetailSidebar,
+} from './sidebar.js';
+import {
+    getBaseBadgeState,
+    getChildBadgeState,
+    getEntry,
+    type SlotBadgeState,
+} from './library.js';
+
+type TitlesViewMode = 'table' | 'list';
+type TitlesVcFilter = 'all' | 'vc' | 'non-vc' | VirtualConsolePlatform;
+type TitlesControlState = {
+    region: string;
+    status: TitleGroupStatus | 'all';
+    vc: TitlesVcFilter;
+    search: string;
+};
+type TitlesOptions = {
+    downloads: DownloadQueueItem[];
+    onRefresh: () => void | Promise<void>;
+    onValidate: () => void | Promise<void>;
+    onOpenSettings: () => void;
+    renderDownloadMarkers: () => void;
+};
+type RenderTitlesOptions = {
+    loading?: boolean;
+};
+
+let options: TitlesOptions | null = null;
+let showAllTitles = false;
+let currentGroups: TitleGroup[] = [];
+let controlState: TitlesControlState = {
+    region: 'all',
+    status: 'all',
+    vc: 'all',
+    search: '',
+};
+let iconObserver: IntersectionObserver | null = null;
+let loading = false;
+let validating = false;
+
+export const titleSearchHaystacks = new WeakMap<TitleGroup, string>();
+
+export function setupTitles(nextOptions: TitlesOptions): void {
+    options = nextOptions;
+}
+
+export function getCurrentTitleGroups(): TitleGroup[] {
+    return currentGroups;
+}
+
+export function invalidateTitleSearch(group: TitleGroup): void {
+    titleSearchHaystacks.delete(group);
+}
+
+export function compareTitleGroups(a: TitleGroup, b: TitleGroup): number {
+    const collatorOptions: Intl.CollatorOptions = { sensitivity: 'base' };
+    return (
+        a.name.localeCompare(b.name, undefined, collatorOptions) ||
+        (a.region ?? '').localeCompare(
+            b.region ?? '',
+            undefined,
+            collatorOptions
+        )
+    );
+}
+
+export function filterVisibleTitleGroups(groups: TitleGroup[]): TitleGroup[] {
+    return groups.filter(
+        (group) =>
+            showAllTitles ||
+            group.entries.length > 0 ||
+            group.wudEntries.length > 0
+    );
+}
+
+export function observeTitleIcon(image: HTMLImageElement, src: string): void {
+    if (iconObserver) {
+        iconObserver.observe(image);
+    } else {
+        image.src = src;
+    }
+}
+
+export function setTitlesStatus(next: {
+    loading?: boolean;
+    validating?: boolean;
+}): void {
+    loading = next.loading ?? loading;
+    validating = next.validating ?? validating;
+    updateValidationButtonState();
+}
+
+function formatRegion(region: string | null): {
+    text: string;
+    flag: string;
+    class?: string;
+} {
+    const regions: Record<string, { flag: string; class?: string }> = {
+        USA: { flag: '🇺🇸', class: 'distress' },
+        EUR: { flag: '🇪🇺' },
+        JPN: { flag: '🇯🇵' },
+        FRA: { flag: '🇫🇷' },
+        GER: { flag: '🇩🇪' },
+        ITA: { flag: '🇮🇹' },
+        SPA: { flag: '🇪🇸' },
+        UNK: { flag: '🏴‍☠️', class: 'arrr' },
+        ALL: { flag: '🌐' },
+    };
+    return {
+        text: region ?? '',
+        flag: regions[region ?? '']?.flag ?? '',
+        class: regions[region ?? '']?.class,
+    };
+}
+
+function formatTooltip(group: TitleGroup): string {
+    const parent = getEntry(group, PARENT_KINDS);
+    const update = getEntry(group, TitleKinds.Update);
+    const dlc = getEntry(group, TitleKinds.DLC);
+    const line = (label: string, entry: typeof parent): string =>
+        `${label}: ${entry ? `${formatSize(entry.sizeBytes)} (${entry.titleId})` : '-'}`;
+    return [
+        line('Game', parent),
+        line('Update', update),
+        line('DLC', dlc),
+    ].join('\n');
+}
+
+function getDownloadState(group: TitleGroup, kind: TitleKinds) {
+    return (
+        options?.downloads.find(
+            (item) =>
+                item.family === group.family &&
+                item.kind === kind &&
+                item.state !== 'complete' &&
+                item.state !== 'cancelled'
+        )?.state ?? null
+    );
+}
+
+function renderSlotBadge(
+    group: TitleGroup,
+    kind: TitleKinds,
+    state: SlotBadgeState
+): HTMLElement {
+    const badge = document.createElement('div');
+    badge.className = `title-slot-badge title-slot-badge-${state}`;
+    badge.dataset.family = group.family;
+    badge.dataset.kind = kind;
+
+    const text = document.createElement('span');
+    text.textContent = kind;
+    const marker = document.createElement('span');
+    marker.className = 'title-slot-badge-download';
+    const downloadState = getDownloadState(group, kind);
+    marker.textContent = formatActionStateIcon(downloadState, '↓');
+    marker.hidden = downloadState === null;
+    badge.dataset.downloadState = downloadState ?? '';
+    badge.append(text, marker);
+    return badge;
+}
+
+function renderVirtualConsoleBadge(group: TitleGroup): HTMLElement | null {
+    const platform = getVirtualConsolePlatform(group.productCode);
+    if (!platform) return null;
+    const badge = document.createElement('div');
+    badge.className = 'title-slot-badge title-slot-badge-vc';
+    badge.textContent = platform.toString();
+    badge.title = 'Virtual Console';
+    return badge;
+}
+
+function renderWudBadge(group: TitleGroup): HTMLElement | null {
+    if (group.wudEntries.length === 0) return null;
+    const badge = document.createElement('div');
+    badge.className = 'title-slot-badge title-slot-badge-wud';
+    badge.textContent = 'WUD';
+    const count = group.wudEntries.reduce(
+        (total, entry) => total + entry.copyCount,
+        0
+    );
+    badge.title = `${count} disc image source(s)`;
+    return badge;
+}
+
+function renderGroup(
+    group: TitleGroup,
+    onSelect: (group: TitleGroup) => void,
+    selectedFamily: string | null
+): HTMLElement | null {
+    if (!group.name) return null;
+    const root = document.createElement('div');
+    root.className = `title-group title-group-${group.status}`;
+    root.dataset.family = group.family;
+    root.title = formatTooltip(group);
+    root.tabIndex = 0;
+    root.setAttribute('role', 'button');
+    root.setAttribute('aria-label', `Show details for ${group.name}`);
+    root.toggleAttribute('data-selected', group.family === selectedFamily);
+
+    if (group.iconUrl) {
+        const image = document.createElement('img');
+        image.className = 'title-icon';
+        image.dataset.src = group.iconUrl;
+        image.alt = group.name;
+        image.loading = 'lazy';
+        image.decoding = 'async';
+        root.append(image);
+        observeTitleIcon(image, group.iconUrl);
+    } else {
+        const placeholder = document.createElement('div');
+        placeholder.className = 'title-icon-placeholder';
+        root.append(placeholder);
+    }
+
+    const header = document.createElement('div');
+    header.className = 'title-group-name';
+    header.textContent = group.name;
+    const badges = document.createElement('div');
+    badges.className = 'title-group-metadata';
+    const badgeList = document.createElement('div');
+    badgeList.className = 'title-slot-badges';
+    const vcBadge = renderVirtualConsoleBadge(group);
+    const wudBadge = renderWudBadge(group);
+    if (vcBadge) badgeList.append(vcBadge);
+    if (wudBadge) badgeList.append(wudBadge);
+    badgeList.append(
+        renderSlotBadge(group, TitleKinds.Base, getBaseBadgeState(group)),
+        renderSlotBadge(
+            group,
+            TitleKinds.Update,
+            getChildBadgeState(group, TitleKinds.Update)
+        ),
+        renderSlotBadge(
+            group,
+            TitleKinds.DLC,
+            getChildBadgeState(group, TitleKinds.DLC)
+        )
+    );
+    badges.append(badgeList);
+
+    if (group.region) {
+        const formatted = formatRegion(group.region);
+        const region = document.createElement('div');
+        region.className = 'title-region';
+        const flag = document.createElement('span');
+        flag.className = formatted.class ?? '';
+        flag.textContent = formatted.flag;
+        const text = document.createElement('span');
+        text.className = 'region';
+        text.textContent = formatted.text;
+        region.append(flag, text);
+        badges.append(region);
+    }
+
+    root.append(header, badges);
+    root.addEventListener('click', () => onSelect(group));
+    root.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onSelect(group);
+        }
+    });
+    return root;
+}
+
+export function markSlotBadgeComplete(family: string, kind: TitleKinds): void {
+    for (const badge of document.querySelectorAll<HTMLElement>(
+        '.title-slot-badge'
+    )) {
+        if (badge.dataset.family !== family || badge.dataset.kind !== kind)
+            continue;
+        setSlotBadgeState(badge, 'complete');
+        const marker = badge.querySelector<HTMLElement>(
+            '.title-slot-badge-download'
+        );
+        if (marker) {
+            marker.textContent = '';
+            marker.hidden = true;
+        }
+        badge.dataset.downloadState = '';
+    }
+}
+
+function setSlotBadgeState(badge: HTMLElement, state: SlotBadgeState): void {
+    badge.classList.remove(
+        'title-slot-badge-complete',
+        'title-slot-badge-incomplete',
+        'title-slot-badge-na',
+        'title-slot-badge-unavailable',
+        'title-slot-badge-unknown'
+    );
+    badge.classList.add(`title-slot-badge-${state}`);
+}
+
+export function updateRenderedTitleGroup(group: TitleGroup): void {
+    const element = document.querySelector<HTMLElement>(
+        `.title-group[data-family="${CSS.escape(group.family)}"]`
+    );
+    if (!element) return;
+    element.classList.remove(
+        'title-group-complete',
+        'title-group-incomplete',
+        'title-group-missing',
+        'title-group-unavailable',
+        'title-group-unknown'
+    );
+    element.classList.add(`title-group-${group.status}`);
+
+    for (const [kind, state] of [
+        [TitleKinds.Base, getBaseBadgeState(group)],
+        [TitleKinds.Update, getChildBadgeState(group, TitleKinds.Update)],
+        [TitleKinds.DLC, getChildBadgeState(group, TitleKinds.DLC)],
+    ] as const) {
+        const badge = element.querySelector<HTMLElement>(
+            `.title-slot-badge[data-kind="${CSS.escape(kind)}"]`
+        );
+        if (badge) setSlotBadgeState(badge, state);
+    }
+}
+
+function resetIconObserver(): void {
+    iconObserver?.disconnect();
+    iconObserver = new IntersectionObserver(
+        (entries) => {
+            for (const entry of entries) {
+                if (!entry.isIntersecting) continue;
+                const image = entry.target;
+                if (!(image instanceof HTMLImageElement)) continue;
+                const src = image.dataset.src;
+                if (src) {
+                    image.src = src;
+                    delete image.dataset.src;
+                }
+                iconObserver?.unobserve(image);
+            }
+        },
+        { rootMargin: '256px' }
+    );
+}
+
+function normalizeSearch(value: string | null | undefined): string {
+    return (value ?? '').toLocaleLowerCase();
+}
+
+function getSearchHaystack(group: TitleGroup): string {
+    let haystack = titleSearchHaystacks.get(group);
+    if (haystack !== undefined) return haystack;
+
+    const parts: (string | null)[] = [group.name, group.family, group.region];
+    for (const entry of group.entries) {
+        parts.push(entry.titleId, entry.name, entry.kind, entry.region);
+    }
+    for (const entry of group.wudEntries) {
+        parts.push(
+            ...entry.titles.map((title) => title.titleId),
+            'WUD',
+            entry.imageName
+        );
+    }
+    haystack = parts.map(normalizeSearch).join('\n');
+    titleSearchHaystacks.set(group, haystack);
+    return haystack;
+}
+
+function collectRegions(groups: TitleGroup[]): string[] {
+    return [...new Set(groups.flatMap((group) => group.region ?? []))].sort(
+        (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })
+    );
+}
+
+function collectVcPlatforms(groups: TitleGroup[]): VirtualConsolePlatform[] {
+    const platforms = groups.flatMap((group) => {
+        const platform = group.productCode
+            ? getVirtualConsolePlatform(group.productCode)
+            : null;
+        return platform ? [platform] : [];
+    });
+    return [...new Set(platforms)].sort((a, b) =>
+        a.toString().localeCompare(b.toString(), undefined, {
+            sensitivity: 'base',
+        })
+    );
+}
+
+function normalizeControlState(groups: TitleGroup[]): void {
+    const regions = collectRegions(groups);
+    const vcFilters: TitlesVcFilter[] = [
+        'all',
+        'vc',
+        'non-vc',
+        ...collectVcPlatforms(groups),
+    ];
+    controlState.region =
+        controlState.region === 'all' || regions.includes(controlState.region)
+            ? controlState.region
+            : 'all';
+    controlState.vc = vcFilters.includes(controlState.vc)
+        ? controlState.vc
+        : 'all';
+}
+
+function renderGroups(
+    groups: TitleGroup[],
+    grid: HTMLDivElement,
+    sidebar: HTMLElement
+): void {
+    currentGroups = groups;
+    const search = normalizeSearch(controlState.search.trim());
+    const filtered = groups.filter((group) => {
+        if (
+            !showAllTitles &&
+            group.entries.length === 0 &&
+            group.wudEntries.length === 0
+        ) {
+            return false;
+        }
+        if (
+            controlState.status !== 'all' &&
+            group.status !== controlState.status
+        )
+            return false;
+        if (
+            controlState.region !== 'all' &&
+            group.region !== controlState.region
+        )
+            return false;
+
+        const platform = group.productCode
+            ? getVirtualConsolePlatform(group.productCode)
+            : null;
+        if (controlState.vc === 'vc' && !platform) return false;
+        if (controlState.vc === 'non-vc' && platform) return false;
+        if (
+            controlState.vc !== 'all' &&
+            controlState.vc !== 'vc' &&
+            controlState.vc !== 'non-vc' &&
+            controlState.vc !== platform?.toString()
+        ) {
+            return false;
+        }
+        return !search || getSearchHaystack(group).includes(search);
+    });
+
+    grid.replaceChildren();
+    resetIconObserver();
+
+    let renderedCount = 0;
+    const batchSize = 50;
+    const sentinel = document.createElement('div');
+
+    const appendBatch = (): void => {
+        const fragment = document.createDocumentFragment();
+        for (const group of filtered.slice(
+            renderedCount,
+            renderedCount + batchSize
+        )) {
+            const element = renderGroup(
+                group,
+                (selected) => toggleDetailSidebar(sidebar, selected),
+                getSelectedDetailFamily()
+            );
+            if (element) fragment.append(element);
+        }
+        grid.insertBefore(fragment, sentinel);
+        renderedCount += batchSize;
+        options?.renderDownloadMarkers();
+    };
+
+    grid.append(sentinel);
+    appendBatch();
+    if (renderedCount >= filtered.length) {
+        sentinel.remove();
+        return;
+    }
+
+    const observer = new IntersectionObserver(
+        (entries) => {
+            if (!entries.some((entry) => entry.isIntersecting)) return;
+            appendBatch();
+            if (renderedCount >= filtered.length) {
+                observer.disconnect();
+                sentinel.remove();
+            }
+        },
+        { rootMargin: '400px' }
+    );
+    observer.observe(sentinel);
+}
+
+function appendOptions(
+    select: HTMLSelectElement,
+    entries: Array<{ value: string; label: string }>
+): void {
+    for (const entry of entries) {
+        const option = document.createElement('option');
+        option.value = entry.value;
+        option.textContent = entry.label;
+        select.append(option);
+    }
+}
+
+function buildViewControl(grid: HTMLDivElement): HTMLElement {
+    const root = document.createElement('div');
+    root.className = 'library-view-toggle library-field-view';
+    root.setAttribute('role', 'group');
+    root.setAttribute('aria-label', 'Library view');
+
+    const buildButton = (
+        mode: TitlesViewMode,
+        icon: string
+    ): HTMLButtonElement => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'library-view-button';
+        button.title = `${mode === 'table' ? 'Table' : 'List'} view`;
+        button.setAttribute('aria-label', button.title);
+        button.innerHTML = `<i class="fa-solid fa-${icon}"></i>`;
+        button.addEventListener('click', () => apply(mode, true));
+        return button;
+    };
+    const table = buildButton('table', 'table');
+    const list = buildButton('list', 'list');
+    root.append(table, list);
+
+    const apply = (mode: TitlesViewMode, save = false): void => {
+        grid.dataset.view = mode;
+        for (const [button, active] of [
+            [table, mode === 'table'],
+            [list, mode === 'list'],
+        ] as const) {
+            button.dataset.active = String(active);
+            button.setAttribute('aria-pressed', String(active));
+        }
+        if (save) localStorage.setItem('libraryViewMode', mode);
+    };
+    apply(
+        localStorage.getItem('libraryViewMode') === 'list' ? 'list' : 'table'
+    );
+    return root;
+}
+
+function buildControls(
+    allGroups: TitleGroup[],
+    groups: TitleGroup[],
+    grid: HTMLDivElement,
+    sidebar: HTMLElement
+): HTMLElement {
+    normalizeControlState(groups);
+    const root = document.createElement('div');
+    root.className = 'library-controls';
+
+    for (const [text, className] of [
+        ['Region', 'region'],
+        ['Status', 'status'],
+        ['VC', 'vc'],
+        ['Search', 'search'],
+        ['Titles', 'show-all'],
+    ]) {
+        const label = document.createElement('div');
+        label.className = `library-label library-label-${className}`;
+        label.textContent = text;
+        root.append(label);
+    }
+
+    const region = document.createElement('select');
+    region.className = 'library-field-region';
+    appendOptions(region, [
+        { value: 'all', label: 'All' },
+        ...collectRegions(groups).map((value) => ({ value, label: value })),
+    ]);
+    const status = document.createElement('select');
+    status.className = 'library-field-status';
+    appendOptions(
+        status,
+        [
+            'all',
+            'complete',
+            'incomplete',
+            'missing',
+            'unavailable',
+            'unknown',
+        ].map((value) => ({
+            value,
+            label: value[0].toUpperCase() + value.slice(1),
+        }))
+    );
+    const vc = document.createElement('select');
+    vc.className = 'library-field-vc';
+    appendOptions(vc, [
+        { value: 'all', label: 'All' },
+        { value: 'vc', label: 'VC only' },
+        { value: 'non-vc', label: 'Non-VC' },
+        ...collectVcPlatforms(groups).map((value) => ({
+            value: value.toString(),
+            label: value.toString(),
+        })),
+    ]);
+    for (const select of [region, status, vc]) {
+        select.disabled = loading || groups.length === 0;
+    }
+    region.value = controlState.region;
+    status.value = controlState.status;
+    vc.value = controlState.vc;
+
+    const search = document.createElement('input');
+    search.type = 'search';
+    search.placeholder = 'Name, title ID, or region';
+    search.className = 'library-field-search';
+    search.disabled = loading || groups.length === 0;
+    search.value = controlState.search;
+
+    const showAllLabel = document.createElement('label');
+    showAllLabel.className = 'library-checkbox library-field-show-all';
+    const showAll = document.createElement('input');
+    showAll.type = 'checkbox';
+    showAll.checked = showAllTitles;
+    showAll.disabled = loading;
+    const showAllText = document.createElement('span');
+    showAllText.textContent = 'Show all';
+    showAllLabel.append(showAll, showAllText);
+
+    const iconButton = (
+        className: string,
+        title: string,
+        icon: string
+    ): HTMLButtonElement => {
+        const button = document.createElement('button');
+        button.className = className;
+        button.type = 'button';
+        button.title = title;
+        button.setAttribute('aria-label', title);
+        button.innerHTML = `<i class="fa-solid fa-${icon}"></i>`;
+        return button;
+    };
+    const refresh = iconButton(
+        'library-field-refresh',
+        'Refresh library',
+        'refresh'
+    );
+    refresh.disabled = loading;
+    const validate = iconButton(
+        'library-field-validate',
+        'Validate library',
+        'check-double'
+    );
+    const settings = iconButton(
+        'library-field-settings',
+        'Open settings',
+        'gear'
+    );
+
+    root.append(
+        region,
+        status,
+        vc,
+        search,
+        showAllLabel,
+        buildViewControl(grid),
+        refresh,
+        validate,
+        settings
+    );
+
+    const update = (): void => {
+        controlState = {
+            region: region.value,
+            status: status.value as TitlesControlState['status'],
+            vc: vc.value as TitlesVcFilter,
+            search: search.value,
+        };
+        renderGroups(allGroups, grid, sidebar);
+    };
+    region.addEventListener('change', update);
+    status.addEventListener('change', update);
+    vc.addEventListener('change', update);
+    search.addEventListener('input', update);
+    showAll.addEventListener('change', () => {
+        showAllTitles = showAll.checked;
+        update();
+    });
+    refresh.addEventListener('click', () => void options?.onRefresh());
+    validate.addEventListener('click', () => void options?.onValidate());
+    settings.addEventListener('click', () => options?.onOpenSettings());
+
+    if (!loading && groups.length > 0) update();
+    return root;
+}
+
+function updateValidationButtonState(): void {
+    const button = document.querySelector<HTMLButtonElement>(
+        '.library-field-validate'
+    );
+    const icon = button?.querySelector<HTMLElement>('i');
+    if (!button || !icon) return;
+    button.title = validating ? 'Validating library' : 'Validate library';
+    button.setAttribute('aria-label', button.title);
+    button.setAttribute('aria-busy', String(validating));
+    button.disabled = loading || validating || currentGroups.length === 0;
+    icon.className = validating
+        ? 'fa-solid fa-spinner fa-spin'
+        : 'fa-solid fa-check-double';
+}
+
+export function buildTitlesContent(
+    allGroups: TitleGroup[],
+    groups: TitleGroup[],
+    renderOptions: RenderTitlesOptions = {}
+): DocumentFragment {
+    loading = renderOptions.loading ?? false;
+    currentGroups = allGroups;
+    const fragment = document.createDocumentFragment();
+    const grid = document.createElement('div');
+    grid.className = 'library-grid';
+    const sidebar = buildDetailSidebar();
+    const controls = buildControls(allGroups, groups, grid, sidebar);
+    const loadingLine = document.createElement('div');
+    loadingLine.className = 'library-loading';
+    loadingLine.textContent = loading ? 'Loading...' : '';
+    loadingLine.setAttribute('role', 'status');
+    loadingLine.setAttribute('aria-live', 'polite');
+    fragment.append(controls, loadingLine, grid, sidebar);
+    queueMicrotask(updateValidationButtonState);
+    return fragment;
+}

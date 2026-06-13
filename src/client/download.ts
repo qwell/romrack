@@ -9,11 +9,8 @@ import {
     createActionButton,
     updateActionBar,
 } from './actionbar.js';
-import {
-    markSlotBadgeComplete,
-    updateRenderedTitleGroup,
-    refreshOpenDetailSidebarForGroup,
-} from './sidebar.js';
+import { markSlotBadgeComplete, updateRenderedTitleGroup } from './titles.js';
+import { refreshOpenDetailSidebarForGroup } from './sidebar.js';
 import { syncGroupStatusFromSlots } from './library.js';
 import { sendAppSocketCommand } from './app-socket.js';
 

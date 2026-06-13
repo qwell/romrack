@@ -12,10 +12,8 @@ import {
     type TitleValidationSocketEvent,
 } from '../shared/socket.js';
 import { formatSize, formatTitleDisplay } from '../shared/shared.js';
-import { formatActionStateIcon } from '../shared/action.js';
 import {
     AvailableTitleEntry,
-    PARENT_KINDS,
     type TitleDetails,
     type TitleEntry,
     type TitleGroup,
@@ -23,7 +21,6 @@ import {
     type WudTitleEntry,
     TitleKinds,
     classifyTitleId,
-    getVirtualConsolePlatform,
 } from '../shared/titles.js';
 import { queueLibraryConvert, queueStorageCopy } from './api.js';
 import { queueDelete } from './delete.js';
@@ -31,20 +28,14 @@ import {
     collectSelectedDownloads,
     formatDownloadProgress,
     getDownloadItem,
-    getDownloadState,
     queueDownloads,
 } from './download.js';
 import {
-    getEntry,
-    getBaseBadgeState,
-    getChildBadgeState,
-    type SlotBadgeState,
     addAvailableEntry,
     createAvailableEntry,
     isAvailableEntryKind,
 } from './library.js';
 import { sendAppSocketCommand } from './app-socket.js';
-import { getAvailableSizeBytes, getAvailableSizeText } from './main.js';
 
 type SidebarOptions = {
     downloads: DownloadQueueItem[];
@@ -52,7 +43,6 @@ type SidebarOptions = {
     storageCopies: StorageCopyItem[];
     libraryConversions: LibraryConvertItem[];
     titleValidations: Map<string, TitleValidationSocketEvent>;
-    observeIcon: (image: HTMLImageElement, src: string) => void;
     populateFat32DeviceSelect: (
         select: HTMLSelectElement,
         copyButton: HTMLButtonElement
@@ -61,6 +51,21 @@ type SidebarOptions = {
 
 let options: SidebarOptions | null = null;
 let selectedFamily: string | null = null;
+
+function getAvailableSizeBytes(entry: unknown): number | null {
+    if (!entry || typeof entry !== 'object') {
+        return null;
+    }
+
+    const sizeBytes = (entry as { sizeBytes?: unknown }).sizeBytes;
+    return typeof sizeBytes === 'number' && Number.isFinite(sizeBytes)
+        ? sizeBytes
+        : null;
+}
+
+function getAvailableSizeText(entry: unknown): string {
+    return formatSize(getAvailableSizeBytes(entry));
+}
 
 export function setupSidebar(nextOptions: SidebarOptions): void {
     options = nextOptions;
@@ -189,35 +194,6 @@ export function refreshOpenDetailSidebarForGroup(group: TitleGroup): void {
     }
 
     body.replaceChildren(renderGroupDetailContent(group));
-}
-
-function formatRegion(region: string | null): {
-    text: string;
-    flag: string;
-    class?: string;
-} {
-    switch (region) {
-        case 'USA':
-            return { text: 'USA', flag: '🇺🇸', class: 'distress' };
-        case 'EUR':
-            return { text: 'EUR', flag: '🇪🇺' };
-        case 'JPN':
-            return { text: 'JPN', flag: '🇯🇵' };
-        case 'FRA':
-            return { text: 'FRA', flag: '🇫🇷' };
-        case 'GER':
-            return { text: 'GER', flag: '🇩🇪' };
-        case 'ITA':
-            return { text: 'ITA', flag: '🇮🇹' };
-        case 'SPA':
-            return { text: 'SPA', flag: '🇪🇸' };
-        case 'UNK':
-            return { text: 'UNK', flag: '🏴‍☠️', class: 'arrr' };
-        case 'ALL':
-            return { text: 'ALL', flag: '🌐' };
-        default:
-            return { text: region ?? '', flag: '' };
-    }
 }
 
 function formatCount(value: number, singular: string, plural: string): string {
@@ -673,7 +649,6 @@ function updateStorageCopyAvailability(
             'sidebar-storage-copy-row-insufficient-space',
             cannotFit
         );
-        row?.toggleAttribute('data-copy-disabled', cannotFit);
         if (cannotFit && entry) {
             row?.setAttribute(
                 'title',
@@ -897,78 +872,6 @@ function formatVersions(versions: number[]): string {
         : '';
 }
 
-function formatTooltip(group: TitleGroup): string {
-    const parentEntry = getEntry(group, PARENT_KINDS);
-    const updateEntry = getEntry(group, TitleKinds.Update);
-    const dlcEntry = getEntry(group, TitleKinds.DLC);
-
-    return [
-        `Game: ${parentEntry ? `${formatSize(parentEntry.sizeBytes)} (${parentEntry.titleId})` : '-'}`,
-        `Update: ${updateEntry ? `${formatSize(updateEntry.sizeBytes)} (${updateEntry.titleId})` : '-'}`,
-        `DLC: ${dlcEntry ? `${formatSize(dlcEntry.sizeBytes)} (${dlcEntry.titleId})` : '-'}`,
-    ].join('\n');
-}
-
-function renderSlotBadge(
-    group: TitleGroup,
-    label: TitleKinds,
-    state: SlotBadgeState
-): HTMLElement {
-    const badge = document.createElement('div');
-    badge.className = `title-slot-badge title-slot-badge-${state}`;
-    badge.dataset.family = group.family;
-    badge.dataset.kind = label;
-
-    const text = document.createElement('span');
-    text.textContent = label;
-
-    const downloadMarker = document.createElement('span');
-    downloadMarker.className = 'title-slot-badge-download';
-
-    const downloadState = getDownloadState(
-        options?.downloads ?? [],
-        group.family,
-        label
-    );
-    downloadMarker.textContent = formatActionStateIcon(downloadState, '↓');
-    downloadMarker.hidden = downloadState === null;
-    badge.dataset.downloadState = downloadState ?? '';
-
-    badge.append(text, downloadMarker);
-    return badge;
-}
-
-function renderVirtualConsoleBadge(group: TitleGroup): HTMLElement | null {
-    const platform = getVirtualConsolePlatform(group.productCode);
-
-    if (!platform) {
-        return null;
-    }
-
-    const badge = document.createElement('div');
-    badge.className = 'title-slot-badge title-slot-badge-vc';
-    badge.textContent = platform.toString();
-    badge.title = 'Virtual Console';
-
-    return badge;
-}
-
-function renderWudBadge(group: TitleGroup): HTMLElement | null {
-    if (group.wudEntries.length === 0) {
-        return null;
-    }
-
-    const badge = document.createElement('div');
-    badge.className = 'title-slot-badge title-slot-badge-wud';
-    badge.textContent = 'WUD';
-    const sourceCount = group.wudEntries.reduce(
-        (total, entry) => total + entry.copyCount,
-        0
-    );
-    badge.title = `${sourceCount} disc image source(s)`;
-    return badge;
-}
-
 function renderWudContent(group: TitleGroup): {
     content: HTMLElement;
     convertButton: HTMLButtonElement;
@@ -1010,7 +913,6 @@ function renderWudContent(group: TitleGroup): {
         row.classList.add('sidebar-wud-row-muted');
 
         const checkboxSpace = document.createElement('span');
-        checkboxSpace.className = 'sidebar-wud-checkbox-space';
 
         const slot = document.createElement('span');
         slot.className = 'sidebar-download-slot';
@@ -1051,7 +953,6 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
     const detailOptions = options;
     const fragment = document.createDocumentFragment();
     const summary = document.createElement('div');
-    summary.className = 'sidebar-summary';
 
     const list = document.createElement('dl');
     list.className = 'sidebar-list';
@@ -1066,7 +967,6 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
     );
 
     const bottom = document.createElement('div');
-    bottom.className = 'sidebar-bottom';
 
     summary.append(list);
     fragment.append(summary);
@@ -1077,7 +977,6 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
     fragment.append(synopsis);
 
     const availability = document.createElement('div');
-    availability.className = 'sidebar-availability';
 
     const localEntries = group.entries
         .filter((entry) => {
@@ -1421,188 +1320,4 @@ export function mergeFailedValidationsIntoAvailable(
     }
 
     return changedGroups;
-}
-
-export function renderGroup(
-    group: TitleGroup,
-    onSelect: (group: TitleGroup) => void,
-    selectedFamily: string | null = null
-): HTMLElement | null {
-    if (!group.name) {
-        return null;
-    }
-
-    const status = group.status;
-
-    const root = document.createElement('div');
-    root.className = `title-group title-group-${status}`;
-    root.dataset.family = group.family;
-    root.title = formatTooltip(group);
-    root.tabIndex = 0;
-    root.setAttribute('role', 'button');
-    root.setAttribute('aria-label', `Show details for ${group.name}`);
-
-    if (group.family === selectedFamily) {
-        root.setAttribute('data-selected', '');
-    }
-
-    if (group.iconUrl) {
-        const image = document.createElement('img');
-        image.className = 'title-icon';
-        image.dataset.src = group.iconUrl;
-        image.alt = group.name;
-        image.loading = 'lazy';
-        image.decoding = 'async';
-        root.append(image);
-        options?.observeIcon(image, group.iconUrl);
-    } else {
-        const placeholder = document.createElement('div');
-        placeholder.className = 'title-icon-placeholder';
-        root.append(placeholder);
-    }
-
-    const header = document.createElement('div');
-    header.className = 'title-group-header';
-    header.textContent = group.name;
-    root.append(header);
-
-    const badges = document.createElement('div');
-    badges.className = 'title-slot-badges';
-
-    const badgeList = document.createElement('div');
-    badgeList.className = 'title-slot-badge-list';
-
-    const virtualConsoleBadge = renderVirtualConsoleBadge(group);
-    if (virtualConsoleBadge) {
-        badgeList.append(virtualConsoleBadge);
-    }
-    const wudBadge = renderWudBadge(group);
-    if (wudBadge) {
-        badgeList.append(wudBadge);
-    }
-    badgeList.append(
-        renderSlotBadge(group, TitleKinds.Base, getBaseBadgeState(group)),
-        renderSlotBadge(
-            group,
-            TitleKinds.Update,
-            getChildBadgeState(group, TitleKinds.Update)
-        ),
-        renderSlotBadge(
-            group,
-            TitleKinds.DLC,
-            getChildBadgeState(group, TitleKinds.DLC)
-        )
-    );
-
-    badges.append(badgeList);
-
-    if (group.region) {
-        const formattedRegion = formatRegion(group.region);
-
-        const regionParent = document.createElement('div');
-        regionParent.className = 'title-region';
-
-        const flag = document.createElement('span');
-        flag.className = formattedRegion.class ?? '';
-        flag.textContent = formattedRegion.flag;
-
-        const region = document.createElement('span');
-        region.className = 'region';
-        region.textContent = formattedRegion.text;
-
-        regionParent.append(flag, region);
-        badges.append(regionParent);
-    }
-
-    root.append(badges);
-
-    root.addEventListener('click', () => onSelect(group));
-    root.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            onSelect(group);
-        }
-    });
-
-    return root;
-}
-
-export function markSlotBadgeComplete(family: string, kind: TitleKinds): void {
-    for (const badge of document.querySelectorAll<HTMLElement>(
-        '.title-slot-badge'
-    )) {
-        if (badge.dataset.family !== family || badge.dataset.kind !== kind) {
-            continue;
-        }
-
-        setSlotBadgeState(badge, 'complete');
-
-        const marker = badge.querySelector<HTMLElement>(
-            '.title-slot-badge-download'
-        );
-
-        if (marker) {
-            marker.textContent = '';
-            marker.hidden = true;
-        }
-
-        badge.dataset.downloadState = '';
-    }
-}
-
-function setSlotBadgeState(badge: HTMLElement, state: SlotBadgeState): void {
-    badge.classList.remove(
-        'title-slot-badge-complete',
-        'title-slot-badge-incomplete',
-        'title-slot-badge-na',
-        'title-slot-badge-unavailable',
-        'title-slot-badge-unknown'
-    );
-    badge.classList.add(`title-slot-badge-${state}`);
-}
-
-function updateRenderedSlotBadge(
-    root: HTMLElement,
-    kind: TitleKinds,
-    state: SlotBadgeState
-): void {
-    const badge = root.querySelector<HTMLElement>(
-        `.title-slot-badge[data-kind="${CSS.escape(kind)}"]`
-    );
-
-    if (badge) {
-        setSlotBadgeState(badge, state);
-    }
-}
-
-export function updateRenderedTitleGroup(group: TitleGroup): void {
-    const element = document.querySelector<HTMLElement>(
-        `.title-group[data-family="${CSS.escape(group.family)}"]`
-    );
-
-    if (!element) {
-        return;
-    }
-
-    element.classList.remove(
-        'title-group-complete',
-        'title-group-incomplete',
-        'title-group-missing',
-        'title-group-unavailable',
-        'title-group-unknown'
-    );
-
-    element.classList.add(`title-group-${group.status}`);
-
-    updateRenderedSlotBadge(element, TitleKinds.Base, getBaseBadgeState(group));
-    updateRenderedSlotBadge(
-        element,
-        TitleKinds.Update,
-        getChildBadgeState(group, TitleKinds.Update)
-    );
-    updateRenderedSlotBadge(
-        element,
-        TitleKinds.DLC,
-        getChildBadgeState(group, TitleKinds.DLC)
-    );
 }
