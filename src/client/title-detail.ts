@@ -129,15 +129,6 @@ function formatInput(details: TitleDetails): string {
     return parts.join('; ') || '-';
 }
 
-function isLocalEntryValidationFailed(
-    entry: TitleEntry,
-    titleValidations: Map<string, TitleValidationSocketEvent> | null
-): boolean {
-    const validation = titleValidations?.get(entry.titleId) ?? null;
-
-    return isValidationFailed(validation);
-}
-
 export function isValidationFailed(
     event: TitleValidationSocketEvent | null
 ): boolean {
@@ -251,7 +242,7 @@ function hasBusyEntryKind(
     return entries.some((entry) => busyKinds.has(entry.kind));
 }
 
-export function renderDownloadAvailabilityRow(
+function renderDownloadAvailabilityRow(
     queue: DownloadQueueItem[],
     group: TitleGroup,
     entry: TitleGroup['availableEntries'][number]
@@ -774,7 +765,7 @@ function renderInvalidActions(
     return actions;
 }
 
-export function formatVersions(versions: number[]): string {
+function formatVersions(versions: number[]): string {
     return versions.length > 0
         ? versions.map((version) => `v${version}`).join(', ')
         : '';
@@ -977,14 +968,6 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
         })
         .sort((a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind));
 
-    const actionableLocalEntries = localEntries.filter(
-        (entry) =>
-            !isLocalEntryValidationFailed(
-                entry,
-                detailOptions?.titleValidations ?? null
-            )
-    );
-
     if (group.wudEntries.length > 0) {
         const wud = renderWudContent(group);
         availability.append(
@@ -1031,7 +1014,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
             );
             updateStorageCopyAvailability(
                 localList,
-                actionableLocalEntries,
+                localEntries,
                 selectedVolume
             );
             const checkedCount = localList.querySelectorAll(
@@ -1041,7 +1024,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
                 !destinationSelect.disabled && destinationSelect.value !== '';
             const selectedSizeBytes = getStorageCopySelectionSizeBytes(
                 localList,
-                actionableLocalEntries,
+                localEntries,
                 checkedCount > 0
             );
             const freeBytes = selectedVolume?.freeBytes;
@@ -1058,15 +1041,15 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
             deleteButton.textContent =
                 checkedCount === 0 ? 'Delete all' : 'Delete selected';
             copyButton.disabled =
-                actionableLocalEntries.length === 0 ||
+                localEntries.length === 0 ||
                 !hasCopyDestination ||
                 !hasEnoughFreeSpace ||
                 (checkedCount === 0 &&
-                    hasBusyEntryKind(busyKinds, actionableLocalEntries));
+                    hasBusyEntryKind(busyKinds, localEntries));
             deleteButton.disabled =
-                actionableLocalEntries.length === 0 ||
+                localEntries.length === 0 ||
                 (checkedCount === 0 &&
-                    hasBusyEntryKind(busyKinds, actionableLocalEntries));
+                    hasBusyEntryKind(busyKinds, localEntries));
             copyButton.title =
                 hasCopyDestination && !hasEnoughFreeSpace && selectedVolume
                     ? `Not enough free space: ${formatSize(selectedSizeBytes)} selected, ${formatSize(freeBytes ?? null)} available`
@@ -1110,8 +1093,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
                     );
                 } finally {
                     copyButton.disabled =
-                        actionableLocalEntries.length === 0 ||
-                        destinationSelect.disabled;
+                        localEntries.length === 0 || destinationSelect.disabled;
                 }
             })();
         });
@@ -1129,7 +1111,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
 
                 await confirmAndQueueDeletes(
                     titleIds,
-                    actionableLocalEntries,
+                    localEntries,
                     deleteButton
                 );
             })();
@@ -1230,7 +1212,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
     return fragment;
 }
 
-export function requestTitleValidation(titleId: string, name: string): void {
+function requestTitleValidation(titleId: string, name: string): void {
     sendAppSocketCommand({
         type: TITLE_VALIDATE_SOCKET_COMMAND.queue,
         titleId,
@@ -1244,19 +1226,13 @@ export function requestTitleValidations(group: TitleGroup): void {
     }
 }
 
-function isDownloadableValidationKind(
-    kind: TitleKinds
-): kind is TitleKinds.Base | TitleKinds.Update | TitleKinds.DLC {
-    return isAvailableEntryKind(kind);
-}
-
 function validationToAvailableEntry(
     title: LibraryValidateTitle
 ): AvailableTitleEntry | null {
     if (
         title.status !== 'failed' ||
         title.titleId === null ||
-        !isDownloadableValidationKind(title.kind)
+        !isAvailableEntryKind(title.kind)
     ) {
         return null;
     }
@@ -1273,12 +1249,6 @@ function validationToAvailableEntry(
     });
 }
 
-function getTitleFamily(titleId: string): string {
-    const normalized = titleId.toLowerCase();
-
-    return normalized.slice(8);
-}
-
 export function mergeFailedValidationsIntoAvailable(
     groups: TitleGroup[],
     titles: LibraryValidateTitle[]
@@ -1292,7 +1262,7 @@ export function mergeFailedValidationsIntoAvailable(
             continue;
         }
 
-        const family = getTitleFamily(entry.titleId);
+        const family = classifyTitleId(entry.titleId).family;
         const group = groups.find(
             (candidate) => candidate.family.toLowerCase() === family
         );
