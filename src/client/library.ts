@@ -535,9 +535,15 @@ export function formatLibraryConvertProgress(item: LibraryConvertItem): string {
 export function formatLibraryConvertFileCount(
     item: LibraryConvertItem
 ): string {
-    return item.current !== null && item.total !== null
-        ? `${item.current} / ${item.total} files`
-        : '';
+    if (item.current === null || item.total === null) {
+        return '';
+    }
+
+    const current =
+        item.currentFileName && item.state === 'in-progress'
+            ? Math.min(item.current + 1, item.total)
+            : item.current;
+    return `${current} / ${item.total} files`;
 }
 
 export function formatLibraryConvertIcon(item: LibraryConvertItem): string {

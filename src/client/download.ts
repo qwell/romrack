@@ -112,22 +112,27 @@ export function syncDownloadQueue(
 
     queue.splice(0, queue.length, ...nextQueue);
 
-    for (const item of queue) {
+    const completedItems = queue.filter((item) => {
         const previous = previousById.get(item.id);
-
-        if (
+        return (
             ((previous && previous.state !== 'complete') ||
                 shouldReconcileCompleted) &&
             item.state === 'complete'
-        ) {
-            markSlotBadgeComplete(item.family, item.kind);
-            onDownloadComplete?.(item);
-            markDownloadComplete(queue, haystacks, groups, item);
-        }
-    }
+        );
+    });
 
     updateActionBar();
     renderDownloadMarkers(queue);
+
+    for (const item of completedItems) {
+        try {
+            markSlotBadgeComplete(item.family, item.kind);
+            onDownloadComplete?.(item);
+            markDownloadComplete(queue, haystacks, groups, item);
+        } catch (error) {
+            console.error('Failed to reconcile completed download', error);
+        }
+    }
 }
 
 export function renderDownloadActionRow(item: DownloadQueueItem): HTMLElement {

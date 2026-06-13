@@ -340,9 +340,6 @@ function cancelLibraryConversion(id: string): void {
 
     const isActive = activeLibraryConvertId === id;
     item.state = 'cancelled';
-    if (item.currentFileName && item.current !== null) {
-        item.current = Math.max(0, item.current - 1);
-    }
     item.currentFileName = null;
     item.currentFileSizeBytes = null;
     if (isActive) {
@@ -395,7 +392,7 @@ async function processLibraryConvertQueue(): Promise<void> {
                         return;
                     }
                     item.currentFileName = progress.currentFileName;
-                    item.current = progress.completedFiles + 1;
+                    item.current = progress.completedFiles;
                     item.total = progress.totalFiles;
                     item.currentFileSizeBytes = progress.currentFileSizeBytes;
                     broadcastLibraryConversions();
