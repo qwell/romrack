@@ -1,5 +1,8 @@
 import { formatSize } from '../shared/shared.js';
-import { formatActionStateIcon } from '../shared/action.js';
+import {
+    formatActionProgress,
+    formatActionStateIcon,
+} from '../shared/action.js';
 import { STORAGE_COPY_SOCKET_COMMAND } from '../shared/socket.js';
 import { type StorageCopyItem } from '../shared/storage.js';
 import {
@@ -33,23 +36,7 @@ export function syncStorageCopies(
 }
 
 export function formatStorageCopyProgress(item: StorageCopyItem): string {
-    if (item.state === 'queued') {
-        return '-';
-    }
-
-    if (item.state === 'failed') {
-        return item.progress !== null ? `${Math.round(item.progress)}%` : '-';
-    }
-
-    if (item.state === 'complete') {
-        return 'Done';
-    }
-
-    if (item.state === 'cancelled') {
-        return '-';
-    }
-
-    return item.progress !== null ? `${Math.round(item.progress)}%` : '-';
+    return formatActionProgress(item.state, item.progress);
 }
 
 export function formatStorageCopyFileCount(item: StorageCopyItem): string {

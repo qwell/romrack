@@ -1,5 +1,9 @@
 import { type DownloadQueueItem } from '../shared/download.js';
-import { formatActionStateIcon, type ActionState } from '../shared/action.js';
+import {
+    formatActionProgress,
+    formatActionStateIcon,
+    type ActionState,
+} from '../shared/action.js';
 import { formatSize, formatTitleDisplay } from '../shared/shared.js';
 import { type TitleGroup, TitleKinds } from '../shared/titles.js';
 import { DOWNLOAD_SOCKET_COMMAND } from '../shared/socket.js';
@@ -45,27 +49,7 @@ export function formatDownloadIcon(item: DownloadQueueItem): string {
 }
 
 export function formatDownloadProgress(item: DownloadQueueItem): string {
-    if (item.state === 'queued') {
-        return '-';
-    }
-
-    if (item.state === 'failed') {
-        return `${Math.round(item.progress)}%`;
-    }
-
-    if (item.state === 'complete') {
-        return 'Done';
-    }
-
-    if (item.state === 'cancelled') {
-        return '-';
-    }
-
-    if (item.progress !== null) {
-        return `${Math.round(item.progress)}%`;
-    }
-
-    return 'Downloading';
+    return formatActionProgress(item.state, item.progress);
 }
 
 export function formatDownloadFileCount(item: DownloadQueueItem): string {

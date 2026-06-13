@@ -28,3 +28,18 @@ export function formatActionStateIcon(
             return '';
     }
 }
+
+export function formatActionProgress(
+    state: ActionState,
+    progress: number | null
+): string {
+    if (state === 'complete') {
+        return 'Done';
+    }
+
+    if (state === 'queued' || state === 'cancelled') {
+        return '-';
+    }
+
+    return progress !== null ? `${Math.round(progress)}%` : '-';
+}

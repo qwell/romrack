@@ -20,7 +20,10 @@ import type {
 import type { DownloadQueueItem } from '../shared/download.js';
 import { formatTitleDisplay } from '../shared/shared.js';
 import { formatSize } from '../shared/shared.js';
-import { formatActionStateIcon } from '../shared/action.js';
+import {
+    formatActionProgress,
+    formatActionStateIcon,
+} from '../shared/action.js';
 import {
     LIBRARY_VALIDATE_SOCKET_COMMAND,
     LIBRARY_CONVERT_SOCKET_COMMAND,
@@ -522,13 +525,11 @@ export function renderLibraryValidateActionRow(
 }
 
 export function formatLibraryConvertProgress(item: LibraryConvertItem): string {
-    if (item.state === 'complete') {
-        return 'Done';
-    }
-
-    return item.current !== null && item.total
-        ? `${Math.round((item.current / item.total) * 100)}%`
-        : '-';
+    const progress =
+        item.current !== null && item.total
+            ? (item.current / item.total) * 100
+            : null;
+    return formatActionProgress(item.state, progress);
 }
 
 export function formatLibraryConvertFileCount(
