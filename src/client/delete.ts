@@ -1,5 +1,5 @@
 import { type DeleteItem } from '../shared/delete.js';
-import { formatActionStateIcon } from '../shared/action.js';
+import { formatActionState, formatActionStateIcon } from '../shared/action.js';
 import { requestJson, type DeleteQueuedResponse } from '../shared/api.js';
 import { DELETE_SOCKET_COMMAND } from '../shared/socket.js';
 import {
@@ -58,18 +58,10 @@ export function formatDeleteTitle(item: DeleteItem): string {
 }
 
 export function formatDeleteState(item: DeleteItem): string {
-    switch (item.state) {
-        case 'in-progress':
-            return 'Deleting';
-        case 'queued':
-            return 'Queued';
-        case 'failed':
-            return 'Failed';
-        case 'complete':
-            return 'Deleted';
-        case 'cancelled':
-            return 'Cancelled';
-    }
+    return formatActionState(item.state, {
+        'in-progress': 'Deleting',
+        complete: 'Deleted',
+    });
 }
 
 export function formatDeleteIcon(item: DeleteItem): string {

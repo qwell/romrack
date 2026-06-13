@@ -21,7 +21,9 @@ import type { DownloadQueueItem } from '../shared/download.js';
 import { formatTitleDisplay } from '../shared/shared.js';
 import { formatSize } from '../shared/shared.js';
 import {
+    formatActionFileCount,
     formatActionProgress,
+    formatActionState,
     formatActionStateIcon,
 } from '../shared/action.js';
 import {
@@ -321,14 +323,10 @@ export function formatLibraryValidateIcon(
 export function formatLibraryValidateState(
     item: LibraryValidateStatusEvent
 ): string {
-    const state = item.state;
-    return state === 'complete'
-        ? 'Complete'
-        : state === 'failed'
-          ? 'Failed'
-          : state === 'cancelled'
-            ? 'Cancelled'
-            : 'Validating';
+    return formatActionState(item.state, {
+        'in-progress': 'Validating',
+        complete: 'Validated',
+    });
 }
 
 export function formatLibraryValidateTitle(
@@ -373,7 +371,7 @@ export function formatLibraryValidateDetails(
     }
 
     if (item.status === 'complete') {
-        return `${item.failed ?? 0}/${item.total ?? 0} failed`;
+        return `${item.failed ?? 0} / ${item.total ?? 0} failed`;
     }
 
     return '';
@@ -535,15 +533,11 @@ export function formatLibraryConvertProgress(item: LibraryConvertItem): string {
 export function formatLibraryConvertFileCount(
     item: LibraryConvertItem
 ): string {
-    if (item.current === null || item.total === null) {
-        return '';
-    }
-
-    const current =
-        item.currentFileName && item.state === 'in-progress'
-            ? Math.min(item.current + 1, item.total)
-            : item.current;
-    return `${current} / ${item.total} files`;
+    return formatActionFileCount(
+        item.current,
+        item.total,
+        Boolean(item.currentFileName && item.state === 'in-progress')
+    );
 }
 
 export function formatLibraryConvertIcon(item: LibraryConvertItem): string {
@@ -551,18 +545,10 @@ export function formatLibraryConvertIcon(item: LibraryConvertItem): string {
 }
 
 export function formatLibraryConvertState(item: LibraryConvertItem): string {
-    switch (item.state) {
-        case 'queued':
-            return 'Queued';
-        case 'in-progress':
-            return 'Converting';
-        case 'complete':
-            return 'Complete';
-        case 'cancelled':
-            return 'Cancelled';
-        case 'failed':
-            return 'Failed';
-    }
+    return formatActionState(item.state, {
+        'in-progress': 'Converting',
+        complete: 'Converted',
+    });
 }
 
 export function formatLibraryConvertTitle(item: LibraryConvertItem): string {

@@ -1,6 +1,8 @@
 import { formatSize } from '../shared/shared.js';
 import {
+    formatActionFileCount,
     formatActionProgress,
+    formatActionState,
     formatActionStateIcon,
 } from '../shared/action.js';
 import { STORAGE_COPY_SOCKET_COMMAND } from '../shared/socket.js';
@@ -40,15 +42,13 @@ export function formatStorageCopyProgress(item: StorageCopyItem): string {
 }
 
 export function formatStorageCopyFileCount(item: StorageCopyItem): string {
-    if (item.completedFiles !== null && item.totalFiles !== null) {
-        const current =
-            item.currentFileName && item.state === 'in-progress'
-                ? Math.min(item.completedFiles + 1, item.totalFiles)
-                : item.completedFiles;
-        return `${current} / ${item.totalFiles} files`;
-    }
-
-    return item.state === 'in-progress' ? '-' : '';
+    return (
+        formatActionFileCount(
+            item.completedFiles,
+            item.totalFiles,
+            Boolean(item.currentFileName && item.state === 'in-progress')
+        ) || (item.state === 'in-progress' ? '-' : '')
+    );
 }
 
 export function formatStorageCopyTitle(item: StorageCopyItem): string {
@@ -56,18 +56,10 @@ export function formatStorageCopyTitle(item: StorageCopyItem): string {
 }
 
 export function formatStorageCopyState(item: StorageCopyItem): string {
-    switch (item.state) {
-        case 'in-progress':
-            return item.operation === 'move' ? 'Moving' : 'Copying';
-        case 'queued':
-            return 'Queued';
-        case 'failed':
-            return 'Failed';
-        case 'complete':
-            return item.operation === 'move' ? 'Moved' : 'Copied';
-        case 'cancelled':
-            return 'Cancelled';
-    }
+    return formatActionState(item.state, {
+        'in-progress': item.operation === 'move' ? 'Moving' : 'Copying',
+        complete: item.operation === 'move' ? 'Moved' : 'Copied',
+    });
 }
 
 export function formatStorageCopyIcon(item: StorageCopyItem): string {

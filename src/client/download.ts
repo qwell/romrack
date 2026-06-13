@@ -1,6 +1,8 @@
 import { type DownloadQueueItem } from '../shared/download.js';
 import {
+    formatActionFileCount,
     formatActionProgress,
+    formatActionState,
     formatActionStateIcon,
     type ActionState,
 } from '../shared/action.js';
@@ -53,30 +55,18 @@ export function formatDownloadProgress(item: DownloadQueueItem): string {
 }
 
 export function formatDownloadFileCount(item: DownloadQueueItem): string {
-    if (item.completedFiles === null || item.totalFiles === null) {
-        return '';
-    }
-
-    const current =
-        item.currentFileName && item.state === 'in-progress'
-            ? Math.min(item.completedFiles + 1, item.totalFiles)
-            : item.completedFiles;
-    return `${current} / ${item.totalFiles} files`;
+    return formatActionFileCount(
+        item.completedFiles,
+        item.totalFiles,
+        Boolean(item.currentFileName && item.state === 'in-progress')
+    );
 }
 
 export function formatDownloadState(item: DownloadQueueItem): string {
-    switch (item.state) {
-        case 'in-progress':
-            return item.speedText ?? 'Downloading';
-        case 'queued':
-            return 'Queued';
-        case 'failed':
-            return 'Failed';
-        case 'complete':
-            return 'Downloaded';
-        case 'cancelled':
-            return 'Cancelled';
-    }
+    return formatActionState(item.state, {
+        'in-progress': item.speedText ?? 'Downloading',
+        complete: 'Downloaded',
+    });
 }
 
 export function formatDownloadTitle(item: DownloadQueueItem): string {

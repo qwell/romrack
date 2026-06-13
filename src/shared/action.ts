@@ -5,8 +5,23 @@ export type ActionState =
     | 'failed'
     | 'cancelled';
 
+const ACTION_STATE_LABELS: Record<ActionState, string> = {
+    queued: 'Queued',
+    'in-progress': 'In progress',
+    complete: 'Complete',
+    failed: 'Failed',
+    cancelled: 'Cancelled',
+};
+
 export function isTerminalActionState(state: ActionState): boolean {
     return state === 'complete' || state === 'failed' || state === 'cancelled';
+}
+
+export function formatActionState(
+    state: ActionState,
+    labels: Partial<Record<ActionState, string>> = {}
+): string {
+    return labels[state] ?? ACTION_STATE_LABELS[state];
 }
 
 export function formatActionStateIcon(
@@ -42,4 +57,19 @@ export function formatActionProgress(
     }
 
     return progress !== null ? `${Math.round(progress)}%` : '-';
+}
+
+export function formatActionFileCount(
+    completed: number | null,
+    total: number | null,
+    currentFileActive: boolean
+): string {
+    if (completed === null || total === null) {
+        return '';
+    }
+
+    const current = currentFileActive
+        ? Math.min(completed + 1, total)
+        : completed;
+    return `${current} / ${total} files`;
 }
