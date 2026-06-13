@@ -12,8 +12,8 @@ import {
 import {
     markSlotBadgeComplete,
     updateRenderedTitleGroup,
-} from './title-detail.js';
-import { refreshOpenDetailSidebarForGroup } from './sidebar.js';
+    refreshOpenDetailSidebarForGroup,
+} from './sidebar.js';
 import { syncGroupStatusFromSlots } from './library.js';
 import { sendAppSocketCommand } from './app-socket.js';
 

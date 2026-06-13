@@ -39,22 +39,17 @@ import {
 } from './settings.js';
 import { connectAppSocket, createAppEventHandler } from './app-socket.js';
 import {
-    setupTitleDetails,
+    setupSidebar,
     renderGroup,
     updateRenderedTitleGroup,
     mergeFailedValidationsIntoAvailable,
     isValidationFailed,
-    renderGroupDetailContent,
-    requestTitleValidations,
-} from './title-detail.js';
-import {
     buildDetailSidebar,
     closeDetailSidebar,
     getSelectedDetailFamily,
     hasOpenDetailFamily,
     refreshOpenDetailSidebarForGroup,
     resetDetailSidebars,
-    setupDetailSidebar,
     toggleDetailSidebar,
 } from './sidebar.js';
 import logger from '../shared/logger.js';
@@ -1043,7 +1038,7 @@ function setupSidebars(): void {
             },
         }
     );
-    setupTitleDetails({
+    setupSidebar({
         downloads: downloadQueue,
         deletes,
         storageCopies,
@@ -1057,10 +1052,6 @@ function setupSidebars(): void {
                 image.src = src;
             }
         },
-    });
-    setupDetailSidebar({
-        renderContent: renderGroupDetailContent,
-        onShow: requestTitleValidations,
     });
     resetDetailSidebars();
 }
