@@ -774,6 +774,10 @@ select {
     white-space: pre-wrap;
 }
 
+.sidebar-bottom {
+    margin-top: auto;
+}
+
 .server-status-modal {
     position: fixed;
     inset: 0;

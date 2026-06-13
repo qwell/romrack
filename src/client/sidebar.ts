@@ -967,6 +967,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
     );
 
     const bottom = document.createElement('div');
+    bottom.className = 'sidebar-bottom';
 
     summary.append(list);
     fragment.append(summary);
