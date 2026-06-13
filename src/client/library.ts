@@ -535,7 +535,7 @@ export function formatLibraryConvertFileCount(
     item: LibraryConvertItem
 ): string {
     return item.current !== null && item.total !== null
-        ? `${item.current}/${item.total} files`
+        ? `${item.current} / ${item.total} files`
         : '';
 }
 
@@ -628,13 +628,12 @@ function renderLibraryConvertControls(
         return detailsCell;
     }
 
-    detailsCell.append(
-        createActionButton(
-            'Clear',
-            LIBRARY_CONVERT_SOCKET_COMMAND.clear,
-            item.id
-        )
+    const clearButton = createActionButton(
+        'Clear',
+        LIBRARY_CONVERT_SOCKET_COMMAND.clear,
+        item.id
     );
+    detailsCell.append(clearButton);
 
     return detailsCell;
 }

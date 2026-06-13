@@ -135,7 +135,7 @@ function renderDeleteControls(item: DeleteItem): HTMLDivElement {
         return detailsCell;
     }
 
-    if (item.state === 'queued') {
+    if (item.state === 'queued' || item.state === 'in-progress') {
         detailsCell.classList.add('action-bar-controls');
         detailsCell.append(
             createActionButton('Cancel', DELETE_SOCKET_COMMAND.cancel, item.id)

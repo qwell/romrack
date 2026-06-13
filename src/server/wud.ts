@@ -13,8 +13,6 @@ import {
     getContentInstallFiles,
     getEncryptedContentFileSize,
     isHashedContent,
-    verifyContentInstallFiles,
-    type ContentTreeVerification,
 } from './nus/content.js';
 import {
     findFstEntry,
@@ -40,7 +38,13 @@ import {
     readCommonKey,
     readTikFromBuffer,
 } from './title.js';
-import { normalizeTitleId, normalizeTitleName } from '../shared/titles.js';
+import {
+    classifyTitleId,
+    DOWNLOADABLE_KINDS,
+    normalizeTitleId,
+    normalizeTitleName,
+    type WudTitleEntry,
+} from '../shared/titles.js';
 import { getImmediatePathSizeBytes, readOptionalFile } from '../shared/file.js';
 import { findReadablePath } from '../shared/os.js';
 import { safeDirectoryName } from '../shared/string.js';
@@ -79,6 +83,8 @@ type WudGamePartition = {
 };
 
 export type WudConvertProgress = {
+    titleId: string;
+    outputDir: string;
     currentFileName: string | null;
     currentFileSizeBytes: number;
     completedFiles: number;
@@ -121,11 +127,6 @@ const PARTITION_HEADER_HASH_POINTER_SIZE = 0x04;
 const PARTITION_START_SIGNATURE = 0xcc93a4f5;
 const DECRYPTED_AREA_SIGNATURE = 0xcca6e67b;
 
-const DOWNLOADABLE_TITLE_PREFIXES = new Set([
-    '00050000',
-    '0005000c',
-    '0005000e',
-]);
 const H3_HASH_ENTRY_SIZE = 0x14;
 const H3_HASH_CLUSTER_SPAN = 0x1000;
 const AES_BLOCK_SIZE = 0x10;
@@ -147,6 +148,71 @@ export async function findWudImagePaths(roots: string[]): Promise<string[]> {
     }
 
     return [...found].sort((a, b) => a.localeCompare(b));
+}
+
+export async function scanWudTitleEntries(
+    roots: string[]
+): Promise<WudTitleEntry[]> {
+    const imagePaths = await findWudImagePaths(roots);
+    if (imagePaths.length === 0) {
+        return [];
+    }
+
+    const commonKey = await readCommonKey();
+    const entries: WudTitleEntry[] = [];
+
+    for (const imagePath of imagePaths) {
+        try {
+            const discKey = await readWudDiscKey(imagePath);
+            if (!discKey) {
+                continue;
+            }
+
+            const image = await openWudImage(imagePath);
+            try {
+                const partitions = await readWudGamePartitions(
+                    image,
+                    discKey,
+                    commonKey,
+                    null
+                );
+                const sizeBytes = await getImmediatePathSizeBytes(imagePath);
+                const titlesByFamily = new Map<
+                    string,
+                    WudTitleEntry['titles']
+                >();
+
+                for (const partition of partitions) {
+                    const titleId = getTitleIdHex(partition.tmd.header.titleId);
+                    const family = titleId.slice(8);
+                    const titles = titlesByFamily.get(family) ?? [];
+                    titles.push({
+                        titleId,
+                        version: partition.tmd.header.titleVersion,
+                    });
+                    titlesByFamily.set(family, titles);
+                }
+
+                for (const titles of titlesByFamily.values()) {
+                    entries.push({
+                        titles,
+                        imageName: path.basename(imagePath),
+                        sizeBytes,
+                        copyCount: 1,
+                    });
+                }
+            } finally {
+                await image.file.close();
+            }
+        } catch (error) {
+            logger.warn(
+                'wud',
+                `skipping ${imagePath}: ${error instanceof Error ? error.message : String(error)}`
+            );
+        }
+    }
+
+    return entries;
 }
 
 export async function convertWudImagesInRoots(
@@ -480,8 +546,11 @@ async function readWudGamePartitionChild(
         }
 
         const titleId = getTitleIdHex(ticket.titleId);
+        const titleKind = classifyTitleId(titleId).kind;
         if (
-            !DOWNLOADABLE_TITLE_PREFIXES.has(titleId.slice(0, 8)) ||
+            !DOWNLOADABLE_KINDS.includes(
+                titleKind as (typeof DOWNLOADABLE_KINDS)[number]
+            ) ||
             (requestedFamily !== null && titleId.slice(8) !== requestedFamily)
         ) {
             return null;
@@ -707,9 +776,20 @@ async function convertWudGamePartition({
         app: [] as string[],
         h3: [] as string[],
     };
-    const verification: ContentTreeVerification[] = [];
+    const totalFiles = partition.tmd.contents.reduce(
+        (total, content) => total + (isHashedContent(content) ? 2 : 1),
+        0
+    );
 
     await mkdir(outputDir, { recursive: true });
+    onProgress?.({
+        titleId,
+        outputDir,
+        completedFiles: 0,
+        totalFiles,
+        currentFileSizeBytes: 0,
+        currentFileName: null,
+    });
     logger.log(
         'wud',
         `writing ${titleId} ${kind} to ${outputDir}; preserving title.tik from WUD`
@@ -728,10 +808,6 @@ async function convertWudGamePartition({
     ]);
 
     let completedFiles = 0;
-    const totalFiles = partition.tmd.contents.reduce(
-        (total, content) => total + (isHashedContent(content) ? 2 : 1),
-        0
-    );
     for (const content of partition.tmd.contents) {
         throwIfAborted(signal);
         const installFiles = getContentInstallFiles(outputDir, content);
@@ -740,6 +816,8 @@ async function convertWudGamePartition({
             `extracting ${titleId} content ${installFiles.contentId} to ${installFiles.appName}`
         );
         onProgress?.({
+            titleId,
+            outputDir,
             completedFiles,
             totalFiles,
             currentFileSizeBytes: Number(getEncryptedContentFileSize(content)),
@@ -766,6 +844,8 @@ async function convertWudGamePartition({
         ) {
             const h3 = readPartitionH3(partition, content.index, content.size);
             onProgress?.({
+                titleId,
+                outputDir,
                 completedFiles,
                 totalFiles,
                 currentFileSizeBytes: h3.byteLength,
@@ -779,21 +859,7 @@ async function convertWudGamePartition({
             files.h3.push(installFiles.h3Name);
             completedFiles += 1;
         }
-        const result = await verifyContentInstallFiles({
-            files: installFiles,
-            content,
-            titleKey,
-            signal,
-        });
-        if (result.status !== 'ok') {
-            logger.warn(
-                'wud',
-                `verification failed for ${titleId} content ${installFiles.contentId}: ${result.error ?? result.status}`
-            );
-        }
         files.app.push(installFiles.appName);
-        verification.push(result);
-
         logger.log(
             'wud',
             `progress ${titleId}: ${completedFiles}/${totalFiles} install file(s)`
@@ -815,7 +881,6 @@ async function convertWudGamePartition({
         outputDir,
         sizeBytes: await getImmediatePathSizeBytes(outputDir),
         files,
-        verification,
     };
 }
 
@@ -852,7 +917,8 @@ async function writePartitionContent(
             BigInt(getEncryptedContentFileSize(content)),
             signal
         ),
-        createWriteStream(targetFile)
+        createWriteStream(targetFile),
+        { signal }
     );
 }
 

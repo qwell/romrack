@@ -6,10 +6,10 @@ import { sendServerError } from '../routes.js';
 import { broadcastAppSocketEvent } from '../socket.js';
 import {
     clearTitleScanCache,
-    classifyTitleId,
     findWiiUTitleSourcePaths,
     readWiiUTitleIdentity,
 } from '../wiiu.js';
+import { classifyTitleId } from '../../shared/titles.js';
 import { getConfig } from '../../shared/config.js';
 import { type DeleteItem, type DeleteQueueItem } from '../../shared/delete.js';
 import {
@@ -26,6 +26,7 @@ import {
 import { formatLogError, formatTitleDisplay } from '../../shared/shared.js';
 import { getLibraryCacheEntry } from './library.js';
 import { hasConflictingStorageCopyPath } from './storage.js';
+import { markTitleCopiesValidating, revalidateTitleCopies } from './title.js';
 import { realpath, rm } from 'fs/promises';
 import { resolveReadablePath } from '../../shared/os.js';
 import { isSameOrNestedPath } from '../../shared/file.js';
@@ -39,6 +40,8 @@ let deleteQueue: DeleteQueueItem[] = [];
 let deletes: DeleteItem[] = [];
 let broadcastDeletesTimer: ReturnType<typeof setTimeout> | null = null;
 let activeDeleteId: string | null = null;
+let activeDeleteAbortController: AbortController | null = null;
+let activeDeleteMutationStarted = false;
 
 export function createDeleteRouter(): Router {
     const router = Router();
@@ -159,6 +162,9 @@ async function processDeleteQueue(): Promise<void> {
     }
 
     activeDeleteId = nextItem.id;
+    const abortController = new AbortController();
+    activeDeleteAbortController = abortController;
+    activeDeleteMutationStarted = false;
     nextItem.state = 'in-progress';
     nextItem.message =
         nextItem.sourcePaths.length > 0
@@ -227,6 +233,7 @@ async function processDeleteQueue(): Promise<void> {
             );
         }
 
+        activeDeleteMutationStarted = true;
         const deletedCount = await deleteLocalTitleSourcePaths(
             nextItem.sourcePaths,
             (nextDeletedCount) => {
@@ -236,7 +243,8 @@ async function processDeleteQueue(): Promise<void> {
                     deletedCount: nextItem.deletedCount,
                     message: nextItem.message,
                 });
-            }
+            },
+            abortController.signal
         );
 
         nextItem.state = 'complete';
@@ -252,6 +260,10 @@ async function processDeleteQueue(): Promise<void> {
             error: nextItem.error,
         });
     } catch (error) {
+        if (abortController.signal.aborted) {
+            return;
+        }
+
         nextItem.state = 'failed';
         nextItem.error = error instanceof Error ? error.message : String(error);
         nextItem.message = nextItem.error;
@@ -264,9 +276,30 @@ async function processDeleteQueue(): Promise<void> {
             message: nextItem.message,
             deletedCount: nextItem.deletedCount,
         });
+        if (activeDeleteMutationStarted) {
+            clearTitleScanCache();
+            revalidateTitleCopies([
+                {
+                    titleId: nextItem.titleId,
+                    sourcePaths: nextItem.sourcePaths,
+                },
+            ]);
+        }
     } finally {
+        if (abortController.signal.aborted && activeDeleteMutationStarted) {
+            clearTitleScanCache();
+            revalidateTitleCopies([
+                {
+                    titleId: nextItem.titleId,
+                    sourcePaths: nextItem.sourcePaths,
+                },
+            ]);
+        }
+
         if (activeDeleteId === nextItem.id) {
             activeDeleteId = null;
+            activeDeleteAbortController = null;
+            activeDeleteMutationStarted = false;
         }
 
         void processDeleteQueue();
@@ -342,13 +375,20 @@ function clearDelete(id: string): void {
 
 function cancelDelete(id: string): void {
     const item = deleteQueue.find((candidate) => candidate.id === id);
-    if (!item || item.state !== 'queued') {
-        logger.log('server', `delete cancel ignored: missing queued id=${id}`);
+    if (!item || (item.state !== 'queued' && item.state !== 'in-progress')) {
+        logger.log('server', `delete cancel ignored: missing active id=${id}`);
         return;
     }
 
+    const isActive = activeDeleteId === id;
     item.state = 'cancelled';
     item.message = 'Cancelled';
+    if (isActive) {
+        activeDeleteAbortController?.abort();
+        if (activeDeleteMutationStarted) {
+            markTitleCopiesValidating([item.titleId]);
+        }
+    }
     updateDelete(id, {
         state: item.state,
         message: item.message,
@@ -436,12 +476,15 @@ export async function getSafeLocalDeletePaths(
 
 export async function deleteLocalTitleSourcePaths(
     sourcePaths: string[],
-    onProgress?: (deletedCount: number) => void
+    onProgress?: (deletedCount: number) => void,
+    signal?: AbortSignal
 ): Promise<number> {
+    signal?.throwIfAborted();
     const deletePaths = await getSafeLocalDeletePaths(sourcePaths);
     let deletedCount = 0;
 
     for (const deletePath of deletePaths) {
+        signal?.throwIfAborted();
         await rm(deletePath, {
             recursive: true,
             force: true,

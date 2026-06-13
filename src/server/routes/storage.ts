@@ -8,11 +8,8 @@ import { Router, type Request } from 'express';
 import { getStringQuery, requireTitleIdQuery } from '../request.js';
 import { sendServerError } from '../routes.js';
 import { broadcastAppSocketEvent } from '../socket.js';
-import {
-    classifyTitleId,
-    findWiiUTitleSourcePaths,
-    readWiiUTitleIdentity,
-} from '../wiiu.js';
+import { findWiiUTitleSourcePaths, readWiiUTitleIdentity } from '../wiiu.js';
+import { classifyTitleId } from '../../shared/titles.js';
 import { getConfig } from '../../shared/config.js';
 import {
     getPathFileSizes,

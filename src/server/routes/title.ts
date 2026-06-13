@@ -8,7 +8,8 @@ import {
 import { sendServerError } from '../routes.js';
 import { broadcastAppSocketEvent } from '../socket.js';
 import { requireTitleIdQuery } from '../request.js';
-import { classifyTitleId, findWiiUTitleSourcePaths } from '../wiiu.js';
+import { findWiiUTitleSourcePaths } from '../wiiu.js';
+import { classifyTitleId } from '../../shared/titles.js';
 import { type TitleResponse } from '../../shared/api.js';
 import { getConfig } from '../../shared/config.js';
 import { isHttpErrorStatus } from '../../shared/download.js';
@@ -16,16 +17,16 @@ import logger from '../../shared/logger.js';
 import { resolveReadablePath } from '../../shared/os.js';
 import { formatLogError } from '../../shared/shared.js';
 import {
-    TITLE_VERIFY_SOCKET_COMMAND,
-    TITLE_VERIFY_SOCKET_EVENT,
-    TitleVerifySocketEvent,
-    type TitleVerifyCopyResult,
-    type TitleVerifySocketCommand,
+    TITLE_VALIDATE_SOCKET_COMMAND,
+    TITLE_VALIDATE_SOCKET_EVENT,
+    TitleValidationSocketEvent,
+    type TitleValidationCopyResult,
+    type TitleValidationSocketCommand,
 } from '../../shared/socket.js';
 import { validateTitleInstallFileSizes } from '../install-title.js';
 
-const activeTitleVerifications = new Set<string>();
-const titleVerificationResults = new Map<string, TitleVerifySocketEvent>();
+const activeTitleValidations = new Map<string, AbortController>();
+const titleValidationResults = new Map<string, TitleValidationSocketEvent>();
 
 export function createTitleRouter(): Router {
     const router = Router();
@@ -96,97 +97,137 @@ export function createTitleRouter(): Router {
     return router;
 }
 
-export function handleTitleVerifySocketCommand(
-    command: TitleVerifySocketCommand
+export function handleTitleValidationSocketCommand(
+    command: TitleValidationSocketCommand
 ): void {
     switch (command.type) {
-        case TITLE_VERIFY_SOCKET_COMMAND.queue:
-            void verifyTitleCopies(command.titleId);
+        case TITLE_VALIDATE_SOCKET_COMMAND.queue:
+            void validateTitleCopies(command.titleId);
             return;
     }
 }
 
-async function verifyTitleCopies(titleId: string): Promise<void> {
+async function validateTitleCopies(titleId: string): Promise<void> {
     const normalizedTitleId = titleId.toLowerCase();
-    if (activeTitleVerifications.has(normalizedTitleId)) {
+    if (activeTitleValidations.has(normalizedTitleId)) {
         return;
     }
 
-    const cached = titleVerificationResults.get(normalizedTitleId);
+    const cached = titleValidationResults.get(normalizedTitleId);
     if (cached) {
         broadcastAppSocketEvent(cached);
         return;
     }
 
-    activeTitleVerifications.add(normalizedTitleId);
+    await runTitleCopyValidation(normalizedTitleId, null);
+}
+
+async function runTitleCopyValidation(
+    normalizedTitleId: string,
+    sourcePaths: string[] | null
+): Promise<void> {
+    const abortController = new AbortController();
+    activeTitleValidations.set(normalizedTitleId, abortController);
     broadcastAppSocketEvent({
-        type: TITLE_VERIFY_SOCKET_EVENT.changed,
+        type: TITLE_VALIDATE_SOCKET_EVENT.changed,
         titleId: normalizedTitleId,
-        status: 'verifying',
+        status: 'validating',
         copies: [],
     });
 
     try {
-        const sourcePaths = await findWiiUTitleSourcePaths(
-            getConfig().wiiuRoots,
-            normalizedTitleId
-        );
-        const copies: TitleVerifyCopyResult[] = [];
+        const paths =
+            sourcePaths ??
+            (await findWiiUTitleSourcePaths(
+                getConfig().wiiuRoots,
+                normalizedTitleId
+            ));
+        abortController.signal.throwIfAborted();
+        const copies: TitleValidationCopyResult[] = [];
 
-        for (const sourcePath of sourcePaths) {
+        for (const sourcePath of paths) {
+            abortController.signal.throwIfAborted();
             const readableSourcePath = await resolveReadablePath(sourcePath);
-            const validation =
-                await validateTitleInstallFileSizes(readableSourcePath);
+            const validation = await validateTitleInstallFileSizes(
+                readableSourcePath,
+                abortController.signal
+            );
             const verifiedTitleId =
                 validation.titleId?.toLowerCase() ?? normalizedTitleId;
-            const failedCount = validation.verification.filter(
-                (result) => result.status !== 'ok'
-            ).length;
-
             copies.push({
                 sourcePath: readableSourcePath,
                 titleId: validation.titleId,
                 titleKind: classifyTitleId(verifiedTitleId).kind,
                 titleVersion: validation.titleVersion,
                 status: validation.status,
-                failedCount,
-                totalCount: validation.verification.length,
+                failedCount: validation.failedFileCount,
+                totalCount: validation.totalFileCount,
                 error: validation.error,
             });
         }
 
-        const event: TitleVerifySocketEvent = {
-            type: TITLE_VERIFY_SOCKET_EVENT.changed,
+        const event: TitleValidationSocketEvent = {
+            type: TITLE_VALIDATE_SOCKET_EVENT.changed,
             titleId: normalizedTitleId,
             status: 'complete',
             copies,
         };
 
-        titleVerificationResults.set(normalizedTitleId, event);
+        abortController.signal.throwIfAborted();
+        titleValidationResults.set(normalizedTitleId, event);
 
         broadcastAppSocketEvent(event);
     } catch (error) {
+        if (abortController.signal.aborted) {
+            return;
+        }
         const message = error instanceof Error ? error.message : String(error);
         logger.warn(
             'server',
-            `Failed to verify title ${normalizedTitleId}: ${formatLogError(error)}`
+            `Failed to validate title ${normalizedTitleId}: ${formatLogError(error)}`
         );
         broadcastAppSocketEvent({
-            type: TITLE_VERIFY_SOCKET_EVENT.changed,
+            type: TITLE_VALIDATE_SOCKET_EVENT.changed,
             titleId: normalizedTitleId,
             status: 'failed',
             copies: [],
             error: message,
         });
     } finally {
-        activeTitleVerifications.delete(normalizedTitleId);
+        if (activeTitleValidations.get(normalizedTitleId) === abortController) {
+            activeTitleValidations.delete(normalizedTitleId);
+        }
     }
 }
 
-export function clearTitleVerificationResult(titleId: string): void {
-    titleVerificationResults.delete(titleId.toLowerCase());
+export function revalidateTitleCopies(
+    titles: Array<{ titleId: string; sourcePaths: string[] }>
+): void {
+    for (const title of titles) {
+        const normalizedTitleId = title.titleId.toLowerCase();
+        activeTitleValidations.get(normalizedTitleId)?.abort();
+        titleValidationResults.delete(normalizedTitleId);
+        void runTitleCopyValidation(normalizedTitleId, [
+            ...new Set(title.sourcePaths),
+        ]);
+    }
 }
 
-export function clearAllTitleVerificationResults(): void {
-    titleVerificationResults.clear();
+export function markTitleCopiesValidating(titleIds: string[]): void {
+    for (const titleId of new Set(
+        titleIds.map((value) => value.toLowerCase())
+    )) {
+        activeTitleValidations.get(titleId)?.abort();
+        titleValidationResults.delete(titleId);
+        broadcastAppSocketEvent({
+            type: TITLE_VALIDATE_SOCKET_EVENT.changed,
+            titleId,
+            status: 'validating',
+            copies: [],
+        });
+    }
+}
+
+export function clearAllTitleValidationResults(): void {
+    titleValidationResults.clear();
 }

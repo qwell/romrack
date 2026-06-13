@@ -13,12 +13,13 @@ import { broadcastAppSocketEvent } from '../socket.js';
 import { TitleDownloadProgress } from '../title.js';
 import { generateTitleInstallFiles } from '../install-title.js';
 import { clearTitleScanCache, findFirstReadableWiiURoot } from '../wiiu.js';
-import { clearTitleVerificationResult } from './title.js';
+import { markTitleCopiesValidating, revalidateTitleCopies } from './title.js';
 
 let downloadQueue: DownloadQueueItem[] = [];
 
 let activeDownloadItemId: string | null = null;
 const activeDownloadAbortControllers = new Map<string, AbortController>();
+const activeDownloadSourcePaths = new Map<string, string>();
 
 const cancelledDownloadIds = new Set<string>();
 
@@ -105,6 +106,7 @@ async function processDownloadQueue(): Promise<void> {
         const result = await downloadTitle(
             nextItem.titleId,
             (progress) => {
+                activeDownloadSourcePaths.set(nextItem.id, progress.outputDir);
                 if (
                     cancelledDownloadIds.has(nextItem.id) ||
                     !hasDownloadQueueItem(nextItem.id) ||
@@ -160,8 +162,13 @@ async function processDownloadQueue(): Promise<void> {
             `download completed: ${nextItem.groupName} ${nextItem.label} ${nextItem.titleId}`
         );
 
-        clearTitleVerificationResult(nextItem.titleId);
         broadcastDownloadQueue();
+        revalidateTitleCopies([
+            {
+                titleId: nextItem.titleId,
+                sourcePaths: [result.outputDir],
+            },
+        ]);
     } catch (error) {
         if (
             cancelledDownloadIds.has(nextItem.id) ||
@@ -176,9 +183,16 @@ async function processDownloadQueue(): Promise<void> {
         logger.warn('server', `Download failed: ${formatLogError(error)}`);
 
         broadcastDownloadQueue();
+        clearTitleScanCache();
+        revalidateCancelledDownload(nextItem);
     } finally {
+        if (cancelledDownloadIds.has(nextItem.id)) {
+            clearTitleScanCache();
+            revalidateCancelledDownload(nextItem);
+        }
         cancelledDownloadIds.delete(nextItem.id);
         activeDownloadAbortControllers.delete(nextItem.id);
+        activeDownloadSourcePaths.delete(nextItem.id);
 
         if (activeDownloadItemId === nextItem.id) {
             activeDownloadItemId = null;
@@ -201,6 +215,10 @@ function cancelActiveDownload(item: DownloadQueueItem): void {
 
     const abortController = activeDownloadAbortControllers.get(item.id);
     abortController?.abort();
+    clearTitleScanCache();
+    if (activeDownloadSourcePaths.has(item.id)) {
+        markTitleCopiesValidating([item.titleId]);
+    }
 
     logger.log(
         'server',
@@ -208,6 +226,17 @@ function cancelActiveDownload(item: DownloadQueueItem): void {
     );
 
     broadcastDownloadQueue();
+}
+
+function revalidateCancelledDownload(item: DownloadQueueItem): void {
+    const sourcePath = activeDownloadSourcePaths.get(item.id);
+    if (!sourcePath) {
+        return;
+    }
+
+    revalidateTitleCopies([
+        { titleId: item.titleId, sourcePaths: [sourcePath] },
+    ]);
 }
 
 export function handleDownloadSocketCommand(

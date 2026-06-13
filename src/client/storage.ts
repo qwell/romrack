@@ -58,7 +58,7 @@ export function formatStorageCopyFileCount(item: StorageCopyItem): string {
             item.currentFileName && item.state === 'in-progress'
                 ? Math.min(item.completedFiles + 1, item.totalFiles)
                 : item.completedFiles;
-        return `${current}/${item.totalFiles} files`;
+        return `${current} / ${item.totalFiles} files`;
     }
 
     return item.state === 'in-progress' ? '-' : '';

@@ -9,7 +9,7 @@ import {
     LIBRARY_VALIDATE_SOCKET_COMMAND,
     STORAGE_COPY_SOCKET_COMMAND,
     DELETE_SOCKET_COMMAND,
-    TITLE_VERIFY_SOCKET_COMMAND,
+    TITLE_VALIDATE_SOCKET_COMMAND,
 } from '../shared/socket.js';
 import { type DownloadQueueItem } from '../shared/download.js';
 import logger from '../shared/logger.js';
@@ -19,7 +19,7 @@ import {
     handleDownloadSocketCommand,
     handleLibraryConvertSocketCommand,
     handleLibraryValidateSocketCommand,
-    handleTitleVerifySocketCommand,
+    handleTitleValidationSocketCommand,
 } from './routes.js';
 
 type AppSocketOptions = {
@@ -137,8 +137,8 @@ export function handleAppSocketCommand(command: SocketCommand): void {
     } else if (isSocketCommand(command, LIBRARY_CONVERT_SOCKET_COMMAND)) {
         handleLibraryConvertSocketCommand(command);
         return;
-    } else if (isSocketCommand(command, TITLE_VERIFY_SOCKET_COMMAND)) {
-        handleTitleVerifySocketCommand(command);
+    } else if (isSocketCommand(command, TITLE_VALIDATE_SOCKET_COMMAND)) {
+        handleTitleValidationSocketCommand(command);
         return;
     }
 
@@ -192,7 +192,7 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
         return command;
     } else if (isSocketCommand(command, LIBRARY_CONVERT_SOCKET_COMMAND)) {
         return hasId() ? command : null;
-    } else if (isSocketCommand(command, TITLE_VERIFY_SOCKET_COMMAND.queue)) {
+    } else if (isSocketCommand(command, TITLE_VALIDATE_SOCKET_COMMAND.queue)) {
         const titleId = (command as { titleId?: unknown }).titleId;
 
         if (typeof titleId !== 'string' || !/^[0-9a-f]{16}$/i.test(titleId)) {

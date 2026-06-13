@@ -22,7 +22,7 @@ export const SOCKET_COMMAND = {
     libraryConvertCancel: 'library.convert.cancel',
     libraryConvertClear: 'library.convert.clear',
     libraryConvertRetry: 'library.convert.retry',
-    titleVerifyQueue: 'title.verify.queue',
+    titleValidateQueue: 'title.validate.queue',
 } as const;
 
 export const SOCKET_EVENT = {
@@ -32,7 +32,7 @@ export const SOCKET_EVENT = {
     deleteChanged: 'delete.changed',
     libraryValidateStatus: 'library.validateStatus',
     libraryConvertChanged: 'library.convertChanged',
-    titleVerifyChanged: 'title.verify.changed',
+    titleValidateChanged: 'title.validate.changed',
 } as const;
 
 export const DOWNLOAD_SOCKET_COMMAND = {
@@ -60,8 +60,8 @@ export const LIBRARY_VALIDATE_SOCKET_COMMAND = {
     download: SOCKET_COMMAND.libraryValidateDownload,
 } as const;
 
-export const TITLE_VERIFY_SOCKET_COMMAND = {
-    queue: SOCKET_COMMAND.titleVerifyQueue,
+export const TITLE_VALIDATE_SOCKET_COMMAND = {
+    queue: SOCKET_COMMAND.titleValidateQueue,
 } as const;
 
 export const APP_SOCKET_EVENT = {
@@ -94,8 +94,8 @@ export const LIBRARY_CONVERT_SOCKET_COMMAND = {
     retry: SOCKET_COMMAND.libraryConvertRetry,
 } as const;
 
-export const TITLE_VERIFY_SOCKET_EVENT = {
-    changed: SOCKET_EVENT.titleVerifyChanged,
+export const TITLE_VALIDATE_SOCKET_EVENT = {
+    changed: SOCKET_EVENT.titleValidateChanged,
 } as const;
 
 export type DownloadSocketCommand =
@@ -169,8 +169,8 @@ export type LibraryConvertSocketCommand =
           id: string;
       };
 
-export type TitleVerifySocketCommand = {
-    type: typeof TITLE_VERIFY_SOCKET_COMMAND.queue;
+export type TitleValidationSocketCommand = {
+    type: typeof TITLE_VALIDATE_SOCKET_COMMAND.queue;
     titleId: string;
     name: string;
 };
@@ -181,7 +181,7 @@ export type SocketCommand =
     | DeleteSocketCommand
     | LibraryValidateSocketCommand
     | LibraryConvertSocketCommand
-    | TitleVerifySocketCommand;
+    | TitleValidationSocketCommand;
 
 export type AppConnectedEvent = {
     type: typeof APP_SOCKET_EVENT.connected;
@@ -244,6 +244,13 @@ export type LibraryConvertItem = {
     total: number | null;
     currentFileSizeBytes: number | null;
     converted: number | null;
+    convertedTitles: Array<{
+        titleId: string;
+        name: string;
+        kind: TitleKinds;
+        version: number;
+        sizeBytes: number;
+    }> | null;
     error: string | null;
 };
 
@@ -252,7 +259,7 @@ export type LibraryConvertSocketEvent = {
     items: LibraryConvertItem[];
 };
 
-export type TitleVerifyCopyResult = {
+export type TitleValidationCopyResult = {
     sourcePath: string;
     titleId: string | null;
     titleKind: string | null;
@@ -263,11 +270,11 @@ export type TitleVerifyCopyResult = {
     error: string | null;
 };
 
-export type TitleVerifySocketEvent = {
-    type: typeof SOCKET_EVENT.titleVerifyChanged;
+export type TitleValidationSocketEvent = {
+    type: typeof SOCKET_EVENT.titleValidateChanged;
     titleId: string;
-    status: 'verifying' | 'complete' | 'failed';
-    copies: TitleVerifyCopyResult[];
+    status: 'validating' | 'complete' | 'failed';
+    copies: TitleValidationCopyResult[];
     error?: string | null;
 };
 
@@ -278,7 +285,7 @@ export type SocketEvent =
     | DeleteSocketEvent
     | LibraryValidateStatusEvent
     | LibraryConvertSocketEvent
-    | TitleVerifySocketEvent;
+    | TitleValidationSocketEvent;
 
 export function isSocketCommand<T extends SocketCommand['type']>(
     command: SocketCommand,

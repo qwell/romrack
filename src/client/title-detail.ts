@@ -3,10 +3,13 @@ import {
     type StorageFat32ListResponse,
 } from '../shared/api.js';
 import { type DownloadQueueItem } from '../shared/download.js';
+import { type DeleteItem } from '../shared/delete.js';
 import { type Fat32Volume } from '../shared/os.js';
+import { type StorageCopyItem } from '../shared/storage.js';
 import {
-    TITLE_VERIFY_SOCKET_COMMAND,
-    type TitleVerifySocketEvent,
+    TITLE_VALIDATE_SOCKET_COMMAND,
+    type LibraryConvertItem,
+    type TitleValidationSocketEvent,
 } from '../shared/socket.js';
 import { formatSize, formatTitleDisplay } from '../shared/shared.js';
 import { formatActionStateIcon } from '../shared/action.js';
@@ -17,10 +20,12 @@ import {
     type TitleEntry,
     type TitleGroup,
     type TitleInputControl,
+    type WudTitleEntry,
     TitleKinds,
+    classifyTitleId,
     getVirtualConsolePlatform,
 } from '../shared/titles.js';
-import { queueStorageCopy } from './api.js';
+import { queueLibraryConvert, queueStorageCopy } from './api.js';
 import { queueDelete } from './delete.js';
 import {
     collectSelectedDownloads,
@@ -43,7 +48,10 @@ import { getAvailableSizeBytes, getAvailableSizeText } from './main.js';
 
 type TitleDetailOptions = {
     downloads: DownloadQueueItem[];
-    titleVerifications: Map<string, TitleVerifySocketEvent>;
+    deletes: DeleteItem[];
+    storageCopies: StorageCopyItem[];
+    libraryConversions: LibraryConvertItem[];
+    titleValidations: Map<string, TitleValidationSocketEvent>;
     observeIcon: (image: HTMLImageElement, src: string) => void;
     populateFat32DeviceSelect: (
         select: HTMLSelectElement,
@@ -121,23 +129,27 @@ function formatInput(details: TitleDetails): string {
     return parts.join('; ') || '-';
 }
 
-function isLocalEntryVerificationFailed(
+function isLocalEntryValidationFailed(
     entry: TitleEntry,
-    titleVerifications: Map<string, TitleVerifySocketEvent> | null
+    titleValidations: Map<string, TitleValidationSocketEvent> | null
 ): boolean {
-    const verification = titleVerifications?.get(entry.titleId) ?? null;
+    const validation = titleValidations?.get(entry.titleId) ?? null;
 
-    return isVerificationFailed(verification);
+    return isValidationFailed(validation);
 }
 
-export function isVerificationFailed(
-    event: TitleVerifySocketEvent | null
+export function isValidationFailed(
+    event: TitleValidationSocketEvent | null
 ): boolean {
     if (!event) {
         return false;
     }
 
     if (event.status === 'failed') {
+        return true;
+    }
+
+    if (event.status === 'validating') {
         return true;
     }
 
@@ -151,7 +163,7 @@ export function isVerificationFailed(
 function hasUsableLocalEntry(
     group: TitleGroup,
     kind: TitleKinds,
-    titleVerifications: Map<string, TitleVerifySocketEvent> | null
+    titleValidations: Map<string, TitleValidationSocketEvent> | null
 ): boolean {
     const localEntries = group.entries.filter((entry) => entry.kind === kind);
 
@@ -160,14 +172,83 @@ function hasUsableLocalEntry(
     }
 
     return localEntries.some((entry) => {
-        const verification = titleVerifications?.get(entry.titleId) ?? null;
+        const validation = titleValidations?.get(entry.titleId) ?? null;
 
-        if (verification === null) {
+        if (validation === null) {
             return false;
         }
 
-        return !isVerificationFailed(verification);
+        return !isValidationFailed(validation);
     });
+}
+
+function isRunningActionState(state: string): boolean {
+    return state === 'queued' || state === 'in-progress';
+}
+
+function getActionItemKind(
+    group: TitleGroup,
+    titleId: string | null,
+    kind: TitleKinds | null
+): TitleKinds | null {
+    if (kind) {
+        return kind;
+    }
+
+    return (
+        group.entries.find(
+            (entry) => entry.titleId.toLowerCase() === titleId?.toLowerCase()
+        )?.kind ?? null
+    );
+}
+
+function getBusyKinds(group: TitleGroup): Set<TitleKinds> {
+    const busyKinds = new Set<TitleKinds>();
+    const detailOptions = options;
+    if (!detailOptions) {
+        return busyKinds;
+    }
+
+    for (const item of detailOptions.downloads) {
+        if (item.family === group.family && isRunningActionState(item.state)) {
+            busyKinds.add(item.kind);
+        }
+    }
+
+    for (const item of detailOptions.libraryConversions) {
+        if (
+            item.titleId.slice(8) === group.family &&
+            isRunningActionState(item.state)
+        ) {
+            busyKinds.add(item.kind);
+        }
+    }
+
+    for (const item of [
+        ...detailOptions.deletes,
+        ...detailOptions.storageCopies,
+    ]) {
+        if (
+            item.titleId?.slice(8) !== group.family ||
+            !isRunningActionState(item.state)
+        ) {
+            continue;
+        }
+
+        const kind = getActionItemKind(group, item.titleId, item.titleKind);
+        if (kind) {
+            busyKinds.add(kind);
+        }
+    }
+
+    return busyKinds;
+}
+
+function hasBusyEntryKind(
+    busyKinds: Set<TitleKinds>,
+    entries: Array<{ kind: TitleKinds }>
+): boolean {
+    return entries.some((entry) => busyKinds.has(entry.kind));
 }
 
 export function renderDownloadAvailabilityRow(
@@ -204,7 +285,7 @@ export function renderDownloadAvailabilityRow(
 
         const progress = document.createElement('span');
         progress.className =
-            'title-storage-verification-state title-download-progress';
+            'title-storage-validation-state title-download-progress';
         progress.textContent = formatDownloadProgress(existingQueueItem);
 
         row.append(checkbox, slot, titleId, progress);
@@ -230,7 +311,8 @@ export function renderDownloadAvailabilityRow(
         checkbox.dataset.totalBytes = String(sizeBytes);
     }
 
-    checkbox.disabled = !entry.availableOnCdn;
+    checkbox.disabled =
+        !entry.availableOnCdn || getBusyKinds(group).has(entry.kind);
     if (!entry.availableOnCdn) {
         row.classList.add('title-download-row-unavailable');
     }
@@ -265,15 +347,15 @@ function renderDetailRow(label: string, value: string | null): HTMLElement {
     return row;
 }
 
-function formatTitleVerificationStatus(
-    event: TitleVerifySocketEvent | null
+function formatTitleValidationStatus(
+    event: TitleValidationSocketEvent | null
 ): string {
     if (!event) {
         return '';
     }
 
     switch (event.status) {
-        case 'verifying':
+        case 'validating':
             return 'Checking';
         case 'failed':
             return 'Check failed';
@@ -288,50 +370,47 @@ function formatTitleVerificationStatus(
             );
 
             return failedFiles > 0
-                ? `${failedFiles}/${totalFiles} failed`
-                : `${totalFiles}/${totalFiles} verified`;
+                ? `${failedFiles} / ${totalFiles} failed`
+                : `${totalFiles} / ${totalFiles} validated`;
         }
     }
 }
 
-function getTitleVerificationFailedCount(
-    verification: TitleVerifySocketEvent | null
+function getTitleValidationFailedCount(
+    validation: TitleValidationSocketEvent | null
 ): number {
     return (
-        verification?.copies.reduce((sum, copy) => sum + copy.failedCount, 0) ??
-        0
+        validation?.copies.reduce((sum, copy) => sum + copy.failedCount, 0) ?? 0
     );
 }
 
-function renderTitleVerificationStatus(
-    verification: TitleVerifySocketEvent | null
+function renderTitleValidationStatus(
+    validation: TitleValidationSocketEvent | null
 ): HTMLElement {
-    const verificationStatus = document.createElement('span');
-    verificationStatus.className = 'title-storage-verification-state';
-    verificationStatus.textContent =
-        formatTitleVerificationStatus(verification);
+    const validationStatus = document.createElement('span');
+    validationStatus.className = 'title-storage-validation-state';
+    validationStatus.textContent = formatTitleValidationStatus(validation);
 
-    if (verification?.status === 'complete') {
-        const failedCount = getTitleVerificationFailedCount(verification);
+    if (validation?.status === 'complete') {
+        const failedCount = getTitleValidationFailedCount(validation);
 
-        verificationStatus.classList.toggle(
-            'title-storage-verification-state-failed',
+        validationStatus.classList.toggle(
+            'title-storage-validation-state-failed',
             failedCount > 0
         );
-        verificationStatus.classList.toggle(
-            'title-storage-verification-state-ok',
+        validationStatus.classList.toggle(
+            'title-storage-validation-state-ok',
             failedCount === 0
         );
-    } else if (verification?.status === 'failed') {
-        verificationStatus.classList.add(
-            'title-storage-verification-state-failed'
-        );
+    } else if (validation?.status === 'failed') {
+        validationStatus.classList.add('title-storage-validation-state-failed');
     }
 
-    return verificationStatus;
+    return validationStatus;
 }
 
 function renderLocalCopyRow(
+    group: TitleGroup,
     entry: TitleEntry,
     downloadData?: {
         group: TitleGroup;
@@ -349,6 +428,7 @@ function renderLocalCopyRow(
     checkbox.value = entry.titleId;
     checkbox.dataset.titleId = entry.titleId;
     checkbox.dataset.copySizeBytes = String(entry.sizeBytes);
+    checkbox.disabled = getBusyKinds(group).has(entry.kind);
     if (downloadData) {
         checkbox.dataset.family = downloadData.group.family;
         checkbox.dataset.groupName = downloadData.group.name;
@@ -377,31 +457,29 @@ function renderLocalCopyRow(
     titleId.className = 'title-download-id';
     titleId.textContent = entry.titleId;
 
-    const copyCount = document.createElement('span');
-    copyCount.className = 'title-download-copy-count';
-    copyCount.textContent =
-        entry.copyCount > 1 ? `(${entry.copyCount} copies)` : '';
-
-    const verification = options?.titleVerifications.get(entry.titleId) ?? null;
-    const verificationStatus = renderTitleVerificationStatus(verification);
+    const validation = options?.titleValidations.get(entry.titleId) ?? null;
+    const validationStatus = renderTitleValidationStatus(validation);
 
     const size = document.createElement('span');
     size.className = 'title-download-size';
     size.textContent = formatSize(entry.sizeBytes);
 
-    row.append(checkbox, slot, titleId, copyCount, verificationStatus, size);
+    row.append(checkbox, slot, titleId, validationStatus, size);
     return row;
 }
 
-function renderDownloadedCopyRow(entry: TitleEntry): HTMLElement {
-    return renderLocalCopyRow(entry);
+function renderDownloadedCopyRow(
+    group: TitleGroup,
+    entry: TitleEntry
+): HTMLElement {
+    return renderLocalCopyRow(group, entry);
 }
 
 function renderInvalidCopyRow(
     group: TitleGroup,
     entry: TitleEntry
 ): HTMLElement {
-    return renderLocalCopyRow(entry, {
+    return renderLocalCopyRow(group, entry, {
         group,
         label: `${entry.kind} v${entry.version}`,
     });
@@ -489,13 +567,12 @@ function updateStorageCopyAvailability(
 }
 
 function formatDeleteConfirmationEntry(entry: TitleEntry): string {
-    const copyText = entry.copyCount > 1 ? ` (${entry.copyCount} copies)` : '';
-    return `${formatTitleDisplay(
+    return formatTitleDisplay(
         entry.name,
         entry.titleId,
         entry.kind,
         entry.version
-    )}${copyText}`;
+    );
 }
 
 async function confirmAndQueueDeletes(
@@ -545,10 +622,15 @@ function getKindSortValue(kind: TitleKinds): number {
     }
 }
 
-function renderDetailSection(title: string): HTMLElement {
+function renderDetailSection(title: string, action?: HTMLElement): HTMLElement {
     const heading = document.createElement('div');
     heading.className = 'title-detail-section';
-    heading.textContent = title;
+    const label = document.createElement('span');
+    label.textContent = title;
+    heading.append(label);
+    if (action) {
+        heading.append(action);
+    }
     return heading;
 }
 
@@ -587,6 +669,7 @@ function getActiveDownloadCheckboxes(
 function renderAvailableActions(
     group: TitleGroup,
     list: HTMLElement,
+    entries: TitleGroup['availableEntries'],
     downloads: DownloadQueueItem[]
 ): HTMLElement {
     const actions = document.createElement('div');
@@ -594,6 +677,8 @@ function renderAvailableActions(
 
     const spacer = document.createElement('div');
     const downloadButton = document.createElement('button');
+    downloadButton.className = 'sidebar-button';
+    const busyKinds = getBusyKinds(group);
     downloadButton.type = 'button';
     const updateDownloadButton = (): void => {
         const checkedCount = list.querySelectorAll(
@@ -606,7 +691,9 @@ function renderAvailableActions(
 
         downloadButton.textContent =
             checkedCount === 0 ? 'Download all' : 'Download selected';
-        downloadButton.disabled = targetCount === 0;
+        downloadButton.disabled =
+            targetCount === 0 ||
+            (checkedCount === 0 && hasBusyEntryKind(busyKinds, entries));
     };
 
     updateDownloadButton();
@@ -631,9 +718,12 @@ function renderInvalidActions(
     actions.className = 'title-download-actions title-invalid-actions';
 
     const downloadButton = document.createElement('button');
+    downloadButton.className = 'sidebar-button';
     downloadButton.type = 'button';
 
     const deleteButton = document.createElement('button');
+    deleteButton.className = 'sidebar-button';
+    const busyKinds = getBusyKinds(group);
     deleteButton.type = 'button';
 
     const updateButtons = (): void => {
@@ -646,8 +736,12 @@ function renderInvalidActions(
         deleteButton.textContent =
             checkedCount === 0 ? 'Delete all' : 'Delete selected';
         downloadButton.disabled =
-            entries.length === 0 || !hasDownloadableCheckboxes(list);
-        deleteButton.disabled = entries.length === 0;
+            entries.length === 0 ||
+            !hasDownloadableCheckboxes(list) ||
+            (checkedCount === 0 && hasBusyEntryKind(busyKinds, entries));
+        deleteButton.disabled =
+            entries.length === 0 ||
+            (checkedCount === 0 && hasBusyEntryKind(busyKinds, entries));
     };
 
     updateButtons();
@@ -740,6 +834,100 @@ function renderVirtualConsoleBadge(group: TitleGroup): HTMLElement | null {
     return badge;
 }
 
+function renderWudBadge(group: TitleGroup): HTMLElement | null {
+    if (group.wudEntries.length === 0) {
+        return null;
+    }
+
+    const badge = document.createElement('div');
+    badge.className = 'title-slot-badge title-slot-badge-wud';
+    badge.textContent = 'WUD';
+    const sourceCount = group.wudEntries.reduce(
+        (total, entry) => total + entry.copyCount,
+        0
+    );
+    badge.title = `${sourceCount} disc image source(s)`;
+    return badge;
+}
+
+function renderWudContent(group: TitleGroup): {
+    content: HTMLElement;
+    convertButton: HTMLButtonElement;
+} {
+    const content = document.createElement('div');
+    content.className = 'title-download-content title-wud-content';
+    const titles = group.wudEntries.flatMap((entry) => entry.titles);
+    const baseTitle = titles.find(
+        (title) => classifyTitleId(title.titleId).kind === TitleKinds.Base
+    );
+    const conversionTitle = baseTitle ?? titles[0];
+
+    const convertButton = document.createElement('button');
+    convertButton.className = 'sidebar-button';
+    convertButton.type = 'button';
+    convertButton.textContent = 'Convert';
+    convertButton.disabled = getBusyKinds(group).has(TitleKinds.Base);
+    convertButton.title = 'Convert the disc image to installable title content';
+    convertButton.addEventListener('click', () => {
+        if (!conversionTitle || convertButton.disabled) {
+            return;
+        }
+
+        convertButton.disabled = true;
+        void queueLibraryConvert(conversionTitle.titleId).catch((error) => {
+            console.error(error);
+            convertButton.disabled = false;
+        });
+    });
+
+    const list = document.createElement('div');
+    list.className = 'title-download-list';
+    const renderWudRow = (
+        label: string,
+        title: WudTitleEntry['titles'][number] | undefined
+    ): HTMLElement => {
+        const row = document.createElement('div');
+        row.className = 'title-download-row title-wud-row';
+        row.classList.add('title-wud-row-muted');
+
+        const checkboxSpace = document.createElement('span');
+        checkboxSpace.className = 'title-wud-checkbox-space';
+
+        const slot = document.createElement('span');
+        slot.className = 'title-download-slot';
+        slot.textContent = title ? `${label} v${title.version}` : label;
+
+        const id = document.createElement('span');
+        id.className = 'title-download-id';
+        id.textContent = title?.titleId ?? '-';
+        id.title = title?.titleId ?? '';
+
+        row.append(checkboxSpace, slot, id);
+        return row;
+    };
+
+    const updateTitle = titles.find(
+        (title) => classifyTitleId(title.titleId).kind === TitleKinds.Update
+    );
+    const dlcTitle = titles.find(
+        (title) => classifyTitleId(title.titleId).kind === TitleKinds.DLC
+    );
+
+    const rows = [
+        ['Base', baseTitle],
+        ['Update', updateTitle],
+        ['DLC', dlcTitle],
+    ] as const;
+    for (const [label, title] of rows) {
+        if (title) {
+            list.append(renderWudRow(label, title));
+        }
+    }
+
+    content.append(list);
+    return { content, convertButton };
+}
+
 export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
     const detailOptions = options;
     const fragment = document.createDocumentFragment();
@@ -774,33 +962,41 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
 
     const localEntries = group.entries
         .filter((entry) => {
-            const verification =
-                detailOptions?.titleVerifications?.get(entry.titleId) ?? null;
-            return !isVerificationFailed(verification);
+            const validation =
+                detailOptions?.titleValidations?.get(entry.titleId) ?? null;
+            return !isValidationFailed(validation);
         })
         .sort((a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind));
     const invalidEntries = group.entries
         .filter((entry) => {
-            const verification =
-                detailOptions?.titleVerifications?.get(entry.titleId) ?? null;
-            return isVerificationFailed(verification);
+            const validation =
+                detailOptions?.titleValidations?.get(entry.titleId) ?? null;
+            return isValidationFailed(validation);
         })
         .sort((a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind));
 
     const actionableLocalEntries = localEntries.filter(
         (entry) =>
-            !isLocalEntryVerificationFailed(
+            !isLocalEntryValidationFailed(
                 entry,
-                detailOptions?.titleVerifications ?? null
+                detailOptions?.titleValidations ?? null
             )
     );
+
+    if (group.wudEntries.length > 0) {
+        const wud = renderWudContent(group);
+        availability.append(
+            renderDetailSection('WUD', wud.convertButton),
+            wud.content
+        );
+    }
 
     if (localEntries.length > 0) {
         const localList = document.createElement('div');
         localList.className = 'title-download-list';
 
         for (const entry of localEntries) {
-            localList.append(renderDownloadedCopyRow(entry));
+            localList.append(renderDownloadedCopyRow(group, entry));
         }
 
         const actions = document.createElement('div');
@@ -814,11 +1010,14 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
         destinationSelect.append(loadingOption);
 
         const copyButton = document.createElement('button');
+        copyButton.className = 'sidebar-button';
         copyButton.type = 'button';
         copyButton.disabled = true;
 
         const deleteButton = document.createElement('button');
+        deleteButton.className = 'sidebar-button';
         deleteButton.type = 'button';
+        const busyKinds = getBusyKinds(group);
 
         let fat32Response: StorageFat32ListResponse | null = null;
 
@@ -858,8 +1057,13 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
             copyButton.disabled =
                 actionableLocalEntries.length === 0 ||
                 !hasCopyDestination ||
-                !hasEnoughFreeSpace;
-            deleteButton.disabled = actionableLocalEntries.length === 0;
+                !hasEnoughFreeSpace ||
+                (checkedCount === 0 &&
+                    hasBusyEntryKind(busyKinds, actionableLocalEntries));
+            deleteButton.disabled =
+                actionableLocalEntries.length === 0 ||
+                (checkedCount === 0 &&
+                    hasBusyEntryKind(busyKinds, actionableLocalEntries));
             copyButton.title =
                 hasCopyDestination && !hasEnoughFreeSpace && selectedVolume
                     ? `Not enough free space: ${formatSize(selectedSizeBytes)} selected, ${formatSize(freeBytes ?? null)} available`
@@ -980,7 +1184,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
             const usable = hasUsableLocalEntry(
                 group,
                 entry.kind,
-                detailOptions?.titleVerifications ?? null
+                detailOptions?.titleValidations ?? null
             );
 
             return !usable;
@@ -1009,6 +1213,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
             renderAvailableActions(
                 group,
                 availableList,
+                availableEntries,
                 detailOptions?.downloads ?? []
             )
         );
@@ -1022,17 +1227,17 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
     return fragment;
 }
 
-export function requestTitleVerification(titleId: string, name: string): void {
+export function requestTitleValidation(titleId: string, name: string): void {
     sendAppSocketCommand({
-        type: TITLE_VERIFY_SOCKET_COMMAND.queue,
+        type: TITLE_VALIDATE_SOCKET_COMMAND.queue,
         titleId,
         name,
     });
 }
 
-export function requestTitleVerifications(group: TitleGroup): void {
+export function requestTitleValidations(group: TitleGroup): void {
     for (const entry of group.entries) {
-        requestTitleVerification(entry.titleId, entry.name);
+        requestTitleValidation(entry.titleId, entry.name);
     }
 }
 
@@ -1171,6 +1376,10 @@ export function renderGroup(
     const virtualConsoleBadge = renderVirtualConsoleBadge(group);
     if (virtualConsoleBadge) {
         badgeList.append(virtualConsoleBadge);
+    }
+    const wudBadge = renderWudBadge(group);
+    if (wudBadge) {
+        badgeList.append(wudBadge);
     }
     badgeList.append(
         renderSlotBadge(group, TitleKinds.Base, getBaseBadgeState(group)),

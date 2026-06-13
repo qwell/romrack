@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { type Dirent } from 'node:fs';
 import path from 'node:path';
 import { normalizeRegion } from '../shared/regions.js';
-import { validateTitleInstallFiles } from './install-title.js';
+import { verifyTitleInstallFiles } from './install-title.js';
 
 import {
     type AvailableTitleEntry,
@@ -13,8 +13,11 @@ import {
     type TitleInputControl,
     type ChildKind,
     type ParentKind,
+    type WudTitleEntry,
     PARENT_KINDS,
     CHILD_KINDS,
+    classifyTitleId,
+    replaceTitleKind,
     normalizeTitleName,
     TitleKinds,
     TitleDatabaseEntry,
@@ -34,6 +37,7 @@ import { ansi } from '../shared/ansi.js';
 import { LibraryValidateTitle } from '../shared/api.js';
 import { resolveReadablePath } from '../shared/os.js';
 import { TMD_TITLE_FILE } from './nus/tmd.js';
+import { scanWudTitleEntries } from './wud.js';
 
 type GameTdbLocale = {
     '@lang'?: string;
@@ -70,19 +74,6 @@ type GameTdbFile = {
 type LocalTitleEntry = Omit<TitleEntry, 'copyCount'> & {
     family: string;
     sourcePath: string;
-};
-
-const TITLE_KIND_BY_PREFIX: Record<string, TitleKinds> = {
-    '00000007': TitleKinds.vWii,
-    '00050000': TitleKinds.Base,
-    '00050002': TitleKinds.Demo,
-    '0005000b': TitleKinds.FCT,
-    '0005000c': TitleKinds.DLC,
-    '0005000d': TitleKinds.Unknown,
-    '0005000e': TitleKinds.Update,
-    '00050010': TitleKinds.SystemApp,
-    '0005001b': TitleKinds.SystemData,
-    '00050030': TitleKinds.SystemApplet,
 };
 
 const LIBRARY_SCAN_CONCURRENCY = 8;
@@ -125,22 +116,6 @@ function getTitleName(dirname: string, databaseName: string | null): string {
     }
 
     return 'Unknown';
-}
-
-export function classifyTitleId(titleId: string): {
-    family: string;
-    kind: TitleKinds;
-} {
-    const normalized = titleId?.toLowerCase() ?? '';
-
-    if (normalized.length !== 16) {
-        return { family: normalized, kind: TitleKinds.Unknown };
-    }
-
-    const prefix = normalized.slice(0, 8);
-    const family = normalized.slice(8);
-
-    return { family, kind: TITLE_KIND_BY_PREFIX[prefix] ?? TitleKinds.Unknown };
 }
 
 export async function readWiiUTitleIdentity(
@@ -234,17 +209,6 @@ function getGameTdbDetails(
 
 function latestVersion(versions: number[]): number[] {
     return versions.length === 0 ? [] : [versions[versions.length - 1]];
-}
-
-function replaceTitleKind(titleId: string, kind: TitleKinds): string {
-    switch (kind) {
-        case TitleKinds.Update:
-            return `0005000e${titleId.slice(8)}`;
-        case TitleKinds.DLC:
-            return `0005000c${titleId.slice(8)}`;
-        default:
-            return titleId;
-    }
 }
 
 function updateEntryWithNewerVersion(
@@ -518,6 +482,7 @@ function createEmptyGroup(family: string): TitleGroup {
         iconUrl: null,
         details: null,
         availableEntries: [],
+        wudEntries: [],
         titleInDatabase: false,
         expectedChildren: [],
         status: 'unknown',
@@ -650,6 +615,7 @@ function mergeTitleGroups(groups: TitleGroup[]): TitleGroup[] {
             merged.set(group.family, {
                 ...group,
                 availableEntries: [...group.availableEntries],
+                wudEntries: [...group.wudEntries],
                 expectedChildren: [...group.expectedChildren],
                 entries: [...group.entries],
             });
@@ -667,6 +633,10 @@ function mergeTitleGroups(groups: TitleGroup[]): TitleGroup[] {
                 sizeBytes: entry.sizeBytes,
                 copyCount: 1,
             });
+        }
+
+        for (const entry of group.wudEntries) {
+            mergeWudTitleEntry(existing.wudEntries, entry);
         }
 
         if (existing.status === 'missing' && group.status !== 'missing') {
@@ -688,6 +658,35 @@ function mergeTitleGroups(groups: TitleGroup[]): TitleGroup[] {
     return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function mergeWudTitleEntry(
+    entries: WudTitleEntry[],
+    entry: WudTitleEntry
+): void {
+    const existing = entries.find(
+        (candidate) => candidate.imageName === entry.imageName
+    );
+
+    if (existing) {
+        for (const title of entry.titles) {
+            const existingTitle = existing.titles.find(
+                (candidate) => candidate.titleId === title.titleId
+            );
+            if (!existingTitle) {
+                existing.titles.push({ ...title });
+            } else if (title.version > existingTitle.version) {
+                existingTitle.version = title.version;
+            }
+        }
+        existing.copyCount += entry.copyCount;
+        return;
+    }
+
+    entries.push({
+        ...entry,
+        titles: entry.titles.map((title) => ({ ...title })),
+    });
+}
+
 export async function scanWiiUTitleRoots(
     roots: string[]
 ): Promise<TitleGroup[]> {
@@ -704,7 +703,28 @@ export async function scanWiiUTitleRoots(
         }
     }
 
-    return mergeTitleGroups(scannedGroups);
+    const groups = mergeTitleGroups(scannedGroups);
+
+    try {
+        for (const entry of await scanWudTitleEntries(roots)) {
+            const family = classifyTitleId(
+                entry.titles[0]?.titleId ?? ''
+            ).family;
+            let group = groups.find((candidate) => candidate.family === family);
+            if (!group) {
+                group = createEmptyGroup(family);
+                groups.push(group);
+            }
+            mergeWudTitleEntry(group.wudEntries, entry);
+        }
+    } catch (error) {
+        logger.warn(
+            'wud',
+            `failed to scan WUD/WUX library entries: ${String(error)}`
+        );
+    }
+
+    return groups.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function findWiiUTitleSourcePaths(
@@ -843,7 +863,7 @@ export async function validateWiiUTitles(
                 titleVersion
             )} (${sizeText})`
         );
-        const validation = await validateTitleInstallFiles(
+        const verification = await verifyTitleInstallFiles(
             dirPath,
             (progress) => {
                 onProgress?.({
@@ -860,11 +880,11 @@ export async function validateWiiUTitles(
             }
         );
         throwIfLibraryValidateCancelled(options.signal);
-        const result = validation.status === 'ok' ? 'ok' : 'failed';
+        const result = verification.status === 'ok' ? 'ok' : 'failed';
         const status =
-            validation.status === 'failed'
+            verification.status === 'failed'
                 ? `${ansi.red}failed${ansi.reset}`
-                : `${ansi.green}${validation.status}${ansi.reset}`;
+                : `${ansi.green}${verification.status}${ansi.reset}`;
 
         // Keep the extra space, for alignment purposes
         logger.log(
@@ -873,7 +893,7 @@ export async function validateWiiUTitles(
                 titleName,
                 titleId,
                 titleKind,
-                validation.titleVersion
+                verification.titleVersion
             )} (${status})`
         );
 
@@ -882,9 +902,9 @@ export async function validateWiiUTitles(
             titleId,
             name: titleName,
             kind: titleKind,
-            version: validation.titleVersion,
+            version: verification.titleVersion,
             result,
-            error: validation.error,
+            error: verification.error,
             current: offset + index + 1,
             total,
         });
@@ -893,20 +913,20 @@ export async function validateWiiUTitles(
             root,
             directory,
             name: titleName,
-            titleId: validation.titleId,
-            version: validation.titleVersion,
+            titleId: verification.titleId,
+            version: verification.titleVersion,
             kind: titleKind,
             sizeText,
-            status: validation.status,
-            error: validation.error,
-            verification: validation.verification,
+            status: verification.status,
+            error: verification.error,
+            verification: verification.verification,
         });
     }
 
     return validations;
 }
 
-export async function validateWiiUTitleRoots(
+export async function verifyWiiUTitleRoots(
     roots: string[],
     onProgress?: (progress: LibraryValidateProgress) => void,
     signal?: AbortSignal

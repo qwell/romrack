@@ -14,6 +14,7 @@ import {
 } from './download-title.js';
 import {
     assertExistingContentFileSize,
+    getContentH3FileSize,
     getEncryptedContentFileSize,
     isHashedContent,
     verifyContentInstallFiles,
@@ -30,7 +31,8 @@ import {
     GeneratedTitleInstallFiles,
     getContentInstallFiles,
     InstalledTitleValidation,
-    InstalledTitleValidationProgress,
+    InstalledTitleVerification,
+    InstalledTitleVerificationProgress,
     normalizeDownloadableTitleId,
     readCommonKey,
     readMetaXml,
@@ -47,7 +49,7 @@ import {
     writeGeneratedTik,
 } from './title.js';
 import { mapConcurrent } from '../shared/shared.js';
-import { mkdir, stat, writeFile } from 'fs/promises';
+import { mkdir, writeFile } from 'fs/promises';
 import { normalizeTitleName } from '../shared/titles.js';
 import { getTitleIdHex, TMD_TITLE_FILE } from './nus/tmd.js';
 import { getImmediatePathSizeBytes } from '../shared/file.js';
@@ -230,8 +232,18 @@ export async function generateTitleInstallFiles(
         app: [] as string[],
         h3: [] as string[],
     };
-    const verification: ContentTreeVerification[] = [];
     await mkdir(outputDir, { recursive: true });
+
+    options.onProgress?.({
+        outputDir,
+        completedFiles: 0,
+        totalFiles: tmd.contents.reduce(
+            (total, content) => total + (isHashedContent(content) ? 2 : 1),
+            0
+        ),
+        currentFileName: null,
+        currentFileSizeBytes: 0,
+    });
 
     await Promise.all([
         writeFile(tmdFile, tmdBytes),
@@ -262,11 +274,11 @@ export async function generateTitleInstallFiles(
             const downloadedContentFile = await downloadTitleContentFile({
                 content,
                 outputDir,
-                titleKey,
                 baseUrl,
                 titleId: normalizedTitleId,
                 onFileStart: (currentFileName, currentFileSizeBytes) => {
                     options.onProgress?.({
+                        outputDir,
                         completedFiles,
                         totalFiles,
                         currentFileName,
@@ -276,6 +288,7 @@ export async function generateTitleInstallFiles(
                 onFileComplete: (currentFileName, currentFileSizeBytes) => {
                     completedFiles += 1;
                     options.onProgress?.({
+                        outputDir,
                         completedFiles,
                         totalFiles,
                         currentFileName,
@@ -286,9 +299,7 @@ export async function generateTitleInstallFiles(
             });
 
             throwIfAborted(options.signal);
-            if (downloadedContentFile.verification.cached) {
-                completedFiles += isHashedContent(content) ? 2 : 1;
-            }
+            completedFiles += downloadedContentFile.cachedFiles;
 
             return downloadedContentFile;
         }
@@ -301,7 +312,6 @@ export async function generateTitleInstallFiles(
         if (downloadedContentFile.h3) {
             files.h3.push(downloadedContentFile.h3);
         }
-        verification.push(downloadedContentFile.verification);
     }
 
     const name = normalizeTitleName(meta?.name ?? normalizedTitleId);
@@ -322,17 +332,16 @@ export async function generateTitleInstallFiles(
         outputDir,
         sizeBytes,
         files,
-        verification,
     };
 }
 
-export async function validateTitleInstallFiles(
+export async function verifyTitleInstallFiles(
     dirPath: string,
-    onProgress?: (progress: InstalledTitleValidationProgress) => void
-): Promise<InstalledTitleValidation> {
+    onProgress?: (progress: InstalledTitleVerificationProgress) => void
+): Promise<InstalledTitleVerification> {
     const tmd = await readTmd(dirPath);
     if (!tmd) {
-        return createFailedInstalledValidation(
+        return createFailedInstalledVerification(
             null,
             null,
             `Missing or invalid ${TMD_TITLE_FILE}`
@@ -343,7 +352,7 @@ export async function validateTitleInstallFiles(
     const titleVersion = tmd.header.titleVersion;
     const ticket = await readTikHeader(dirPath);
     if (!ticket) {
-        return createFailedInstalledValidation(
+        return createFailedInstalledVerification(
             titleId,
             titleVersion,
             `Missing or invalid ${TIK_TITLE_FILE}`
@@ -358,7 +367,7 @@ export async function validateTitleInstallFiles(
             ticket.titleId
         );
     } catch (error) {
-        return createFailedInstalledValidation(
+        return createFailedInstalledVerification(
             titleId,
             titleVersion,
             error instanceof Error ? error.message : String(error)
@@ -366,20 +375,30 @@ export async function validateTitleInstallFiles(
     }
 
     const verification: ContentTreeVerification[] = [];
+    let failedFileCount = 0;
+    let totalFileCount = 0;
     for (const content of tmd.contents) {
         const files = getContentInstallFiles(dirPath, content);
         onProgress?.({
             currentFileName: files.appName,
             currentFileSizeBytes: getEncryptedContentFileSize(content),
         });
-        verification.push(
-            await verifyInstalledContent({
-                dirPath,
-                content,
-                files,
-                titleKey,
-            })
+        const result = await verifyInstalledContent({
+            dirPath,
+            content,
+            files,
+            titleKey,
+        });
+        const fileSizes = await validateInstalledContentFileSizes(
+            dirPath,
+            content
         );
+        verification.push(result);
+        failedFileCount +=
+            fileSizes.failedFileCount === 0 && result.status !== 'ok'
+                ? 1
+                : fileSizes.failedFileCount;
+        totalFileCount += fileSizes.totalFileCount;
     }
 
     return {
@@ -390,13 +409,18 @@ export async function validateTitleInstallFiles(
             : 'failed',
         error: null,
         verification,
+        failedFileCount,
+        totalFileCount,
     };
 }
 
 export async function validateTitleInstallFileSizes(
-    dirPath: string
+    dirPath: string,
+    signal?: AbortSignal
 ): Promise<InstalledTitleValidation> {
+    throwIfAborted(signal);
     const tmd = await readTmd(dirPath);
+    throwIfAborted(signal);
     if (!tmd) {
         return createFailedInstalledValidation(
             null,
@@ -407,31 +431,40 @@ export async function validateTitleInstallFileSizes(
 
     const titleId = getTitleIdHex(tmd.header.titleId);
     const titleVersion = tmd.header.titleVersion;
-    const verification: ContentTreeVerification[] = [];
+    let failedFileCount = 0;
+    let totalFileCount = 0;
 
     for (const content of tmd.contents) {
-        verification.push(
-            await verifyInstalledContentFileSize(dirPath, content)
+        throwIfAborted(signal);
+        const result = await validateInstalledContentFileSizes(
+            dirPath,
+            content
         );
+        failedFileCount += result.failedFileCount;
+        totalFileCount += result.totalFileCount;
     }
 
     return {
         titleId,
         titleVersion,
-        status: verification.every((result) => result.status === 'ok')
-            ? 'ok'
-            : 'failed',
+        status: failedFileCount === 0 ? 'ok' : 'failed',
         error: null,
-        verification,
+        failedFileCount,
+        totalFileCount,
     };
 }
 
-async function verifyInstalledContentFileSize(
+async function validateInstalledContentFileSizes(
     dirPath: string,
     content: TmdContent
-): Promise<ContentTreeVerification> {
+): Promise<{
+    failedFileCount: number;
+    totalFileCount: number;
+}> {
     const files = getContentInstallFiles(dirPath, content);
     const expectedSize = getEncryptedContentFileSize(content);
+    let failedFileCount = 0;
+    const totalFileCount = isHashedContent(content) ? 2 : 1;
 
     try {
         await assertExistingContentFileSize(
@@ -439,30 +472,29 @@ async function verifyInstalledContentFileSize(
             expectedSize,
             files.contentId
         );
-
-        if (isHashedContent(content)) {
-            if (!files.h3File) {
-                return {
-                    contentId: files.contentId,
-                    status: 'failed',
-                    error: 'Missing H3 file path for hashed content',
-                };
-            }
-
-            await stat(files.h3File);
-        }
-
-        return {
-            contentId: files.contentId,
-            status: 'ok',
-        };
-    } catch (error) {
-        return {
-            contentId: files.contentId,
-            status: 'failed',
-            error: error instanceof Error ? error.message : String(error),
-        };
+    } catch {
+        failedFileCount += 1;
     }
+
+    if (isHashedContent(content)) {
+        try {
+            if (!files.h3File) {
+                throw new Error('Missing H3 file path for hashed content');
+            }
+            await assertExistingContentFileSize(
+                files.h3File,
+                getContentH3FileSize(content),
+                files.contentId
+            );
+        } catch {
+            failedFileCount += 1;
+        }
+    }
+
+    return {
+        failedFileCount,
+        totalFileCount,
+    };
 }
 
 function createFailedInstalledValidation(
@@ -475,6 +507,18 @@ function createFailedInstalledValidation(
         titleVersion,
         status: 'failed',
         error,
+        failedFileCount: 0,
+        totalFileCount: 0,
+    };
+}
+
+function createFailedInstalledVerification(
+    titleId: string | null,
+    titleVersion: number | null,
+    error: string
+): InstalledTitleVerification {
+    return {
+        ...createFailedInstalledValidation(titleId, titleVersion, error),
         verification: [],
     };
 }

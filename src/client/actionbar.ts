@@ -1080,7 +1080,8 @@ function rebuildActionBar(options: ActionBarOptions): void {
 
     const clearAll = document.createElement('button');
     clearAll.type = 'button';
-    clearAll.className = 'action-bar-button action-bar-clear-all-button';
+    clearAll.className =
+        'action-button action-bar-button action-bar-clear-all-button';
     clearAll.textContent = 'Clear All';
     clearAll.dataset.actionBarClearAll = 'true';
     clearAll.disabled = !isClearableActionBarItem(options);

@@ -80,13 +80,13 @@ export function formatDownloadFileCount(item: DownloadQueueItem): string {
         item.currentFileName && item.state === 'in-progress'
             ? Math.min(item.completedFiles + 1, item.totalFiles)
             : item.completedFiles;
-    return `${current}/${item.totalFiles} files`;
+    return `${current} / ${item.totalFiles} files`;
 }
 
 export function formatDownloadState(item: DownloadQueueItem): string {
     switch (item.state) {
         case 'in-progress':
-            return 'Downloading';
+            return item.speedText ?? 'Downloading';
         case 'queued':
             return 'Queued';
         case 'failed':
@@ -223,9 +223,12 @@ function renderDownloadControls(item: DownloadQueueItem): HTMLDivElement {
 
     if (item.state === 'complete' || item.state === 'cancelled') {
         detailsCell.classList.add('action-bar-controls');
-        detailsCell.append(
-            createActionButton('Clear', DOWNLOAD_SOCKET_COMMAND.clear, item.id)
+        const clearButton = createActionButton(
+            'Clear',
+            DOWNLOAD_SOCKET_COMMAND.clear,
+            item.id
         );
+        detailsCell.append(clearButton);
         return detailsCell;
     }
 

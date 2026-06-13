@@ -4,14 +4,17 @@ import { randomUUID } from 'node:crypto';
 import { sendServerError } from '../routes.js';
 import { broadcastAppSocketEvent } from '../socket.js';
 import {
-    classifyTitleId,
     clearTitleScanCache,
     scanWiiUTitleRoots,
-    validateWiiUTitleRoots,
+    verifyWiiUTitleRoots,
 } from '../wiiu.js';
 import { convertWudImagesInRoots } from '../wud.js';
 import { getStringQuery } from '../request.js';
-import { clearAllTitleVerificationResults } from './title.js';
+import {
+    clearAllTitleValidationResults,
+    markTitleCopiesValidating,
+    revalidateTitleCopies,
+} from './title.js';
 import {
     type LibraryResponse,
     type LibraryValidateResponse,
@@ -30,7 +33,11 @@ import {
     type LibraryValidateSocketCommand,
     type LibraryValidateStatusEvent,
 } from '../../shared/socket.js';
-import { TitleGroup, TitleKinds } from '../../shared/titles.js';
+import {
+    classifyTitleId,
+    TitleGroup,
+    TitleKinds,
+} from '../../shared/titles.js';
 
 let latestLibraryValidateStatus: LibraryValidateStatusEvent | null = null;
 let activeLibraryValidateAbortController: AbortController | null = null;
@@ -39,6 +46,7 @@ let pendingLibraryValidateStatus: LibraryValidateStatusEvent | null = null;
 let libraryConversions: LibraryConvertItem[] = [];
 let activeLibraryConvertId: string | null = null;
 let activeLibraryConvertAbortController: AbortController | null = null;
+let activeLibraryConvertSourcePaths = new Map<string, Set<string>>();
 
 let libraryGroups: TitleGroup[] = [];
 
@@ -125,7 +133,7 @@ export function createLibraryRouter(): Router {
 
     router.get('/', async (req, res) => {
         try {
-            clearAllTitleVerificationResults();
+            clearAllTitleValidationResults();
         } catch (error) {
             logger.warn(
                 'server',
@@ -161,7 +169,7 @@ export function createLibraryRouter(): Router {
                 status: 'started',
             });
 
-            const titles = await validateWiiUTitleRoots(
+            const titles = await verifyWiiUTitleRoots(
                 getConfig().wiiuRoots,
                 (progress) => {
                     const event: LibraryValidateStatusEvent = {
@@ -265,6 +273,7 @@ export function createLibraryRouter(): Router {
             total: null,
             currentFileSizeBytes: null,
             converted: null,
+            convertedTitles: null,
             error: null,
         };
         libraryConversions = [...libraryConversions, item];
@@ -313,6 +322,7 @@ export function handleLibraryConvertSocketCommand(
                 total: null,
                 currentFileSizeBytes: null,
                 converted: null,
+                convertedTitles: null,
                 error: null,
             } satisfies Partial<LibraryConvertItem>);
             broadcastLibraryConversions();
@@ -328,11 +338,17 @@ function cancelLibraryConversion(id: string): void {
         return;
     }
 
+    const isActive = activeLibraryConvertId === id;
     item.state = 'cancelled';
+    if (item.currentFileName && item.current !== null) {
+        item.current = Math.max(0, item.current - 1);
+    }
     item.currentFileName = null;
     item.currentFileSizeBytes = null;
-    if (activeLibraryConvertId === id) {
+    if (isActive) {
         activeLibraryConvertAbortController?.abort();
+        clearTitleScanCache();
+        markTitleCopiesValidating([...activeLibraryConvertSourcePaths.keys()]);
     }
     broadcastLibraryConversions();
     void processLibraryConvertQueue();
@@ -354,6 +370,7 @@ async function processLibraryConvertQueue(): Promise<void> {
     activeLibraryConvertId = item.id;
     const abortController = new AbortController();
     activeLibraryConvertAbortController = abortController;
+    activeLibraryConvertSourcePaths = new Map();
     item.state = 'in-progress';
     broadcastLibraryConversions();
 
@@ -363,6 +380,14 @@ async function processLibraryConvertQueue(): Promise<void> {
             item.titleId,
             {
                 onProgress: (progress) => {
+                    const sourcePaths =
+                        activeLibraryConvertSourcePaths.get(progress.titleId) ??
+                        new Set<string>();
+                    sourcePaths.add(progress.outputDir);
+                    activeLibraryConvertSourcePaths.set(
+                        progress.titleId,
+                        sourcePaths
+                    );
                     if (
                         activeLibraryConvertId !== item.id ||
                         item.state !== 'in-progress'
@@ -393,7 +418,24 @@ async function processLibraryConvertQueue(): Promise<void> {
             (total, image) => total + image.titles.length,
             0
         );
+        item.convertedTitles = result.converted.flatMap((image) =>
+            image.titles.map((title) => ({
+                titleId: title.titleId,
+                name: title.name,
+                kind: title.kind,
+                version: title.titleVersion,
+                sizeBytes: title.sizeBytes,
+            }))
+        );
         broadcastLibraryConversions();
+        revalidateTitleCopies(
+            result.converted.flatMap((image) =>
+                image.titles.map((title) => ({
+                    titleId: title.titleId,
+                    sourcePaths: [title.outputDir],
+                }))
+            )
+        );
     } catch (error) {
         if (
             activeLibraryConvertId !== item.id ||
@@ -408,10 +450,31 @@ async function processLibraryConvertQueue(): Promise<void> {
             `Failed to convert WUD/WUX library entries: ${formatLogError(error)}`
         );
         broadcastLibraryConversions();
+        clearTitleScanCache();
+        revalidateTitleCopies(
+            [...activeLibraryConvertSourcePaths].map(
+                ([titleId, sourcePaths]) => ({
+                    titleId,
+                    sourcePaths: [...sourcePaths],
+                })
+            )
+        );
     } finally {
+        if (abortController.signal.aborted) {
+            clearTitleScanCache();
+            revalidateTitleCopies(
+                [...activeLibraryConvertSourcePaths].map(
+                    ([titleId, sourcePaths]) => ({
+                        titleId,
+                        sourcePaths: [...sourcePaths],
+                    })
+                )
+            );
+        }
         if (activeLibraryConvertId === item.id) {
             activeLibraryConvertId = null;
             activeLibraryConvertAbortController = null;
+            activeLibraryConvertSourcePaths = new Map();
         }
         void processLibraryConvertQueue();
     }

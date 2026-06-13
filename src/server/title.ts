@@ -1,5 +1,5 @@
 import path from 'path';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, stat, writeFile } from 'node:fs/promises';
 import {
     createContentIv,
     createTitleKeyIv,
@@ -22,7 +22,6 @@ import {
 import {
     formatContentId,
     decryptHashedContent,
-    ensureContentInstallFiles,
     extractHashedContentSlice,
     getContentInstallFiles,
     getContentH3FileSize,
@@ -49,7 +48,12 @@ import {
     type TmdContent,
 } from './nus/tmd.js';
 import { getUserAppRoot } from './paths.js';
-import { normalizeTitleId } from '../shared/titles.js';
+import {
+    classifyTitleId,
+    normalizeTitleId,
+    replaceTitleKind,
+    TitleKinds,
+} from '../shared/titles.js';
 import logger from '../shared/logger.js';
 import { resolveTitleKey } from './install-title.js';
 import { isHttpErrorStatus } from '../shared/download.js';
@@ -117,7 +121,7 @@ export type ChildTitleMetadata = {
 
 export type GeneratedTitleInstallFiles = {
     titleId: string;
-    kind: 'Base' | 'Update' | 'DLC';
+    kind: DownloadableTitleKind;
     name: string;
     titleVersion: number;
     titleKey: string;
@@ -131,42 +135,54 @@ export type GeneratedTitleInstallFiles = {
         app: string[];
         h3: string[];
     };
-    verification: ContentTreeVerification[];
 };
 
 export type DownloadableTitle = {
     titleId: string;
-    kind: 'Base' | 'Update' | 'DLC';
+    kind: DownloadableTitleKind;
 };
+
+export type DownloadableTitleKind =
+    | TitleKinds.Base
+    | TitleKinds.Update
+    | TitleKinds.DLC;
 
 export function formatInstallDirectoryKind(
     kind: DownloadableTitle['kind']
 ): string {
-    return kind === 'Base' ? 'Game' : kind;
+    return kind === TitleKinds.Base ? 'Game' : kind;
 }
 
 type DownloadedContentFile = {
     app: string | null;
     h3: string | null;
-    verification: ContentTreeVerification;
+    cachedFiles: number;
 };
 
 export type TitleDownloadProgress = {
+    outputDir: string;
     completedFiles: number;
     totalFiles: number;
     currentFileName: string | null;
     currentFileSizeBytes: number;
 };
 
-export type InstalledTitleValidation = {
+type InstalledTitleCheckResult = {
     titleId: string | null;
     titleVersion: number | null;
     status: 'ok' | 'failed';
     error: string | null;
+    failedFileCount: number;
+    totalFileCount: number;
+};
+
+export type InstalledTitleVerification = InstalledTitleCheckResult & {
     verification: ContentTreeVerification[];
 };
 
-export type InstalledTitleValidationProgress = {
+export type InstalledTitleValidation = InstalledTitleCheckResult;
+
+export type InstalledTitleVerificationProgress = {
     currentFileName: string;
     currentFileSizeBytes: number;
 };
@@ -262,7 +278,7 @@ let defaultCertPromise: Promise<Uint8Array> | null = null;
 export async function downloadNusBaseMetadata(
     titleId: string
 ): Promise<NusTitleMetadata | null> {
-    const normalizedTitleId = replaceTitlePrefix(titleId, 'base');
+    const normalizedTitleId = replaceTitleKind(titleId, TitleKinds.Base);
 
     return downloadNusTitleMetadata(normalizedTitleId);
 }
@@ -382,7 +398,7 @@ export async function getUpdateMetadata(
 ): Promise<ChildTitleMetadata> {
     return getChildTitleMetadata(
         baseTitleId,
-        replaceTitlePrefix(baseTitleId, 'update')
+        replaceTitleKind(baseTitleId, TitleKinds.Update)
     );
 }
 
@@ -391,14 +407,13 @@ export async function getDlcMetadata(
 ): Promise<ChildTitleMetadata> {
     return getChildTitleMetadata(
         baseTitleId,
-        replaceTitlePrefix(baseTitleId, 'dlc')
+        replaceTitleKind(baseTitleId, TitleKinds.DLC)
     );
 }
 
 export async function downloadTitleContentFile({
     content,
     outputDir,
-    titleKey,
     baseUrl,
     titleId,
     onFileStart,
@@ -407,7 +422,6 @@ export async function downloadTitleContentFile({
 }: {
     content: TmdContent;
     outputDir: string;
-    titleKey: Uint8Array;
     baseUrl: string;
     titleId: string;
     onFileStart?: (fileName: string, fileSizeBytes: number) => void;
@@ -419,66 +433,92 @@ export async function downloadTitleContentFile({
     const appSizeBytes = Number(getEncryptedContentFileSize(content));
 
     if (!isHashedContent(content)) {
-        const verification = await ensureContentInstallFiles({
-            files,
-            content,
-            titleKey,
-            signal,
-            download: async (targetFile) => {
-                onFileStart?.(files.appName, appSizeBytes);
-                await downloadContentToFile(
-                    baseUrl,
-                    titleId,
-                    content.id,
-                    targetFile,
-                    signal
-                );
-                onFileComplete?.(files.appName, appSizeBytes);
-            },
-        });
-
-        return {
-            app: verification.status === 'ok' ? files.appName : null,
-            h3: null,
-            verification,
-        };
-    }
-
-    const h3SizeBytes = getContentH3FileSize(content);
-    const verification = await ensureContentInstallFiles({
-        files,
-        content,
-        titleKey,
-        signal,
-        downloadApp: async (targetFile) => {
+        const cached = await hasExpectedFileSize(files.appFile, appSizeBytes);
+        if (!cached) {
             onFileStart?.(files.appName, appSizeBytes);
             await downloadContentToFile(
                 baseUrl,
                 titleId,
                 content.id,
-                targetFile,
+                files.appFile,
                 signal
             );
             onFileComplete?.(files.appName, appSizeBytes);
-        },
-        downloadH3: async (targetFile) => {
-            onFileStart?.(files.h3Name ?? '', h3SizeBytes);
-            await downloadContentH3ToFile(
-                baseUrl,
-                titleId,
-                content.id,
-                targetFile,
-                signal
-            );
-            onFileComplete?.(files.h3Name ?? '', h3SizeBytes);
-        },
-    });
+        }
+
+        return {
+            app: files.appName,
+            h3: null,
+            cachedFiles: cached ? 1 : 0,
+        };
+    }
+
+    const h3SizeBytes = getContentH3FileSize(content);
+    if (!files.h3File || !files.h3Name) {
+        return {
+            app: null,
+            h3: null,
+            cachedFiles: 0,
+        };
+    }
+
+    const appCached = await hasExpectedFileSize(files.appFile, appSizeBytes);
+    const h3Cached = await hasExpectedFileSize(files.h3File, h3SizeBytes);
+    if (!h3Cached) {
+        onFileStart?.(files.h3Name, h3SizeBytes);
+        const h3Downloaded = await downloadContentH3ToFile(
+            baseUrl,
+            titleId,
+            content.id,
+            files.h3File,
+            signal
+        )
+            .then(() => true)
+            .catch((error: unknown) => {
+                if (isHttpErrorStatus(error, 404)) {
+                    return false;
+                }
+                throw error;
+            });
+        if (!h3Downloaded) {
+            return {
+                app: null,
+                h3: null,
+                cachedFiles: Number(appCached),
+            };
+        }
+        onFileComplete?.(files.h3Name, h3SizeBytes);
+    }
+
+    if (!appCached) {
+        onFileStart?.(files.appName, appSizeBytes);
+        await downloadContentToFile(
+            baseUrl,
+            titleId,
+            content.id,
+            files.appFile,
+            signal
+        );
+        onFileComplete?.(files.appName, appSizeBytes);
+    }
 
     return {
-        app: verification.status === 'ok' ? files.appName : null,
-        h3: verification.status === 'ok' ? files.h3Name : null,
-        verification,
+        app: files.appName,
+        h3: files.h3Name,
+        cachedFiles: Number(appCached) + Number(h3Cached),
     };
+}
+
+async function hasExpectedFileSize(
+    filePath: string,
+    expectedSize: number
+): Promise<boolean> {
+    try {
+        const file = await stat(filePath);
+        return file.size === expectedSize;
+    } catch {
+        return false;
+    }
 }
 
 export function readTikFromBuffer(buffer: Buffer): Tik | null {
@@ -948,38 +988,6 @@ async function getChildTitleMetadata(
     };
 }
 
-function replaceTitlePrefix(
-    titleId: string,
-    nextKind: 'base' | 'update' | 'dlc' | 'demo' | 'systemapp'
-): string {
-    const normalizedTitleId = normalizeTitleId(titleId);
-
-    if (normalizedTitleId.length !== 16) {
-        throw new Error(`Invalid titleId: ${titleId}`);
-    }
-
-    let normalizedPrefix: string;
-    switch (nextKind) {
-        case 'base':
-            normalizedPrefix = '00050000';
-            break;
-        case 'update':
-            normalizedPrefix = '0005000e';
-            break;
-        case 'dlc':
-            normalizedPrefix = '0005000c';
-            break;
-        case 'demo':
-            normalizedPrefix = '00050002';
-            break;
-        case 'systemapp':
-            normalizedPrefix = '00050010';
-            break;
-    }
-
-    return `${normalizedPrefix}${normalizedTitleId.slice(8)}`;
-}
-
 export function normalizeDownloadableTitleId(
     titleId: string
 ): DownloadableTitle {
@@ -989,16 +997,16 @@ export function normalizeDownloadableTitleId(
         throw new Error(`Invalid titleId: ${titleId}`);
     }
 
-    switch (normalizedTitleId.slice(0, 8)) {
-        case '00050000':
-            return { titleId: normalizedTitleId, kind: 'Base' };
-        case '0005000e':
-            return { titleId: normalizedTitleId, kind: 'Update' };
-        case '0005000c':
-            return { titleId: normalizedTitleId, kind: 'DLC' };
-        default:
-            throw new Error(
-                `Unsupported downloadable title kind: ${normalizedTitleId}`
-            );
+    const { kind } = classifyTitleId(normalizedTitleId);
+    if (
+        kind !== TitleKinds.Base &&
+        kind !== TitleKinds.Update &&
+        kind !== TitleKinds.DLC
+    ) {
+        throw new Error(
+            `Unsupported downloadable title kind: ${normalizedTitleId}`
+        );
     }
+
+    return { titleId: normalizedTitleId, kind };
 }

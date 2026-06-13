@@ -4,7 +4,7 @@ import { type StorageCopyItem } from '../shared/storage.js';
 import {
     type SocketCommand,
     type SocketEvent,
-    type TitleVerifySocketEvent,
+    type TitleValidationSocketEvent,
     type LibraryConvertSocketEvent,
     type LibraryValidateStatusEvent,
     APP_SOCKET_EVENT,
@@ -13,7 +13,7 @@ import {
     DELETE_SOCKET_EVENT,
     LIBRARY_CONVERT_SOCKET_EVENT,
     LIBRARY_VALIDATE_SOCKET_EVENT,
-    TITLE_VERIFY_SOCKET_EVENT,
+    TITLE_VALIDATE_SOCKET_EVENT,
 } from '../shared/socket.js';
 import { type TitleGroup } from '../shared/titles.js';
 import { syncDownloadQueue } from './download.js';
@@ -36,12 +36,13 @@ type AppEventOptions = {
     getGroups: () => TitleGroup[];
     onServerAvailable: () => void;
     onGroupChanged: (group: TitleGroup) => void;
+    onActionsChanged?: () => void;
     onValidationStateChanged: (validating: boolean) => void;
     onLibraryConvertChanged?: (
         items: LibraryConvertSocketEvent['items']
     ) => void;
     onLibraryValidateChanged: (event: LibraryValidateStatusEvent) => void;
-    onTitleVerificationChanged: (event: TitleVerifySocketEvent) => void;
+    onTitleValidationChanged: (event: TitleValidationSocketEvent) => void;
     onDownloadComplete?: (item: DownloadQueueItem) => void;
 };
 
@@ -155,6 +156,7 @@ export function createAppEventHandler(
                     handle(event.libraryValidateStatus);
                 }
                 options.onLibraryConvertChanged?.(event.libraryConversions);
+                options.onActionsChanged?.();
                 return;
 
             case DOWNLOAD_SOCKET_EVENT.changed:
@@ -166,6 +168,7 @@ export function createAppEventHandler(
                     options.getGroups(),
                     options.onDownloadComplete
                 );
+                options.onActionsChanged?.();
                 return;
 
             case STORAGE_COPY_SOCKET_EVENT.changed:
@@ -174,6 +177,7 @@ export function createAppEventHandler(
                     syncStorageCopies(options.storageCopies, event.items),
                     getStorageCompletionOptions()
                 );
+                options.onActionsChanged?.();
                 return;
 
             case DELETE_SOCKET_EVENT.changed:
@@ -182,6 +186,7 @@ export function createAppEventHandler(
                     syncDeletes(options.deletes, event.items),
                     getStorageCompletionOptions()
                 );
+                options.onActionsChanged?.();
                 return;
 
             case LIBRARY_VALIDATE_SOCKET_EVENT.status: {
@@ -197,11 +202,12 @@ export function createAppEventHandler(
             case LIBRARY_CONVERT_SOCKET_EVENT.changed:
                 options.onServerAvailable();
                 options.onLibraryConvertChanged?.(event.items);
+                options.onActionsChanged?.();
                 return;
 
-            case TITLE_VERIFY_SOCKET_EVENT.changed:
+            case TITLE_VALIDATE_SOCKET_EVENT.changed:
                 options.onServerAvailable();
-                options.onTitleVerificationChanged(event);
+                options.onTitleValidationChanged(event);
                 return;
         }
     };

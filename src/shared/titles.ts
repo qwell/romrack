@@ -11,6 +11,55 @@ export enum TitleKinds {
     Unknown = 'Unknown',
 }
 
+export const TITLE_PREFIX_BY_KIND: Partial<Record<TitleKinds, string>> = {
+    [TitleKinds.vWii]: '00000007',
+    [TitleKinds.Base]: '00050000',
+    [TitleKinds.Demo]: '00050002',
+    [TitleKinds.FCT]: '0005000b',
+    [TitleKinds.DLC]: '0005000c',
+    [TitleKinds.Update]: '0005000e',
+    [TitleKinds.SystemApp]: '00050010',
+    [TitleKinds.SystemData]: '0005001b',
+    [TitleKinds.SystemApplet]: '00050030',
+};
+
+const TITLE_KIND_BY_PREFIX = new Map(
+    Object.entries(TITLE_PREFIX_BY_KIND).map(([kind, prefix]) => [
+        prefix,
+        kind as TitleKinds,
+    ])
+);
+
+export function classifyTitleId(titleId: string): {
+    family: string;
+    kind: TitleKinds;
+} {
+    const normalized = titleId?.toLowerCase() ?? '';
+
+    if (normalized.length !== 16) {
+        return { family: normalized, kind: TitleKinds.Unknown };
+    }
+
+    const prefix = normalized.slice(0, 8);
+    const family = normalized.slice(8);
+
+    return {
+        family,
+        kind: TITLE_KIND_BY_PREFIX.get(prefix) ?? TitleKinds.Unknown,
+    };
+}
+
+export function replaceTitleKind(titleId: string, kind: TitleKinds): string {
+    const normalized = titleId.toLowerCase();
+    const prefix = TITLE_PREFIX_BY_KIND[kind];
+
+    if (normalized.length !== 16 || !prefix) {
+        throw new Error(`Cannot replace title kind: ${titleId} ${kind}`);
+    }
+
+    return `${prefix}${normalized.slice(8)}`;
+}
+
 export enum VirtualConsolePlatform {
     NES = 'NES',
     SNES = 'SNES',
@@ -33,6 +82,11 @@ export const PARENT_KINDS = [
 ] as const;
 
 export const CHILD_KINDS = [TitleKinds.DLC, TitleKinds.Update] as const;
+export const DOWNLOADABLE_KINDS = [
+    TitleKinds.Base,
+    TitleKinds.Update,
+    TitleKinds.DLC,
+] as const;
 
 export type ParentKind = (typeof PARENT_KINDS)[number];
 export type ChildKind = (typeof CHILD_KINDS)[number];
@@ -106,6 +160,16 @@ export type AvailableTitleEntry = {
     availableOnCdn: boolean;
 };
 
+export type WudTitleEntry = {
+    titles: Array<{
+        titleId: string;
+        version: number;
+    }>;
+    imageName: string;
+    sizeBytes: number;
+    copyCount: number;
+};
+
 export type TitleGroup = {
     name: string;
     region: string | null;
@@ -113,6 +177,7 @@ export type TitleGroup = {
     productCode: string | null;
     details: TitleDetails | null;
     availableEntries: AvailableTitleEntry[];
+    wudEntries: WudTitleEntry[];
 
     entries: TitleEntry[];
 

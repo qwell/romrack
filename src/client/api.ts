@@ -3,6 +3,7 @@ import {
     type ConfigResponse,
     type ConfigValidateRootResponse,
     type LibraryResponse,
+    type LibraryConvertQueuedResponse,
     type LibraryValidateResponse,
     type StorageFat32ListResponse,
     type StorageTransferQueuedResponse,
@@ -15,6 +16,13 @@ export function getLibrary(): Promise<LibraryResponse> {
 
 export function validateLibrary(): Promise<LibraryValidateResponse> {
     return requestJson('/api/library/validate');
+}
+
+export function queueLibraryConvert(
+    titleId: string
+): Promise<LibraryConvertQueuedResponse> {
+    const params = new URLSearchParams({ titleId });
+    return requestJson(`/api/library/convert?${params}`);
 }
 
 export function listFat32Volumes(): Promise<StorageFat32ListResponse> {

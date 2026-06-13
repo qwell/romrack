@@ -3,7 +3,7 @@ import { getLibrary, listFat32Volumes, validateLibrary } from './api.js';
 import { type StorageFat32ListResponse } from '../shared/api.js';
 import {
     type LibraryConvertItem,
-    type TitleVerifySocketEvent,
+    type TitleValidationSocketEvent,
     type LibraryValidateStatusEvent,
     LIBRARY_VALIDATE_SOCKET_EVENT,
 } from '../shared/socket.js';
@@ -18,6 +18,7 @@ import {
 import {
     type TitleGroup,
     type TitleGroupStatus,
+    TitleKinds,
     getVirtualConsolePlatform,
     VirtualConsolePlatform,
 } from '../shared/titles.js';
@@ -40,12 +41,11 @@ import { connectAppSocket, createAppEventHandler } from './app-socket.js';
 import {
     setupTitleDetails,
     renderGroup,
-    requestTitleVerification,
     updateRenderedTitleGroup,
     mergeFailedValidationsIntoAvailable,
-    isVerificationFailed,
+    isValidationFailed,
     renderGroupDetailContent,
-    requestTitleVerifications,
+    requestTitleValidations,
 } from './title-detail.js';
 import {
     buildDetailSidebar,
@@ -93,11 +93,80 @@ let allLibraryGroups: TitleGroup[] = [];
 const downloadQueue: DownloadQueueItem[] = [];
 const storageCopies: StorageCopyItem[] = [];
 const deletes: DeleteItem[] = [];
-const titleVerify = new Map<string, TitleVerifySocketEvent>();
+const titleValidations = new Map<string, TitleValidationSocketEvent>();
 
 function handleTitleGroupChanged(group: TitleGroup): void {
     updateRenderedTitleGroup(group);
     refreshOpenDetailSidebarForGroup(group);
+}
+
+function refreshSelectedDetailSidebar(): void {
+    const selectedFamily = getSelectedDetailFamily();
+    if (!selectedFamily) {
+        return;
+    }
+
+    const group = currentGroups.find(
+        (candidate) => candidate.family === selectedFamily
+    );
+    if (group) {
+        refreshOpenDetailSidebarForGroup(group);
+    }
+}
+
+function reconcileCompletedLibraryConversions(
+    previousItems: Map<string, LibraryConvertItem>,
+    items: LibraryConvertItem[]
+): void {
+    for (const item of items) {
+        if (
+            item.state !== 'complete' ||
+            previousItems.get(item.id)?.state === 'complete' ||
+            !item.convertedTitles
+        ) {
+            continue;
+        }
+
+        const group = currentGroups.find(
+            (candidate) => candidate.family === item.titleId.slice(8)
+        );
+        if (!group) {
+            continue;
+        }
+
+        for (const converted of item.convertedTitles) {
+            const existing = group.entries.find(
+                (entry) =>
+                    entry.titleId.toLowerCase() ===
+                    converted.titleId.toLowerCase()
+            );
+            if (existing) {
+                existing.name = converted.name;
+                existing.kind = converted.kind;
+                existing.version = converted.version;
+                existing.sizeBytes = converted.sizeBytes;
+            } else {
+                group.entries.push({
+                    ...converted,
+                    region: group.region,
+                    iconUrl: group.iconUrl,
+                    copyCount: 1,
+                });
+            }
+
+            group.availableEntries = group.availableEntries.filter(
+                (entry) =>
+                    entry.titleId.toLowerCase() !==
+                    converted.titleId.toLowerCase()
+            );
+            titleValidations.delete(converted.titleId);
+        }
+
+        group.entries.sort((a, b) => b.version - a.version);
+        groupSearchHaystacks.delete(group);
+        syncGroupStatusFromSlots(group);
+        handleTitleGroupChanged(group);
+    }
 }
 
 let iconObserver: IntersectionObserver | null = null;
@@ -278,6 +347,13 @@ function getGroupSearchHaystack(group: TitleGroup): string {
         for (const entry of group.entries) {
             parts.push(entry.titleId, entry.name, entry.kind, entry.region);
         }
+        for (const entry of group.wudEntries) {
+            parts.push(
+                ...entry.titles.map((title) => title.titleId),
+                'WUD',
+                entry.imageName
+            );
+        }
         haystack = parts.map(normalizeSearchText).join('\n');
         groupSearchHaystacks.set(group, haystack);
     }
@@ -374,7 +450,11 @@ function renderGroups(
     const normalizedSearch = normalizeSearchText(searchValue.trim());
 
     const filteredGroups = [...allGroups].filter((group) => {
-        if (!showAllTitles && group.entries.length === 0) {
+        if (
+            !showAllTitles &&
+            group.entries.length === 0 &&
+            group.wudEntries.length === 0
+        ) {
             return false;
         }
 
@@ -886,7 +966,10 @@ async function loadLibrary(output: HTMLElement): Promise<void> {
 
         allLibraryGroups = [...data.groups].sort(compareGroups);
         const groups = allLibraryGroups.filter(
-            (group) => showAllTitles || group.entries.length > 0
+            (group) =>
+                showAllTitles ||
+                group.entries.length > 0 ||
+                group.wudEntries.length > 0
         );
 
         libraryControlState = normalizeLibraryControlState(
@@ -963,7 +1046,10 @@ function setupSidebars(): void {
     );
     setupTitleDetails({
         downloads: downloadQueue,
-        titleVerifications: titleVerify,
+        deletes,
+        storageCopies,
+        libraryConversions,
+        titleValidations,
         populateFat32DeviceSelect,
         observeIcon(image, src) {
             if (iconObserver) {
@@ -975,7 +1061,7 @@ function setupSidebars(): void {
     });
     setupDetailSidebar({
         renderContent: renderGroupDetailContent,
-        onShow: requestTitleVerifications,
+        onShow: requestTitleValidations,
     });
     resetDetailSidebars();
 }
@@ -1063,24 +1149,60 @@ connectAppSocket({
             setLibraryValidateAction(event);
         },
         onLibraryConvertChanged(items) {
-            syncLibraryConvertActions(items);
-        },
-        onDownloadComplete(item) {
-            titleVerify.delete(item.titleId);
-            requestTitleVerification(
-                item.titleId,
-                item.installedTitleName ?? item.groupName
+            const previousItems = new Map(
+                libraryConversions.map((item) => [item.id, item])
             );
+            syncLibraryConvertActions(items);
+            reconcileCompletedLibraryConversions(previousItems, items);
         },
-        onTitleVerificationChanged(event) {
-            titleVerify.set(event.titleId, event);
+        onActionsChanged() {
+            refreshSelectedDetailSidebar();
+        },
+        onTitleValidationChanged(event) {
+            titleValidations.set(event.titleId, event);
 
             const group = currentGroups.find(
                 (candidate) => candidate.family === event.titleId.slice(8)
             );
 
             if (group) {
-                if (isVerificationFailed(event)) {
+                if (
+                    event.status === 'complete' &&
+                    event.copies.length > 0 &&
+                    !group.entries.some(
+                        (entry) =>
+                            entry.titleId.toLowerCase() ===
+                            event.titleId.toLowerCase()
+                    )
+                ) {
+                    const copy = event.copies[0];
+                    const wudTitle = group.wudEntries
+                        .flatMap((entry) => entry.titles)
+                        .find(
+                            (title) =>
+                                title.titleId.toLowerCase() ===
+                                event.titleId.toLowerCase()
+                        );
+                    const kind = copy?.titleKind as TitleKinds | undefined;
+                    if (kind) {
+                        group.entries.push({
+                            titleId: event.titleId,
+                            name: group.name,
+                            region: group.region,
+                            iconUrl: group.iconUrl,
+                            version:
+                                copy?.titleVersion ?? wudTitle?.version ?? 0,
+                            kind,
+                            sizeBytes: 0,
+                            copyCount: event.copies.length,
+                        });
+                        groupSearchHaystacks.delete(group);
+                        syncGroupStatusFromSlots(group);
+                        updateRenderedTitleGroup(group);
+                    }
+                }
+
+                if (isValidationFailed(event)) {
                     const entry = group.entries.find(
                         (candidate) =>
                             candidate.titleId.toLowerCase() ===
