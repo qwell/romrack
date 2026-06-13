@@ -1027,9 +1027,8 @@ function setupSidebars(): void {
         }
 
         if (hasOpenDetailFamily()) {
-            const detailSidebar = document.querySelector<HTMLElement>(
-                '.title-detail-sidebar'
-            );
+            const detailSidebar =
+                document.querySelector<HTMLElement>('.sidebar');
             if (detailSidebar && !detailSidebar.hidden) {
                 closeDetailSidebar(detailSidebar);
             }

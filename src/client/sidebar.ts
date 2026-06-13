@@ -24,7 +24,7 @@ export function closeDetailSidebar(sidebar: HTMLElement): void {
     selectedFamily = null;
     sidebar.hidden = true;
     document.body.removeAttribute('data-detail-open');
-    sidebar.querySelector('.title-detail-body')?.replaceChildren();
+    sidebar.querySelector('.sidebar-body')?.replaceChildren();
 
     for (const group of document.querySelectorAll('.title-group')) {
         group.removeAttribute('data-selected');
@@ -35,11 +35,9 @@ export function resetDetailSidebars(): void {
     selectedFamily = null;
     document.body.removeAttribute('data-detail-open');
 
-    for (const sidebar of document.querySelectorAll<HTMLElement>(
-        '.title-detail-sidebar'
-    )) {
+    for (const sidebar of document.querySelectorAll<HTMLElement>('.sidebar')) {
         sidebar.hidden = true;
-        sidebar.querySelector('.title-detail-body')?.replaceChildren();
+        sidebar.querySelector('.sidebar-body')?.replaceChildren();
     }
 
     for (const group of document.querySelectorAll('.title-group')) {
@@ -56,14 +54,12 @@ function showDetailSidebar(sidebar: HTMLElement, group: TitleGroup): void {
     sidebar.hidden = false;
     document.body.setAttribute('data-detail-open', '');
 
-    const title = sidebar.querySelector('.title-detail-title');
+    const title = sidebar.querySelector('.sidebar-title');
     if (title) {
         title.textContent = group.name;
     }
 
-    const thumbnail = sidebar.querySelector<HTMLElement>(
-        '.title-detail-thumbnail'
-    );
+    const thumbnail = sidebar.querySelector<HTMLElement>('.sidebar-thumbnail');
     if (thumbnail) {
         thumbnail.replaceChildren();
 
@@ -75,7 +71,7 @@ function showDetailSidebar(sidebar: HTMLElement, group: TitleGroup): void {
         }
     }
 
-    const body = sidebar.querySelector('.title-detail-body');
+    const body = sidebar.querySelector('.sidebar-body');
     body?.replaceChildren(detailSidebarOptions.renderContent(group));
     detailSidebarOptions.onShow?.(group);
 
@@ -101,29 +97,29 @@ export function toggleDetailSidebar(
 
 export function buildDetailSidebar(): HTMLElement {
     const sidebar = document.createElement('aside');
-    sidebar.className = 'title-detail-sidebar';
+    sidebar.className = 'sidebar';
     sidebar.hidden = true;
     sidebar.setAttribute('aria-label', 'Title details');
 
     const header = document.createElement('div');
-    header.className = 'title-detail-sidebar-header';
+    header.className = 'sidebar-header';
 
     const thumbnail = document.createElement('div');
-    thumbnail.className = 'title-detail-thumbnail';
+    thumbnail.className = 'sidebar-thumbnail';
 
     const title = document.createElement('h2');
-    title.className = 'title-detail-title';
+    title.className = 'sidebar-title';
     title.textContent = 'Title details';
 
     const closeButton = document.createElement('button');
-    closeButton.className = 'title-detail-close';
+    closeButton.className = 'sidebar-close';
     closeButton.type = 'button';
     closeButton.setAttribute('aria-label', 'Close title details');
     closeButton.textContent = '×';
     closeButton.addEventListener('click', () => closeDetailSidebar(sidebar));
 
     const body = document.createElement('div');
-    body.className = 'title-detail-body';
+    body.className = 'sidebar-body';
 
     header.append(thumbnail, title, closeButton);
     sidebar.append(header, body);
@@ -140,7 +136,7 @@ export function refreshOpenDetailSidebarForGroup(group: TitleGroup): void {
         return;
     }
 
-    const body = document.querySelector<HTMLElement>('.title-detail-body');
+    const body = document.querySelector<HTMLElement>('.sidebar-body');
 
     if (!body) {
         return;

@@ -400,8 +400,8 @@ export function collectSelectedDownloads(
     selectedOnly = true
 ): DownloadQueueItem[] {
     const selector = selectedOnly
-        ? '.title-download-checkbox:checked:not(:disabled)'
-        : '.title-download-checkbox:not(:disabled)';
+        ? '.sidebar-download-checkbox:checked:not(:disabled)'
+        : '.sidebar-download-checkbox:not(:disabled)';
 
     return Array.from(root.querySelectorAll<HTMLInputElement>(selector)).map(
         (checkbox) => ({

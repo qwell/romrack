@@ -268,24 +268,24 @@ export function renderDownloadAvailabilityRow(
 
     if (existingQueueItem) {
         const row = document.createElement('div');
-        row.className = `title-download-row title-storage-copy-row title-download-row-${existingQueueItem.state}`;
+        row.className = `sidebar-download-row sidebar-storage-copy-row sidebar-download-row-${existingQueueItem.state}`;
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
-        checkbox.className = 'title-download-checkbox';
+        checkbox.className = 'sidebar-download-checkbox';
         checkbox.disabled = true;
 
         const slot = document.createElement('span');
-        slot.className = 'title-download-slot';
+        slot.className = 'sidebar-download-slot';
         slot.textContent = label;
 
         const titleId = document.createElement('span');
-        titleId.className = 'title-download-id';
+        titleId.className = 'sidebar-download-id';
         titleId.textContent = entry.titleId;
 
         const progress = document.createElement('span');
         progress.className =
-            'title-storage-validation-state title-download-progress';
+            'sidebar-storage-validation-state sidebar-download-progress';
         progress.textContent = formatDownloadProgress(existingQueueItem);
 
         row.append(checkbox, slot, titleId, progress);
@@ -293,11 +293,11 @@ export function renderDownloadAvailabilityRow(
     }
 
     const row = document.createElement('label');
-    row.className = 'title-download-row';
+    row.className = 'sidebar-download-row';
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
-    checkbox.className = 'title-download-checkbox';
+    checkbox.className = 'sidebar-download-checkbox';
     checkbox.value = entry.titleId;
     checkbox.dataset.family = group.family;
     checkbox.dataset.groupName = group.name;
@@ -314,19 +314,19 @@ export function renderDownloadAvailabilityRow(
     checkbox.disabled =
         !entry.availableOnCdn || getBusyKinds(group).has(entry.kind);
     if (!entry.availableOnCdn) {
-        row.classList.add('title-download-row-unavailable');
+        row.classList.add('sidebar-download-row-unavailable');
     }
 
     const slot = document.createElement('span');
-    slot.className = 'title-download-slot';
+    slot.className = 'sidebar-download-slot';
     slot.textContent = label;
 
     const titleId = document.createElement('span');
-    titleId.className = 'title-download-id';
+    titleId.className = 'sidebar-download-id';
     titleId.textContent = entry.titleId;
 
     const size = document.createElement('span');
-    size.className = 'title-download-size';
+    size.className = 'sidebar-download-size';
     size.textContent = entry.availableOnCdn ? sizeText : 'Not on CDN';
 
     row.append(checkbox, slot, titleId, size);
@@ -335,7 +335,7 @@ export function renderDownloadAvailabilityRow(
 
 function renderDetailRow(label: string, value: string | null): HTMLElement {
     const row = document.createElement('div');
-    row.className = 'title-detail-row';
+    row.className = 'sidebar-row';
 
     const labelElement = document.createElement('dt');
     labelElement.textContent = label;
@@ -388,22 +388,24 @@ function renderTitleValidationStatus(
     validation: TitleValidationSocketEvent | null
 ): HTMLElement {
     const validationStatus = document.createElement('span');
-    validationStatus.className = 'title-storage-validation-state';
+    validationStatus.className = 'sidebar-storage-validation-state';
     validationStatus.textContent = formatTitleValidationStatus(validation);
 
     if (validation?.status === 'complete') {
         const failedCount = getTitleValidationFailedCount(validation);
 
         validationStatus.classList.toggle(
-            'title-storage-validation-state-failed',
+            'sidebar-storage-validation-state-failed',
             failedCount > 0
         );
         validationStatus.classList.toggle(
-            'title-storage-validation-state-ok',
+            'sidebar-storage-validation-state-ok',
             failedCount === 0
         );
     } else if (validation?.status === 'failed') {
-        validationStatus.classList.add('title-storage-validation-state-failed');
+        validationStatus.classList.add(
+            'sidebar-storage-validation-state-failed'
+        );
     }
 
     return validationStatus;
@@ -418,13 +420,13 @@ function renderLocalCopyRow(
     }
 ): HTMLElement {
     const row = document.createElement('label');
-    row.className = 'title-download-row title-storage-copy-row';
+    row.className = 'sidebar-download-row sidebar-storage-copy-row';
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.className = downloadData
-        ? 'title-download-checkbox title-storage-copy-checkbox'
-        : 'title-storage-copy-checkbox';
+        ? 'sidebar-download-checkbox sidebar-storage-copy-checkbox'
+        : 'sidebar-storage-copy-checkbox';
     checkbox.value = entry.titleId;
     checkbox.dataset.titleId = entry.titleId;
     checkbox.dataset.copySizeBytes = String(entry.sizeBytes);
@@ -450,18 +452,18 @@ function renderLocalCopyRow(
     }
 
     const slot = document.createElement('span');
-    slot.className = 'title-download-slot';
+    slot.className = 'sidebar-download-slot';
     slot.textContent = downloadData?.label ?? `${entry.kind} v${entry.version}`;
 
     const titleId = document.createElement('span');
-    titleId.className = 'title-download-id';
+    titleId.className = 'sidebar-download-id';
     titleId.textContent = entry.titleId;
 
     const validation = options?.titleValidations.get(entry.titleId) ?? null;
     const validationStatus = renderTitleValidationStatus(validation);
 
     const size = document.createElement('span');
-    size.className = 'title-download-size';
+    size.className = 'sidebar-download-size';
     size.textContent = formatSize(entry.sizeBytes);
 
     row.append(checkbox, slot, titleId, validationStatus, size);
@@ -490,8 +492,8 @@ function getSelectedDownloadedTitleIds(
     selectedOnly: boolean
 ): string[] {
     const selector = selectedOnly
-        ? '.title-storage-copy-checkbox:checked'
-        : '.title-storage-copy-checkbox';
+        ? '.sidebar-storage-copy-checkbox:checked'
+        : '.sidebar-storage-copy-checkbox';
 
     return Array.from(root.querySelectorAll<HTMLInputElement>(selector))
         .map((checkbox) => checkbox.dataset.titleId ?? '')
@@ -517,8 +519,8 @@ function getStorageCopySelectionSizeBytes(
         entries.map((entry) => [entry.titleId, entry])
     );
     const selector = selectedOnly
-        ? '.title-storage-copy-checkbox:checked'
-        : '.title-storage-copy-checkbox';
+        ? '.sidebar-storage-copy-checkbox:checked'
+        : '.sidebar-storage-copy-checkbox';
     let sizeBytes = 0;
 
     for (const checkbox of root.querySelectorAll<HTMLInputElement>(selector)) {
@@ -539,7 +541,7 @@ function updateStorageCopyAvailability(
     );
 
     for (const checkbox of root.querySelectorAll<HTMLInputElement>(
-        '.title-storage-copy-checkbox'
+        '.sidebar-storage-copy-checkbox'
     )) {
         const titleId = checkbox.dataset.titleId ?? '';
         const entry = entriesByTitleId.get(titleId);
@@ -549,9 +551,9 @@ function updateStorageCopyAvailability(
             volume?.freeBytes !== undefined &&
             entry.sizeBytes > volume.freeBytes;
 
-        const row = checkbox.closest('.title-download-row');
+        const row = checkbox.closest('.sidebar-download-row');
         row?.classList.toggle(
-            'title-storage-copy-row-insufficient-space',
+            'sidebar-storage-copy-row-insufficient-space',
             cannotFit
         );
         row?.toggleAttribute('data-copy-disabled', cannotFit);
@@ -624,7 +626,7 @@ function getKindSortValue(kind: TitleKinds): number {
 
 function renderDetailSection(title: string, action?: HTMLElement): HTMLElement {
     const heading = document.createElement('div');
-    heading.className = 'title-detail-section';
+    heading.className = 'sidebar-section';
     const label = document.createElement('span');
     label.textContent = title;
     heading.append(label);
@@ -640,14 +642,14 @@ function queueSelectedDownloads(
     downloads: DownloadQueueItem[]
 ): DownloadQueueItem[] {
     const hasSelection =
-        list.querySelectorAll('.title-download-checkbox:checked').length > 0;
+        list.querySelectorAll('.sidebar-download-checkbox:checked').length > 0;
 
     const addedItems = queueDownloads(
         downloads,
         collectSelectedDownloads(list, hasSelection)
     );
 
-    const body = document.querySelector('.title-detail-body');
+    const body = document.querySelector('.sidebar-body');
     body?.replaceChildren(renderGroupDetailContent(group));
     return addedItems;
 }
@@ -661,8 +663,8 @@ function getActiveDownloadCheckboxes(
     selectedOnly: boolean
 ): HTMLInputElement[] {
     const selector = selectedOnly
-        ? '.title-download-checkbox:checked:not(:disabled)'
-        : '.title-download-checkbox:not(:disabled)';
+        ? '.sidebar-download-checkbox:checked:not(:disabled)'
+        : '.sidebar-download-checkbox:not(:disabled)';
     return Array.from(list.querySelectorAll<HTMLInputElement>(selector));
 }
 
@@ -673,7 +675,7 @@ function renderAvailableActions(
     downloads: DownloadQueueItem[]
 ): HTMLElement {
     const actions = document.createElement('div');
-    actions.className = 'title-download-actions title-available-actions';
+    actions.className = 'sidebar-download-actions sidebar-available-actions';
 
     const spacer = document.createElement('div');
     const downloadButton = document.createElement('button');
@@ -682,7 +684,7 @@ function renderAvailableActions(
     downloadButton.type = 'button';
     const updateDownloadButton = (): void => {
         const checkedCount = list.querySelectorAll(
-            '.title-download-checkbox:checked'
+            '.sidebar-download-checkbox:checked'
         ).length;
         const targetCount = getActiveDownloadCheckboxes(
             list,
@@ -715,7 +717,7 @@ function renderInvalidActions(
     downloads: DownloadQueueItem[]
 ): HTMLElement {
     const actions = document.createElement('div');
-    actions.className = 'title-download-actions title-invalid-actions';
+    actions.className = 'sidebar-download-actions sidebar-invalid-actions';
 
     const downloadButton = document.createElement('button');
     downloadButton.className = 'sidebar-button';
@@ -728,7 +730,7 @@ function renderInvalidActions(
 
     const updateButtons = (): void => {
         const checkedCount = list.querySelectorAll(
-            '.title-storage-copy-checkbox:checked'
+            '.sidebar-storage-copy-checkbox:checked'
         ).length;
 
         downloadButton.textContent =
@@ -755,7 +757,7 @@ function renderInvalidActions(
     deleteButton.addEventListener('click', () => {
         void (async () => {
             const hasSelection =
-                list.querySelectorAll('.title-storage-copy-checkbox:checked')
+                list.querySelectorAll('.sidebar-storage-copy-checkbox:checked')
                     .length > 0;
             const titleIds = getSelectedDownloadedTitleIds(list, hasSelection);
 
@@ -855,7 +857,7 @@ function renderWudContent(group: TitleGroup): {
     convertButton: HTMLButtonElement;
 } {
     const content = document.createElement('div');
-    content.className = 'title-download-content title-wud-content';
+    content.className = 'sidebar-download-content sidebar-wud-content';
     const titles = group.wudEntries.flatMap((entry) => entry.titles);
     const baseTitle = titles.find(
         (title) => classifyTitleId(title.titleId).kind === TitleKinds.Base
@@ -881,24 +883,24 @@ function renderWudContent(group: TitleGroup): {
     });
 
     const list = document.createElement('div');
-    list.className = 'title-download-list';
+    list.className = 'sidebar-download-list';
     const renderWudRow = (
         label: string,
         title: WudTitleEntry['titles'][number] | undefined
     ): HTMLElement => {
         const row = document.createElement('div');
-        row.className = 'title-download-row title-wud-row';
-        row.classList.add('title-wud-row-muted');
+        row.className = 'sidebar-download-row sidebar-wud-row';
+        row.classList.add('sidebar-wud-row-muted');
 
         const checkboxSpace = document.createElement('span');
-        checkboxSpace.className = 'title-wud-checkbox-space';
+        checkboxSpace.className = 'sidebar-wud-checkbox-space';
 
         const slot = document.createElement('span');
-        slot.className = 'title-download-slot';
+        slot.className = 'sidebar-download-slot';
         slot.textContent = title ? `${label} v${title.version}` : label;
 
         const id = document.createElement('span');
-        id.className = 'title-download-id';
+        id.className = 'sidebar-download-id';
         id.textContent = title?.titleId ?? '-';
         id.title = title?.titleId ?? '';
 
@@ -932,10 +934,10 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
     const detailOptions = options;
     const fragment = document.createDocumentFragment();
     const summary = document.createElement('div');
-    summary.className = 'title-detail-summary';
+    summary.className = 'sidebar-summary';
 
     const list = document.createElement('dl');
-    list.className = 'title-detail-list';
+    list.className = 'sidebar-list';
 
     const metadata = group.details;
     list.append(
@@ -947,18 +949,18 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
     );
 
     const bottom = document.createElement('div');
-    bottom.className = 'title-detail-bottom';
+    bottom.className = 'sidebar-bottom';
 
     summary.append(list);
     fragment.append(summary);
 
     const synopsis = document.createElement('p');
-    synopsis.className = 'title-detail-synopsis';
+    synopsis.className = 'sidebar-synopsis';
     synopsis.textContent = metadata?.synopsis?.replace(/\n+/g, '\n\n') ?? '';
     fragment.append(synopsis);
 
     const availability = document.createElement('div');
-    availability.className = 'title-detail-availability';
+    availability.className = 'sidebar-availability';
 
     const localEntries = group.entries
         .filter((entry) => {
@@ -993,17 +995,18 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
 
     if (localEntries.length > 0) {
         const localList = document.createElement('div');
-        localList.className = 'title-download-list';
+        localList.className = 'sidebar-download-list';
 
         for (const entry of localEntries) {
             localList.append(renderDownloadedCopyRow(group, entry));
         }
 
         const actions = document.createElement('div');
-        actions.className = 'title-download-actions title-storage-copy-actions';
+        actions.className =
+            'sidebar-download-actions sidebar-storage-copy-actions';
 
         const destinationSelect = document.createElement('select');
-        destinationSelect.className = 'title-storage-copy-destination';
+        destinationSelect.className = 'sidebar-storage-copy-destination';
         destinationSelect.disabled = true;
         const loadingOption = document.createElement('option');
         loadingOption.textContent = 'Loading FAT32 devices...';
@@ -1032,7 +1035,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
                 selectedVolume
             );
             const checkedCount = localList.querySelectorAll(
-                '.title-storage-copy-checkbox:checked'
+                '.sidebar-storage-copy-checkbox:checked'
             ).length;
             const hasCopyDestination =
                 !destinationSelect.disabled && destinationSelect.value !== '';
@@ -1086,7 +1089,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
             void (async () => {
                 const hasSelection =
                     localList.querySelectorAll(
-                        '.title-storage-copy-checkbox:checked'
+                        '.sidebar-storage-copy-checkbox:checked'
                     ).length > 0;
                 const titleIds = getSelectedDownloadedTitleIds(
                     localList,
@@ -1117,7 +1120,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
             void (async () => {
                 const hasSelection =
                     localList.querySelectorAll(
-                        '.title-storage-copy-checkbox:checked'
+                        '.sidebar-storage-copy-checkbox:checked'
                     ).length > 0;
                 const titleIds = getSelectedDownloadedTitleIds(
                     localList,
@@ -1136,7 +1139,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
 
         const downloadedContent = document.createElement('div');
         downloadedContent.className =
-            'title-download-content title-storage-copy-content';
+            'sidebar-download-content sidebar-storage-copy-content';
         downloadedContent.append(localList, actions);
 
         availability.append(
@@ -1147,7 +1150,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
 
     if (invalidEntries.length > 0) {
         const invalidList = document.createElement('div');
-        invalidList.className = 'title-download-list';
+        invalidList.className = 'sidebar-download-list';
 
         for (const entry of invalidEntries) {
             invalidList.append(renderInvalidCopyRow(group, entry));
@@ -1155,7 +1158,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
 
         const invalidContent = document.createElement('div');
         invalidContent.className =
-            'title-download-content title-invalid-content';
+            'sidebar-download-content sidebar-invalid-content';
         invalidContent.append(
             invalidList,
             renderInvalidActions(
@@ -1193,7 +1196,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
 
     if (availableEntries.length > 0) {
         const availableList = document.createElement('div');
-        availableList.className = 'title-download-list';
+        availableList.className = 'sidebar-download-list';
 
         for (const entry of availableEntries) {
             availableList.append(
@@ -1207,7 +1210,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
 
         const availableContent = document.createElement('div');
         availableContent.className =
-            'title-download-content title-available-content';
+            'sidebar-download-content sidebar-available-content';
         availableContent.append(
             availableList,
             renderAvailableActions(
