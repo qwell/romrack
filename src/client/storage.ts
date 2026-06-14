@@ -1,4 +1,3 @@
-import { formatSize } from '../shared/shared.js';
 import {
     formatActionFileCount,
     formatActionProgress,
@@ -7,13 +6,8 @@ import {
 } from '../shared/action.js';
 import { STORAGE_COPY_SOCKET_COMMAND } from '../shared/socket.js';
 import { type StorageCopyItem } from '../shared/storage.js';
-import {
-    createActionBarCell,
-    createActionBarRow,
-    createActionButton,
-    updateActionBar,
-} from './actionbar.js';
 import { sendAppSocketCommand } from './app-socket.js';
+import { formatSize } from '../shared/shared.js';
 
 export function syncStorageCopies(
     copies: StorageCopyItem[],
@@ -33,8 +27,18 @@ export function syncStorageCopies(
         );
     });
 
-    updateActionBar();
     return completedItems;
+}
+
+export function getCompletedMovedTitleIds(items: StorageCopyItem[]): string[] {
+    return items
+        .filter(
+            (item) =>
+                item.state === 'complete' &&
+                item.operation === 'move' &&
+                item.titleId !== null
+        )
+        .map((item) => item.titleId as string);
 }
 
 export function formatStorageCopyProgress(item: StorageCopyItem): string {
@@ -81,124 +85,82 @@ export function formatStorageCopyDetails(item: StorageCopyItem): string {
     return item.currentFileName;
 }
 
-export function renderStorageCopyActionRow(item: StorageCopyItem): HTMLElement {
-    const progress = createActionBarCell(
-        'action-bar-progress',
-        formatStorageCopyProgress(item)
-    );
-    progress.dataset.storageCopyProgress = 'true';
-
-    const files = createActionBarCell(
-        'action-bar-files',
-        formatStorageCopyFileCount(item)
-    );
-    files.dataset.storageCopyFiles = 'true';
-
-    const icon = createActionBarCell(
-        'action-bar-icon',
-        formatStorageCopyIcon(item)
-    );
-    icon.dataset.storageCopyIcon = 'true';
-
-    const state = createActionBarCell(
-        'action-bar-state',
-        formatStorageCopyState(item)
-    );
-    state.dataset.storageCopyState = 'true';
-
-    const size = createActionBarCell(
-        'action-bar-size',
-        formatSize(item.currentSizeBytes)
-    );
-    size.dataset.storageCopySize = 'true';
-
-    const title = createActionBarCell(
-        'action-bar-title',
-        formatStorageCopyTitle(item)
-    );
-    title.title = formatStorageCopyTitle(item);
-    title.dataset.storageCopyTitle = 'true';
-
-    const detailsCell = renderStorageCopyControls(item);
-
-    return createActionBarRow({
-        id: item.id,
-        state: item.state,
-        cells: [progress, files, icon, state, size, title, detailsCell],
-        itemIdDataKey: 'storageCopyItemId',
+export function getStorageCopyActionBarEntries(items: StorageCopyItem[]) {
+    return items.map((item) => {
+        const title = formatStorageCopyTitle(item);
+        const terminal =
+            item.state === 'complete' || item.state === 'cancelled';
+        return {
+            key: `storage-copy:${item.id}`,
+            id: item.id,
+            state: item.state,
+            clearCommand: STORAGE_COPY_SOCKET_COMMAND.clear,
+            cells: [
+                {
+                    className: 'action-bar-progress',
+                    text: formatStorageCopyProgress(item),
+                },
+                {
+                    className: 'action-bar-files',
+                    text: formatStorageCopyFileCount(item),
+                },
+                {
+                    className: 'action-bar-icon',
+                    text: formatStorageCopyIcon(item),
+                },
+                {
+                    className: 'action-bar-state',
+                    text: formatStorageCopyState(item),
+                },
+                {
+                    className: 'action-bar-size',
+                    text: formatSize(item.currentSizeBytes),
+                },
+                { className: 'action-bar-title', text: title, title },
+            ],
+            details: {
+                text:
+                    item.state === 'in-progress'
+                        ? formatStorageCopyDetails(item)
+                        : undefined,
+                title: item.error ?? item.destinationName,
+                buttons:
+                    item.state === 'failed'
+                        ? [
+                              {
+                                  text: 'Retry',
+                                  command: STORAGE_COPY_SOCKET_COMMAND.retry,
+                              },
+                              {
+                                  text: 'Clear',
+                                  command: STORAGE_COPY_SOCKET_COMMAND.clear,
+                              },
+                          ]
+                        : [
+                              {
+                                  text: terminal ? 'Clear' : 'Cancel',
+                                  command: terminal
+                                      ? STORAGE_COPY_SOCKET_COMMAND.clear
+                                      : STORAGE_COPY_SOCKET_COMMAND.cancel,
+                              },
+                          ],
+            },
+        };
     });
 }
 
-function renderStorageCopyControls(item: StorageCopyItem): HTMLDivElement {
-    const detailsCell = document.createElement('div');
-    detailsCell.className = 'action-bar-details-cell';
-    detailsCell.title = item.destinationName;
-
-    if (item.state === 'failed') {
-        detailsCell.classList.add('action-bar-controls');
-        detailsCell.title = item.error ?? '';
-        detailsCell.append(
-            createActionButton(
-                'Retry',
-                STORAGE_COPY_SOCKET_COMMAND.retry,
-                item.id
-            ),
-            createActionButton(
-                'Clear',
-                STORAGE_COPY_SOCKET_COMMAND.clear,
-                item.id
-            )
-        );
-        return detailsCell;
-    }
-
-    if (item.state === 'queued') {
-        detailsCell.classList.add('action-bar-controls');
-        detailsCell.append(
-            createActionButton(
-                'Cancel',
-                STORAGE_COPY_SOCKET_COMMAND.cancel,
-                item.id
-            )
-        );
-        return detailsCell;
-    }
-
-    if (item.state === 'complete' || item.state === 'cancelled') {
-        detailsCell.classList.add('action-bar-controls');
-        detailsCell.append(
-            createActionButton(
-                'Clear',
-                STORAGE_COPY_SOCKET_COMMAND.clear,
-                item.id
-            )
-        );
-        return detailsCell;
-    }
-
-    if (item.state === 'in-progress') {
-        detailsCell.classList.add('action-bar-controls');
-
-        const detailsText = formatStorageCopyDetails(item);
-        const detailsTextElement = document.createElement('span');
-        detailsTextElement.className = 'action-bar-control-text';
-        detailsTextElement.title = detailsText;
-        detailsTextElement.textContent = detailsText;
-        detailsTextElement.dataset.storageCopyDetail = 'true';
-
-        detailsCell.append(
-            detailsTextElement,
-            createActionButton(
-                'Cancel',
-                STORAGE_COPY_SOCKET_COMMAND.cancel,
-                item.id
-            )
-        );
-        return detailsCell;
-    }
-
-    detailsCell.textContent = formatStorageCopyDetails(item);
-    return detailsCell;
+export function handleStorageCopyActionBarCommand(
+    action: string,
+    itemId: string
+): boolean {
+    if (action === STORAGE_COPY_SOCKET_COMMAND.cancel)
+        cancelStorageCopy(itemId);
+    else if (action === STORAGE_COPY_SOCKET_COMMAND.retry)
+        retryStorageCopy(itemId);
+    else if (action === STORAGE_COPY_SOCKET_COMMAND.clear)
+        clearStorageCopy(itemId);
+    else return false;
+    return true;
 }
 
 export function retryStorageCopy(itemId: string): void {

@@ -9,14 +9,6 @@ import {
 import { formatSize, formatTitleDisplay } from '../shared/shared.js';
 import { type TitleGroup, TitleKinds } from '../shared/titles.js';
 import { DOWNLOAD_SOCKET_COMMAND } from '../shared/socket.js';
-import {
-    createActionBarCell,
-    createActionBarRow,
-    createActionButton,
-    updateActionBar,
-} from './actionbar.js';
-import { markSlotBadgeComplete, updateRenderedTitleGroup } from './titles.js';
-import { refreshOpenDetailSidebarForGroup } from './sidebar.js';
 import { syncGroupStatusFromSlots } from './library.js';
 import { sendAppSocketCommand } from './app-socket.js';
 
@@ -86,6 +78,100 @@ export function formatDownloadDetails(item: DownloadQueueItem): string {
     return item.currentFileName ?? item.speedText ?? '';
 }
 
+export function getDownloadActionBarEntries(items: DownloadQueueItem[]) {
+    return items.map((item) => {
+        const title = formatDownloadTitle(item);
+        const terminal =
+            item.state === 'complete' || item.state === 'cancelled';
+        return {
+            key: `download:${item.id}`,
+            id: item.id,
+            state: item.state,
+            clearCommand: DOWNLOAD_SOCKET_COMMAND.clear,
+            cells: [
+                {
+                    className: 'action-bar-progress',
+                    text: formatDownloadProgress(item),
+                },
+                {
+                    className: 'action-bar-files',
+                    text: formatDownloadFileCount(item),
+                },
+                {
+                    className: 'action-bar-icon',
+                    text: formatDownloadIcon(item),
+                },
+                {
+                    className: 'action-bar-state',
+                    text: formatDownloadState(item),
+                },
+                {
+                    className: 'action-bar-size',
+                    text: formatSize(item.currentFileSizeBytes),
+                },
+                { className: 'action-bar-title', text: title, title },
+            ],
+            details: {
+                text:
+                    item.state === 'in-progress'
+                        ? formatDownloadDetails(item)
+                        : undefined,
+                title: item.state === 'failed' ? (item.error ?? '') : undefined,
+                buttons:
+                    item.state === 'failed'
+                        ? [
+                              {
+                                  text: 'Retry',
+                                  command: DOWNLOAD_SOCKET_COMMAND.retry,
+                              },
+                              {
+                                  text: 'Clear',
+                                  command: DOWNLOAD_SOCKET_COMMAND.clear,
+                              },
+                          ]
+                        : [
+                              {
+                                  text: terminal ? 'Clear' : 'Cancel',
+                                  command: terminal
+                                      ? DOWNLOAD_SOCKET_COMMAND.clear
+                                      : DOWNLOAD_SOCKET_COMMAND.cancel,
+                              },
+                          ],
+            },
+        };
+    });
+}
+
+export function handleDownloadActionBarCommand(
+    action: string,
+    itemId: string,
+    downloads: DownloadQueueItem[]
+): boolean {
+    const item = downloads.find((candidate) => candidate.id === itemId);
+    const ids = item
+        ? downloads
+              .filter(
+                  (candidate) =>
+                      candidate.state !== 'complete' &&
+                      candidate.state !== 'cancelled' &&
+                      getDownloadDedupeKey(candidate) ===
+                          getDownloadDedupeKey(item)
+              )
+              .map((candidate) => candidate.id)
+        : [itemId];
+
+    if (action === DOWNLOAD_SOCKET_COMMAND.cancel) {
+        ids.forEach(cancelDownload);
+    } else if (action === DOWNLOAD_SOCKET_COMMAND.retry) {
+        ids.forEach(retryDownload);
+    } else if (action === DOWNLOAD_SOCKET_COMMAND.clear) {
+        clearDownload(itemId);
+    } else {
+        return false;
+    }
+    return true;
+}
+
 export function getDownloadDedupeKey(item: DownloadQueueItem): string {
     return `${item.family}\0${item.kind}\0${item.titleId}`;
 }
@@ -95,7 +181,7 @@ export function syncDownloadQueue(
     nextQueue: DownloadQueueItem[],
     haystacks: WeakMap<TitleGroup, string>,
     groups: TitleGroup[],
-    onDownloadComplete?: (item: DownloadQueueItem) => void
+    onGroupChanged: (group: TitleGroup) => void
 ): void {
     const previousById = new Map(queue.map((item) => [item.id, item]));
     const shouldReconcileCompleted = previousById.size === 0;
@@ -111,128 +197,21 @@ export function syncDownloadQueue(
         );
     });
 
-    updateActionBar();
     renderDownloadMarkers(queue);
 
     for (const item of completedItems) {
         try {
-            markSlotBadgeComplete(item.family, item.kind);
-            onDownloadComplete?.(item);
-            markDownloadComplete(queue, haystacks, groups, item);
+            markDownloadComplete(
+                queue,
+                haystacks,
+                groups,
+                item,
+                onGroupChanged
+            );
         } catch (error) {
             console.error('Failed to reconcile completed download', error);
         }
     }
-}
-
-export function renderDownloadActionRow(item: DownloadQueueItem): HTMLElement {
-    const progress = createActionBarCell(
-        'action-bar-progress',
-        formatDownloadProgress(item)
-    );
-    progress.dataset.downloadProgress = 'true';
-
-    const files = createActionBarCell(
-        'action-bar-files',
-        formatDownloadFileCount(item)
-    );
-    files.dataset.downloadFiles = 'true';
-
-    const icon = createActionBarCell(
-        'action-bar-icon',
-        formatDownloadIcon(item)
-    );
-    icon.dataset.downloadIcon = 'true';
-
-    const state = createActionBarCell(
-        'action-bar-state',
-        formatDownloadState(item)
-    );
-    state.dataset.downloadState = 'true';
-
-    const size = createActionBarCell(
-        'action-bar-size',
-        formatSize(item.currentFileSizeBytes)
-    );
-    size.dataset.downloadSize = 'true';
-
-    const downloadTitle = formatDownloadTitle(item);
-    const title = createActionBarCell('action-bar-title', downloadTitle);
-    title.title = downloadTitle;
-    title.dataset.downloadTitle = 'true';
-
-    const detailsCell = renderDownloadControls(item);
-
-    return createActionBarRow({
-        id: item.id,
-        state: item.state,
-        cells: [progress, files, icon, state, size, title, detailsCell],
-        itemIdDataKey: 'downloadItemId',
-    });
-}
-
-function renderDownloadControls(item: DownloadQueueItem): HTMLDivElement {
-    const detailsCell = document.createElement('div');
-    detailsCell.className = 'action-bar-details-cell';
-
-    if (item.state === 'failed') {
-        detailsCell.classList.add('action-bar-controls');
-        detailsCell.title = item.error ?? '';
-        detailsCell.append(
-            createActionButton('Retry', DOWNLOAD_SOCKET_COMMAND.retry, item.id),
-            createActionButton('Clear', DOWNLOAD_SOCKET_COMMAND.clear, item.id)
-        );
-        return detailsCell;
-    }
-
-    if (item.state === 'queued') {
-        detailsCell.classList.add('action-bar-controls');
-        detailsCell.append(
-            createActionButton(
-                'Cancel',
-                DOWNLOAD_SOCKET_COMMAND.cancel,
-                item.id
-            )
-        );
-        return detailsCell;
-    }
-
-    if (item.state === 'complete' || item.state === 'cancelled') {
-        detailsCell.classList.add('action-bar-controls');
-        const clearButton = createActionButton(
-            'Clear',
-            DOWNLOAD_SOCKET_COMMAND.clear,
-            item.id
-        );
-        detailsCell.append(clearButton);
-        return detailsCell;
-    }
-
-    if (item.state === 'in-progress') {
-        detailsCell.classList.add('action-bar-controls');
-
-        const detailsText = formatDownloadDetails(item);
-        const detailsTextElement = document.createElement('span');
-        detailsTextElement.className = 'action-bar-control-text';
-        detailsTextElement.title = detailsText;
-        detailsTextElement.textContent = detailsText;
-        detailsTextElement.dataset.downloadDetail = 'true';
-
-        detailsCell.append(
-            detailsTextElement,
-            createActionButton(
-                'Cancel',
-                DOWNLOAD_SOCKET_COMMAND.cancel,
-                item.id
-            )
-        );
-        return detailsCell;
-    }
-
-    const detailsText = formatDownloadDetails(item);
-    detailsCell.title = detailsText;
-    detailsCell.textContent = detailsText;
-    return detailsCell;
 }
 
 export function queueDownloads(
@@ -258,7 +237,6 @@ export function queueDownloads(
     }
 
     queue.push(...addedItems);
-    updateActionBar();
     renderDownloadMarkers(queue);
 
     sendAppSocketCommand({
@@ -314,7 +292,8 @@ function markDownloadComplete(
     queue: DownloadQueueItem[],
     haystacks: WeakMap<TitleGroup, string>,
     groups: TitleGroup[],
-    item: DownloadQueueItem
+    item: DownloadQueueItem,
+    onGroupChanged: (group: TitleGroup) => void
 ): void {
     const group = groups.find((candidate) => candidate.family === item.family);
 
@@ -351,8 +330,7 @@ function markDownloadComplete(
         if (existingEntry) {
             if (installedVersion < existingEntry.version) {
                 syncGroupStatusFromSlots(group);
-                updateRenderedTitleGroup(group);
-                refreshOpenDetailSidebarForGroup(group);
+                onGroupChanged(group);
                 return;
             }
             existingEntry.version = installedVersion;
@@ -367,8 +345,7 @@ function markDownloadComplete(
     );
 
     syncGroupStatusFromSlots(group);
-    updateRenderedTitleGroup(group);
-    refreshOpenDetailSidebarForGroup(group);
+    onGroupChanged(group);
 }
 
 export function collectSelectedDownloads(

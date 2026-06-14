@@ -1,48 +1,40 @@
-import {
-    LibraryValidateTitle,
-    type StorageFat32ListResponse,
-} from '../shared/api.js';
-import { type DownloadQueueItem } from '../shared/download.js';
-import { type DeleteItem } from '../shared/delete.js';
+import { type StorageFat32ListResponse } from '../shared/api.js';
 import { type Fat32Volume } from '../shared/os.js';
-import { type StorageCopyItem } from '../shared/storage.js';
+import { type TitleValidationSocketEvent } from '../shared/socket.js';
+import { formatSize } from '../shared/shared.js';
 import {
-    TITLE_VALIDATE_SOCKET_COMMAND,
-    type LibraryConvertItem,
-    type TitleValidationSocketEvent,
-} from '../shared/socket.js';
-import { formatSize, formatTitleDisplay } from '../shared/shared.js';
-import {
-    AvailableTitleEntry,
     type TitleDetails,
     type TitleEntry,
     type TitleGroup,
     type TitleInputControl,
-    type WudTitleEntry,
     TitleKinds,
-    classifyTitleId,
 } from '../shared/titles.js';
-import { queueLibraryConvert, queueStorageCopy } from './api.js';
-import { queueDelete } from './delete.js';
-import {
-    collectSelectedDownloads,
-    formatDownloadProgress,
-    getDownloadItem,
-    queueDownloads,
-} from './download.js';
-import {
-    addAvailableEntry,
-    createAvailableEntry,
-    isAvailableEntryKind,
-} from './library.js';
-import { sendAppSocketCommand } from './app-socket.js';
-
 type SidebarOptions = {
-    downloads: DownloadQueueItem[];
-    deletes: DeleteItem[];
-    storageCopies: StorageCopyItem[];
-    libraryConversions: LibraryConvertItem[];
     titleValidations: Map<string, TitleValidationSocketEvent>;
+    onActionsChanged: () => void;
+    getDownloadProgress: (
+        family: string,
+        kind: TitleKinds,
+        titleId?: string
+    ) => string | null;
+    queueSelectedDownloads: (root: HTMLElement, selectedOnly: boolean) => void;
+    getBusyKinds: (group: TitleGroup) => Set<TitleKinds>;
+    confirmAndQueueDeletes: (
+        titleIds: string[],
+        entries: TitleEntry[],
+        button: HTMLButtonElement,
+        label?: string
+    ) => Promise<void>;
+    queueStorageCopy: (
+        titleId: string,
+        destination: string
+    ) => Promise<unknown>;
+    requestTitleValidation: (titleId: string, name: string) => void;
+    isValidationFailed: (event: TitleValidationSocketEvent | null) => boolean;
+    renderWud: (
+        group: TitleGroup,
+        conversionBusy: boolean
+    ) => { content: HTMLElement; action: HTMLElement };
     populateFat32DeviceSelect: (
         select: HTMLSelectElement,
         copyButton: HTMLButtonElement
@@ -231,26 +223,8 @@ function formatInput(details: TitleDetails): string {
     return parts.join('; ') || '-';
 }
 
-export function isValidationFailed(
-    event: TitleValidationSocketEvent | null
-): boolean {
-    if (!event) {
-        return false;
-    }
-
-    if (event.status === 'failed') {
-        return true;
-    }
-
-    if (event.status === 'validating') {
-        return true;
-    }
-
-    if (event.status !== 'complete') {
-        return false;
-    }
-
-    return event.copies.some((copy) => copy.status === 'failed');
+function isValidationFailed(event: TitleValidationSocketEvent | null): boolean {
+    return options?.isValidationFailed(event) ?? false;
 }
 
 function hasUsableLocalEntry(
@@ -275,66 +249,8 @@ function hasUsableLocalEntry(
     });
 }
 
-function isRunningActionState(state: string): boolean {
-    return state === 'queued' || state === 'in-progress';
-}
-
-function getActionItemKind(
-    group: TitleGroup,
-    titleId: string | null,
-    kind: TitleKinds | null
-): TitleKinds | null {
-    if (kind) {
-        return kind;
-    }
-
-    return (
-        group.entries.find(
-            (entry) => entry.titleId.toLowerCase() === titleId?.toLowerCase()
-        )?.kind ?? null
-    );
-}
-
 function getBusyKinds(group: TitleGroup): Set<TitleKinds> {
-    const busyKinds = new Set<TitleKinds>();
-    const detailOptions = options;
-    if (!detailOptions) {
-        return busyKinds;
-    }
-
-    for (const item of detailOptions.downloads) {
-        if (item.family === group.family && isRunningActionState(item.state)) {
-            busyKinds.add(item.kind);
-        }
-    }
-
-    for (const item of detailOptions.libraryConversions) {
-        if (
-            item.titleId.slice(8) === group.family &&
-            isRunningActionState(item.state)
-        ) {
-            busyKinds.add(item.kind);
-        }
-    }
-
-    for (const item of [
-        ...detailOptions.deletes,
-        ...detailOptions.storageCopies,
-    ]) {
-        if (
-            item.titleId?.slice(8) !== group.family ||
-            !isRunningActionState(item.state)
-        ) {
-            continue;
-        }
-
-        const kind = getActionItemKind(group, item.titleId, item.titleKind);
-        if (kind) {
-            busyKinds.add(kind);
-        }
-    }
-
-    return busyKinds;
+    return options?.getBusyKinds(group) ?? new Set<TitleKinds>();
 }
 
 function hasBusyEntryKind(
@@ -345,23 +261,19 @@ function hasBusyEntryKind(
 }
 
 function renderDownloadAvailabilityRow(
-    queue: DownloadQueueItem[],
     group: TitleGroup,
     entry: TitleGroup['availableEntries'][number]
 ): HTMLLabelElement | HTMLDivElement {
     const versions = formatVersions(entry.versions);
     const label = versions ? `${entry.kind} ${versions}` : entry.kind;
     const sizeText = getAvailableSizeText(entry);
-    const existingQueueItem = getDownloadItem(
-        queue,
-        group.family,
-        entry.kind,
-        entry.titleId
-    );
+    const downloadProgress =
+        options?.getDownloadProgress(group.family, entry.kind, entry.titleId) ??
+        null;
 
-    if (existingQueueItem) {
+    if (downloadProgress !== null) {
         const row = document.createElement('div');
-        row.className = `sidebar-download-row sidebar-storage-copy-row sidebar-download-row-${existingQueueItem.state}`;
+        row.className = 'sidebar-download-row sidebar-storage-copy-row';
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -379,7 +291,7 @@ function renderDownloadAvailabilityRow(
         const progress = document.createElement('span');
         progress.className =
             'sidebar-storage-validation-state sidebar-download-progress';
-        progress.textContent = formatDownloadProgress(existingQueueItem);
+        progress.textContent = downloadProgress;
 
         row.append(checkbox, slot, titleId, progress);
         return row;
@@ -532,15 +444,15 @@ function renderLocalCopyRow(
         checkbox.dataset.sizeText = formatSize(entry.sizeBytes);
         checkbox.dataset.totalBytes = String(entry.sizeBytes);
 
-        const existingDownload = getDownloadItem(
-            options?.downloads ?? [],
-            downloadData.group.family,
-            entry.kind,
-            entry.titleId
-        );
-        if (existingDownload) {
+        const downloadProgress =
+            options?.getDownloadProgress(
+                downloadData.group.family,
+                entry.kind,
+                entry.titleId
+            ) ?? null;
+        if (downloadProgress !== null) {
             checkbox.disabled = true;
-            row.title = formatDownloadProgress(existingDownload);
+            row.title = downloadProgress;
         }
     }
 
@@ -660,49 +572,6 @@ function updateStorageCopyAvailability(
     }
 }
 
-function formatDeleteConfirmationEntry(entry: TitleEntry): string {
-    return formatTitleDisplay(
-        entry.name,
-        entry.titleId,
-        entry.kind,
-        entry.version
-    );
-}
-
-async function confirmAndQueueDeletes(
-    titleIds: string[],
-    entries: TitleEntry[],
-    deleteButton: HTMLButtonElement,
-    label = 'local'
-): Promise<void> {
-    if (titleIds.length === 0) {
-        return;
-    }
-
-    const selectedTitleIds = new Set(titleIds);
-    const selectedEntries = entries.filter((entry) =>
-        selectedTitleIds.has(entry.titleId)
-    );
-    const selectedText = selectedEntries
-        .map(formatDeleteConfirmationEntry)
-        .join('\n');
-    const confirmed = window.confirm(
-        selectedEntries.length === 1
-            ? `Delete this ${label} title?\n\n${selectedText}`
-            : `Delete these ${selectedEntries.length} ${label} titles?\n\n${selectedText}`
-    );
-    if (!confirmed) {
-        return;
-    }
-
-    deleteButton.disabled = true;
-    try {
-        await Promise.all(titleIds.map((titleId) => queueDelete(titleId)));
-    } finally {
-        deleteButton.disabled = false;
-    }
-}
-
 function getKindSortValue(kind: TitleKinds): number {
     switch (kind) {
         case TitleKinds.Base:
@@ -728,22 +597,15 @@ function renderDetailSection(title: string, action?: HTMLElement): HTMLElement {
     return heading;
 }
 
-function queueSelectedDownloads(
-    group: TitleGroup,
-    list: HTMLElement,
-    downloads: DownloadQueueItem[]
-): DownloadQueueItem[] {
+function queueSelectedDownloads(group: TitleGroup, list: HTMLElement): void {
     const hasSelection =
         list.querySelectorAll('.sidebar-download-checkbox:checked').length > 0;
 
-    const addedItems = queueDownloads(
-        downloads,
-        collectSelectedDownloads(list, hasSelection)
-    );
+    options?.queueSelectedDownloads(list, hasSelection);
+    options?.onActionsChanged();
 
     const body = document.querySelector('.sidebar-body');
     body?.replaceChildren(renderGroupDetailContent(group));
-    return addedItems;
 }
 
 function hasDownloadableCheckboxes(list: HTMLElement): boolean {
@@ -763,8 +625,7 @@ function getActiveDownloadCheckboxes(
 function renderAvailableActions(
     group: TitleGroup,
     list: HTMLElement,
-    entries: TitleGroup['availableEntries'],
-    downloads: DownloadQueueItem[]
+    entries: TitleGroup['availableEntries']
 ): HTMLElement {
     const actions = document.createElement('div');
     actions.className = 'sidebar-download-actions sidebar-available-actions';
@@ -794,7 +655,7 @@ function renderAvailableActions(
 
     list.addEventListener('change', updateDownloadButton);
     downloadButton.addEventListener('click', () => {
-        queueSelectedDownloads(group, list, downloads);
+        queueSelectedDownloads(group, list);
         updateDownloadButton();
     });
 
@@ -805,8 +666,7 @@ function renderAvailableActions(
 function renderInvalidActions(
     group: TitleGroup,
     list: HTMLElement,
-    entries: TitleEntry[],
-    downloads: DownloadQueueItem[]
+    entries: TitleEntry[]
 ): HTMLElement {
     const actions = document.createElement('div');
     actions.className = 'sidebar-download-actions sidebar-invalid-actions';
@@ -842,7 +702,7 @@ function renderInvalidActions(
     list.addEventListener('change', updateButtons);
 
     downloadButton.addEventListener('click', () => {
-        queueSelectedDownloads(group, list, downloads);
+        queueSelectedDownloads(group, list);
         updateButtons();
     });
 
@@ -853,7 +713,7 @@ function renderInvalidActions(
                     .length > 0;
             const titleIds = getSelectedDownloadedTitleIds(list, hasSelection);
 
-            await confirmAndQueueDeletes(
+            await options?.confirmAndQueueDeletes(
                 titleIds,
                 entries,
                 deleteButton,
@@ -870,83 +730,6 @@ function formatVersions(versions: number[]): string {
     return versions.length > 0
         ? versions.map((version) => `v${version}`).join(', ')
         : '';
-}
-
-function renderWudContent(group: TitleGroup): {
-    content: HTMLElement;
-    convertButton: HTMLButtonElement;
-} {
-    const content = document.createElement('div');
-    content.className = 'sidebar-download-content sidebar-wud-content';
-    const titles = group.wudEntries.flatMap((entry) => entry.titles);
-    const baseTitle = titles.find(
-        (title) => classifyTitleId(title.titleId).kind === TitleKinds.Base
-    );
-    const conversionTitle = baseTitle ?? titles[0];
-
-    const convertButton = document.createElement('button');
-    convertButton.className = 'sidebar-button';
-    convertButton.type = 'button';
-    convertButton.textContent = 'Convert';
-    convertButton.disabled = getBusyKinds(group).has(TitleKinds.Base);
-    convertButton.title = 'Convert the disc image to installable title content';
-    convertButton.addEventListener('click', () => {
-        if (!conversionTitle || convertButton.disabled) {
-            return;
-        }
-
-        convertButton.disabled = true;
-        void queueLibraryConvert(conversionTitle.titleId).catch((error) => {
-            console.error(error);
-            convertButton.disabled = false;
-        });
-    });
-
-    const list = document.createElement('div');
-    list.className = 'sidebar-download-list';
-    const renderWudRow = (
-        label: string,
-        title: WudTitleEntry['titles'][number] | undefined
-    ): HTMLElement => {
-        const row = document.createElement('div');
-        row.className = 'sidebar-download-row sidebar-wud-row';
-        row.classList.add('sidebar-wud-row-muted');
-
-        const checkboxSpace = document.createElement('span');
-
-        const slot = document.createElement('span');
-        slot.className = 'sidebar-download-slot';
-        slot.textContent = title ? `${label} v${title.version}` : label;
-
-        const id = document.createElement('span');
-        id.className = 'sidebar-download-id';
-        id.textContent = title?.titleId ?? '-';
-        id.title = title?.titleId ?? '';
-
-        row.append(checkboxSpace, slot, id);
-        return row;
-    };
-
-    const updateTitle = titles.find(
-        (title) => classifyTitleId(title.titleId).kind === TitleKinds.Update
-    );
-    const dlcTitle = titles.find(
-        (title) => classifyTitleId(title.titleId).kind === TitleKinds.DLC
-    );
-
-    const rows = [
-        ['Base', baseTitle],
-        ['Update', updateTitle],
-        ['DLC', dlcTitle],
-    ] as const;
-    for (const [label, title] of rows) {
-        if (title) {
-            list.append(renderWudRow(label, title));
-        }
-    }
-
-    content.append(list);
-    return { content, convertButton };
 }
 
 export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
@@ -995,11 +778,16 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
         .sort((a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind));
 
     if (group.wudEntries.length > 0) {
-        const wud = renderWudContent(group);
-        availability.append(
-            renderDetailSection('WUD', wud.convertButton),
-            wud.content
+        const wud = detailOptions?.renderWud(
+            group,
+            getBusyKinds(group).has(TitleKinds.Base)
         );
+        if (wud) {
+            availability.append(
+                renderDetailSection('WUD', wud.action),
+                wud.content
+            );
+        }
     }
 
     if (localEntries.length > 0) {
@@ -1094,6 +882,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
                 });
         }
 
+        const queueStorageCopy = detailOptions?.queueStorageCopy;
         copyButton.addEventListener('click', () => {
             void (async () => {
                 const hasSelection =
@@ -1106,16 +895,20 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
                 );
                 const destination = destinationSelect.value;
 
-                if (titleIds.length === 0 || !destination) {
+                if (
+                    titleIds.length === 0 ||
+                    !destination ||
+                    !queueStorageCopy
+                ) {
                     return;
                 }
 
                 copyButton.disabled = true;
                 try {
                     await Promise.all(
-                        titleIds.map((titleId) => {
-                            return queueStorageCopy(titleId, destination);
-                        })
+                        titleIds.map((titleId) =>
+                            queueStorageCopy(titleId, destination)
+                        )
                     );
                 } finally {
                     copyButton.disabled =
@@ -1135,7 +928,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
                     hasSelection
                 );
 
-                await confirmAndQueueDeletes(
+                await detailOptions?.confirmAndQueueDeletes(
                     titleIds,
                     localEntries,
                     deleteButton
@@ -1169,12 +962,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
             'sidebar-download-content sidebar-invalid-content';
         invalidContent.append(
             invalidList,
-            renderInvalidActions(
-                group,
-                invalidList,
-                invalidEntries,
-                detailOptions?.downloads ?? []
-            )
+            renderInvalidActions(group, invalidList, invalidEntries)
         );
 
         availability.append(renderDetailSection('Invalid'), invalidContent);
@@ -1207,13 +995,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
         availableList.className = 'sidebar-download-list';
 
         for (const entry of availableEntries) {
-            availableList.append(
-                renderDownloadAvailabilityRow(
-                    detailOptions?.downloads ?? [],
-                    group,
-                    entry
-                )
-            );
+            availableList.append(renderDownloadAvailabilityRow(group, entry));
         }
 
         const availableContent = document.createElement('div');
@@ -1221,12 +1003,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
             'sidebar-download-content sidebar-available-content';
         availableContent.append(
             availableList,
-            renderAvailableActions(
-                group,
-                availableList,
-                availableEntries,
-                detailOptions?.downloads ?? []
-            )
+            renderAvailableActions(group, availableList, availableEntries)
         );
 
         availability.append(renderDetailSection('Available'), availableContent);
@@ -1239,86 +1016,11 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
 }
 
 function requestTitleValidation(titleId: string, name: string): void {
-    sendAppSocketCommand({
-        type: TITLE_VALIDATE_SOCKET_COMMAND.queue,
-        titleId,
-        name,
-    });
+    options?.requestTitleValidation(titleId, name);
 }
 
 export function requestTitleValidations(group: TitleGroup): void {
     for (const entry of group.entries) {
         requestTitleValidation(entry.titleId, entry.name);
     }
-}
-
-function validationToAvailableEntry(
-    title: LibraryValidateTitle
-): AvailableTitleEntry | null {
-    if (
-        title.status !== 'failed' ||
-        title.titleId === null ||
-        !isAvailableEntryKind(title.kind)
-    ) {
-        return null;
-    }
-
-    return createAvailableEntry({
-        titleId: title.titleId,
-        name: title.name,
-        region: null,
-        iconUrl: null,
-        version: title.version ?? 0,
-        kind: title.kind,
-        sizeBytes: 0,
-        copyCount: 1,
-    });
-}
-
-export function mergeFailedValidationsIntoAvailable(
-    groups: TitleGroup[],
-    titles: LibraryValidateTitle[]
-): TitleGroup[] {
-    const changedGroups: TitleGroup[] = [];
-
-    for (const title of titles) {
-        const entry = validationToAvailableEntry(title);
-
-        if (!entry) {
-            continue;
-        }
-
-        const family = classifyTitleId(entry.titleId).family;
-        const group = groups.find(
-            (candidate) => candidate.family.toLowerCase() === family
-        );
-
-        if (!group) {
-            console.warn('No group found for failed validation', {
-                titleId: entry.titleId,
-                family,
-                title,
-            });
-            continue;
-        }
-
-        // Remove the failed entry from group.entries so it no longer
-        // appears in the Downloaded section or influences status computation.
-        const entryIndex = group.entries.findIndex(
-            (candidate) =>
-                candidate.kind === entry.kind &&
-                candidate.titleId.toLowerCase() === entry.titleId
-        );
-        if (entryIndex !== -1) {
-            group.entries.splice(entryIndex, 1);
-        }
-
-        addAvailableEntry(group, entry);
-
-        if (!changedGroups.includes(group)) {
-            changedGroups.push(group);
-        }
-    }
-
-    return changedGroups;
 }

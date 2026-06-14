@@ -2,13 +2,9 @@ import { type DeleteItem } from '../shared/delete.js';
 import { formatActionState, formatActionStateIcon } from '../shared/action.js';
 import { requestJson, type DeleteQueuedResponse } from '../shared/api.js';
 import { DELETE_SOCKET_COMMAND } from '../shared/socket.js';
-import {
-    createActionBarCell,
-    createActionBarRow,
-    createActionButton,
-    updateActionBar,
-} from './actionbar.js';
 import { sendAppSocketCommand } from './app-socket.js';
+import { formatTitleDisplay } from '../shared/shared.js';
+import { type TitleEntry } from '../shared/titles.js';
 
 export function syncDeletes(
     deletes: DeleteItem[],
@@ -28,13 +24,55 @@ export function syncDeletes(
         );
     });
 
-    updateActionBar();
     return completedItems;
+}
+
+export function getCompletedDeletedTitleIds(items: DeleteItem[]): string[] {
+    return items
+        .filter((item) => item.state === 'complete')
+        .map((item) => item.titleId);
 }
 
 export function queueDelete(titleId: string): Promise<DeleteQueuedResponse> {
     const params = new URLSearchParams({ titleId });
     return requestJson(`/api/delete?${params}`);
+}
+
+export async function confirmAndQueueDeletes(
+    titleIds: string[],
+    entries: TitleEntry[],
+    button: HTMLButtonElement,
+    label = 'local'
+): Promise<void> {
+    const selected = new Set(titleIds);
+    const selectedEntries = entries.filter((entry) =>
+        selected.has(entry.titleId)
+    );
+    if (selectedEntries.length === 0) return;
+
+    const names = selectedEntries
+        .map((entry) =>
+            formatTitleDisplay(
+                entry.name,
+                entry.titleId,
+                entry.kind,
+                entry.version
+            )
+        )
+        .join('\n');
+    const confirmed = window.confirm(
+        selectedEntries.length === 1
+            ? `Delete this ${label} title?\n\n${names}`
+            : `Delete these ${selectedEntries.length} ${label} titles?\n\n${names}`
+    );
+    if (!confirmed) return;
+
+    button.disabled = true;
+    try {
+        await Promise.all(titleIds.map(queueDelete));
+    } finally {
+        button.disabled = false;
+    }
 }
 
 export function formatDeleteProgress(item: DeleteItem): string {
@@ -76,81 +114,67 @@ export function formatDeleteDetails(item: DeleteItem): string {
     return item.message ?? formatDeleteState(item);
 }
 
-export function renderDeleteActionRow(item: DeleteItem): HTMLElement {
-    const progress = createActionBarCell(
-        'action-bar-progress',
-        formatDeleteProgress(item)
-    );
-    progress.dataset.deleteProgress = 'true';
+export function getDeleteActionBarEntries(items: DeleteItem[]) {
+    return items.map((item) => {
+        const terminal =
+            item.state === 'complete' || item.state === 'cancelled';
 
-    const files = createActionBarCell('action-bar-files', '');
-
-    const icon = createActionBarCell('action-bar-icon', formatDeleteIcon(item));
-    icon.dataset.deleteIcon = 'true';
-
-    const state = createActionBarCell(
-        'action-bar-state',
-        formatDeleteState(item)
-    );
-    state.dataset.deleteState = 'true';
-
-    const size = createActionBarCell('action-bar-size', '');
-
-    const title = createActionBarCell(
-        'action-bar-title',
-        formatDeleteTitle(item)
-    );
-    title.title = formatDeleteTitle(item);
-    title.dataset.deleteTitle = 'true';
-
-    const detailsCell = renderDeleteControls(item);
-
-    return createActionBarRow({
-        id: item.id,
-        state: item.state,
-        cells: [progress, files, icon, state, size, title, detailsCell],
-        itemIdDataKey: 'deleteItemId',
+        const title = formatDeleteTitle(item);
+        return {
+            key: `delete:${item.id}`,
+            id: item.id,
+            state: item.state,
+            clearCommand: DELETE_SOCKET_COMMAND.clear,
+            cells: [
+                {
+                    className: 'action-bar-progress',
+                    text: formatDeleteProgress(item),
+                },
+                { className: 'action-bar-files', text: '' },
+                { className: 'action-bar-icon', text: formatDeleteIcon(item) },
+                {
+                    className: 'action-bar-state',
+                    text: formatDeleteState(item),
+                },
+                { className: 'action-bar-size', text: '' },
+                { className: 'action-bar-title', text: title, title },
+            ],
+            details: {
+                title: item.error ?? '',
+                buttons:
+                    item.state === 'failed'
+                        ? [
+                              {
+                                  text: 'Retry',
+                                  command: DELETE_SOCKET_COMMAND.retry,
+                              },
+                              {
+                                  text: 'Clear',
+                                  command: DELETE_SOCKET_COMMAND.clear,
+                              },
+                          ]
+                        : [
+                              {
+                                  text: terminal ? 'Clear' : 'Cancel',
+                                  command: terminal
+                                      ? DELETE_SOCKET_COMMAND.clear
+                                      : DELETE_SOCKET_COMMAND.cancel,
+                              },
+                          ],
+            },
+        };
     });
 }
 
-function renderDeleteControls(item: DeleteItem): HTMLDivElement {
-    const detailsCell = document.createElement('div');
-    detailsCell.className = 'action-bar-details-cell';
-
-    if (item.state === 'failed') {
-        detailsCell.classList.add('action-bar-controls');
-        detailsCell.title = item.error ?? '';
-        detailsCell.append(
-            createActionButton('Retry', DELETE_SOCKET_COMMAND.retry, item.id),
-            createActionButton('Clear', DELETE_SOCKET_COMMAND.clear, item.id)
-        );
-        return detailsCell;
-    }
-
-    if (item.state === 'queued' || item.state === 'in-progress') {
-        detailsCell.classList.add('action-bar-controls');
-        detailsCell.append(
-            createActionButton('Cancel', DELETE_SOCKET_COMMAND.cancel, item.id)
-        );
-        return detailsCell;
-    }
-
-    if (item.state === 'complete' || item.state === 'cancelled') {
-        detailsCell.classList.add('action-bar-controls');
-        detailsCell.append(
-            createActionButton('Clear', DELETE_SOCKET_COMMAND.clear, item.id)
-        );
-        return detailsCell;
-    }
-
-    const detailsText = formatDeleteDetails(item);
-    const detailsTextElement = document.createElement('span');
-    detailsTextElement.className = 'action-bar-control-text';
-    detailsTextElement.title = detailsText;
-    detailsTextElement.textContent = detailsText;
-    detailsTextElement.dataset.deleteDetail = 'true';
-    detailsCell.append(detailsTextElement);
-    return detailsCell;
+export function handleDeleteActionBarCommand(
+    action: string,
+    itemId: string
+): boolean {
+    if (action === DELETE_SOCKET_COMMAND.cancel) cancelDelete(itemId);
+    else if (action === DELETE_SOCKET_COMMAND.retry) retryDelete(itemId);
+    else if (action === DELETE_SOCKET_COMMAND.clear) clearDelete(itemId);
+    else return false;
+    return true;
 }
 
 export function retryDelete(itemId: string): void {

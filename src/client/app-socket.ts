@@ -17,9 +17,9 @@ import {
 } from '../shared/socket.js';
 import { type TitleGroup } from '../shared/titles.js';
 import { syncDownloadQueue } from './download.js';
-import { markStorageCopiesComplete, markDeletesComplete } from './library.js';
-import { syncDeletes } from './delete.js';
-import { syncStorageCopies } from './storage.js';
+import { removeTitlesFromLibrary } from './library.js';
+import { getCompletedDeletedTitleIds, syncDeletes } from './delete.js';
+import { getCompletedMovedTitleIds, syncStorageCopies } from './storage.js';
 
 type AppSocketOptions = {
     reconnectMs: number;
@@ -43,7 +43,6 @@ type AppEventOptions = {
     ) => void;
     onLibraryValidateChanged: (event: LibraryValidateStatusEvent) => void;
     onTitleValidationChanged: (event: TitleValidationSocketEvent) => void;
-    onDownloadComplete?: (item: DownloadQueueItem) => void;
 };
 
 let appSocket: WebSocket | null = null;
@@ -121,11 +120,13 @@ export function connectAppSocket(options: AppSocketOptions): void {
 export function createAppEventHandler(
     options: AppEventOptions
 ): (event: SocketEvent) => void {
-    const getStorageCompletionOptions = () => ({
-        groups: options.getGroups(),
-        haystacks: options.haystacks,
-        onGroupChanged: options.onGroupChanged,
-    });
+    const reconcileRemovedTitles = (titleIds: string[]): void => {
+        removeTitlesFromLibrary(titleIds, {
+            groups: options.getGroups(),
+            haystacks: options.haystacks,
+            onGroupChanged: options.onGroupChanged,
+        });
+    };
 
     const handle = (event: SocketEvent): void => {
         switch (event.type) {
@@ -137,19 +138,21 @@ export function createAppEventHandler(
                     event.downloads,
                     options.haystacks,
                     options.getGroups(),
-                    options.onDownloadComplete
+                    options.onGroupChanged
                 );
 
-                markStorageCopiesComplete(
-                    syncStorageCopies(
-                        options.storageCopies,
-                        event.storageCopies
-                    ),
-                    getStorageCompletionOptions()
+                reconcileRemovedTitles(
+                    getCompletedMovedTitleIds(
+                        syncStorageCopies(
+                            options.storageCopies,
+                            event.storageCopies
+                        )
+                    )
                 );
-                markDeletesComplete(
-                    syncDeletes(options.deletes, event.deletes),
-                    getStorageCompletionOptions()
+                reconcileRemovedTitles(
+                    getCompletedDeletedTitleIds(
+                        syncDeletes(options.deletes, event.deletes)
+                    )
                 );
 
                 if (event.libraryValidateStatus) {
@@ -166,25 +169,27 @@ export function createAppEventHandler(
                     event.items,
                     options.haystacks,
                     options.getGroups(),
-                    options.onDownloadComplete
+                    options.onGroupChanged
                 );
                 options.onActionsChanged?.();
                 return;
 
             case STORAGE_COPY_SOCKET_EVENT.changed:
                 options.onServerAvailable();
-                markStorageCopiesComplete(
-                    syncStorageCopies(options.storageCopies, event.items),
-                    getStorageCompletionOptions()
+                reconcileRemovedTitles(
+                    getCompletedMovedTitleIds(
+                        syncStorageCopies(options.storageCopies, event.items)
+                    )
                 );
                 options.onActionsChanged?.();
                 return;
 
             case DELETE_SOCKET_EVENT.changed:
                 options.onServerAvailable();
-                markDeletesComplete(
-                    syncDeletes(options.deletes, event.items),
-                    getStorageCompletionOptions()
+                reconcileRemovedTitles(
+                    getCompletedDeletedTitleIds(
+                        syncDeletes(options.deletes, event.items)
+                    )
                 );
                 options.onActionsChanged?.();
                 return;

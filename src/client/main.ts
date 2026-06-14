@@ -1,20 +1,20 @@
-import { getLibrary, listFat32Volumes, validateLibrary } from './api.js';
-import { renderDownloadMarkers } from './download.js';
+import {
+    getLibrary,
+    listFat32Volumes,
+    queueLibraryConvert,
+    queueStorageCopy,
+    validateLibrary,
+} from './api.js';
 import { type StorageFat32ListResponse } from '../shared/api.js';
 import {
     type LibraryConvertItem,
     type TitleValidationSocketEvent,
     type LibraryValidateStatusEvent,
     LIBRARY_VALIDATE_SOCKET_EVENT,
+    TITLE_VALIDATE_SOCKET_COMMAND,
 } from '../shared/socket.js';
 import { type DeleteItem } from '../shared/delete.js';
 import { type StorageCopyItem } from '../shared/storage.js';
-import {
-    createActionBarCommandHandler,
-    mountActionBar,
-    syncLibraryConvertActions,
-    setLibraryValidateAction,
-} from './actionbar.js';
 import { type TitleGroup, TitleKinds } from '../shared/titles.js';
 import { type DownloadQueueItem } from '../shared/download.js';
 import { formatSize } from '../shared/shared.js';
@@ -23,25 +23,16 @@ import { isWindowsPath } from '../shared/os/path.js';
 import {
     addAvailableEntry,
     createAvailableEntry,
+    isValidationFailed,
+    mergeFailedValidationsIntoAvailable,
+    syncLibraryValidateActions,
     syncGroupStatusFromSlots,
 } from './library.js';
 import {
-    closeSettingsSidebar,
-    isSettingsOpen,
-    openSettingsSidebar,
-    setupSettingsSidebar,
-} from './settings.js';
-import { connectAppSocket, createAppEventHandler } from './app-socket.js';
-import {
-    setupSidebar,
-    mergeFailedValidationsIntoAvailable,
-    isValidationFailed,
-    closeDetailSidebar,
-    getSelectedDetailFamily,
-    hasOpenDetailFamily,
-    refreshOpenDetailSidebarForGroup,
-    resetDetailSidebars,
-} from './sidebar.js';
+    connectAppSocket,
+    createAppEventHandler,
+    sendAppSocketCommand,
+} from './app-socket.js';
 import logger from '../shared/logger.js';
 import {
     buildTitlesContent,
@@ -50,10 +41,17 @@ import {
     getCurrentTitleGroups,
     invalidateTitleSearch,
     setTitlesStatus,
-    setupTitles,
     titleSearchHaystacks,
     updateRenderedTitleGroup,
 } from './titles.js';
+import {
+    refreshActionBar,
+    refreshActionsAndSelectedSidebar,
+    refreshDetailSidebarForGroup,
+    refreshTitleGroupUi,
+    resetUiDetailSidebars,
+    setupUi,
+} from './ui.js';
 
 declare const __APP_VERSION__: string;
 const SOCKET_RECONNECT_MS = 2000;
@@ -69,25 +67,6 @@ const downloadQueue: DownloadQueueItem[] = [];
 const storageCopies: StorageCopyItem[] = [];
 const deletes: DeleteItem[] = [];
 const titleValidations = new Map<string, TitleValidationSocketEvent>();
-
-function handleTitleGroupChanged(group: TitleGroup): void {
-    updateRenderedTitleGroup(group);
-    refreshOpenDetailSidebarForGroup(group);
-}
-
-function refreshSelectedDetailSidebar(): void {
-    const selectedFamily = getSelectedDetailFamily();
-    if (!selectedFamily) {
-        return;
-    }
-
-    const group = getCurrentTitleGroups().find(
-        (candidate) => candidate.family === selectedFamily
-    );
-    if (group) {
-        refreshOpenDetailSidebarForGroup(group);
-    }
-}
 
 function reconcileCompletedLibraryConversions(
     previousItems: Map<string, LibraryConvertItem>,
@@ -140,7 +119,7 @@ function reconcileCompletedLibraryConversions(
         group.entries.sort((a, b) => b.version - a.version);
         invalidateTitleSearch(group);
         syncGroupStatusFromSlots(group);
-        handleTitleGroupChanged(group);
+        refreshTitleGroupUi(group);
     }
 }
 
@@ -247,7 +226,7 @@ async function loadLibrary(output: HTMLElement): Promise<void> {
 
     libraryLoading = true;
     setTitlesStatus({ loading: true });
-    resetDetailSidebars();
+    resetUiDetailSidebars();
 
     output.replaceChildren(
         buildTitlesContent(allLibraryGroups, [], { loading: true })
@@ -303,11 +282,12 @@ async function validateLibraryContent(): Promise<void> {
 
     validatingLibrary = true;
     setTitlesStatus({ validating: true });
-    setLibraryValidateAction({
+    syncLibraryValidateActions(libraryValidations, {
         type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
         state: 'in-progress',
         status: 'started',
     });
+    refreshActionBar();
 
     try {
         const response = await validateLibrary();
@@ -318,16 +298,17 @@ async function validateLibraryContent(): Promise<void> {
         );
         for (const group of changedGroups) {
             syncGroupStatusFromSlots(group);
-            handleTitleGroupChanged(group);
+            refreshTitleGroupUi(group);
         }
     } catch (error) {
         console.error(error);
-        setLibraryValidateAction({
+        syncLibraryValidateActions(libraryValidations, {
             type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
             state: 'failed',
             status: 'failed',
             error: error instanceof Error ? error.message : String(error),
         });
+        refreshActionBar();
     } finally {
         validatingLibrary = false;
         setTitlesStatus({ validating: false });
@@ -342,83 +323,6 @@ async function refreshLibrary(): Promise<void> {
     }
 
     await loadLibrary(output);
-}
-
-function setupSidebars(): void {
-    document.addEventListener('keydown', (event) => {
-        if (event.key !== 'Escape') {
-            return;
-        }
-
-        if (isSettingsOpen()) {
-            closeSettingsSidebar();
-            return;
-        }
-
-        if (hasOpenDetailFamily()) {
-            const detailSidebar =
-                document.querySelector<HTMLElement>('.sidebar');
-            if (detailSidebar && !detailSidebar.hidden) {
-                closeDetailSidebar(detailSidebar);
-            }
-        }
-    });
-
-    setupSettingsSidebar(
-        document.querySelector<HTMLElement>('#settings-root'),
-        {
-            onRootsChanged: () => {
-                void refreshLibrary();
-            },
-        }
-    );
-    setupSidebar({
-        downloads: downloadQueue,
-        deletes,
-        storageCopies,
-        libraryConversions,
-        titleValidations,
-        populateFat32DeviceSelect,
-    });
-    setupTitles({
-        downloads: downloadQueue,
-        onRefresh: refreshLibrary,
-        onValidate: validateLibraryContent,
-        onOpenSettings: openSettingsSidebar,
-        renderDownloadMarkers: () => renderDownloadMarkers(downloadQueue),
-    });
-    resetDetailSidebars();
-}
-
-function setTheme(darkMode: boolean, save = false): void {
-    const lightIcon = document.getElementById('theme-icon-light');
-    const darkIcon = document.getElementById('theme-icon-dark');
-
-    document.documentElement.dataset.theme = darkMode ? 'dark' : 'light';
-
-    if (save) {
-        localStorage.theme = document.documentElement.dataset.theme;
-    }
-
-    if (lightIcon) lightIcon.hidden = !darkMode;
-    if (darkIcon) darkIcon.hidden = darkMode;
-}
-
-function setupTheme(): void {
-    const prefers = window.matchMedia('(prefers-color-scheme: dark)');
-    const savedTheme = localStorage.getItem('theme');
-
-    setTheme(savedTheme ? savedTheme === 'dark' : prefers.matches);
-
-    prefers.addEventListener('change', (e) => {
-        if (!localStorage.getItem('theme')) {
-            setTheme(e.matches);
-        }
-    });
-
-    document.getElementById('theme-toggle')?.addEventListener('click', () => {
-        setTheme(document.documentElement.dataset.theme !== 'dark', true);
-    });
 }
 
 function setupVersion(): void {
@@ -440,19 +344,6 @@ async function loadInitialData(): Promise<void> {
     await Promise.all([getFat32Devices(), refreshLibrary()]);
 }
 
-window.addEventListener('pageshow', resetDetailSidebars);
-
-mountActionBar({
-    downloads: downloadQueue,
-    storageCopies,
-    deletes: deletes,
-    libraryValidations,
-    libraryConversions,
-    onCommand: createActionBarCommandHandler({
-        downloads: downloadQueue,
-    }),
-});
-
 connectAppSocket({
     reconnectMs: SOCKET_RECONNECT_MS,
     onAvailable: hideServerGoneModal,
@@ -464,23 +355,25 @@ connectAppSocket({
         haystacks: titleSearchHaystacks,
         getGroups: getCurrentTitleGroups,
         onServerAvailable: hideServerGoneModal,
-        onGroupChanged: handleTitleGroupChanged,
+        onGroupChanged: refreshTitleGroupUi,
         onValidationStateChanged(validating) {
             validatingLibrary = validating;
             setTitlesStatus({ validating });
         },
         onLibraryValidateChanged(event) {
-            setLibraryValidateAction(event);
+            syncLibraryValidateActions(libraryValidations, event);
+            refreshActionBar();
         },
         onLibraryConvertChanged(items) {
             const previousItems = new Map(
                 libraryConversions.map((item) => [item.id, item])
             );
-            syncLibraryConvertActions(items);
+            libraryConversions.splice(0, libraryConversions.length, ...items);
+            refreshActionBar();
             reconcileCompletedLibraryConversions(previousItems, items);
         },
         onActionsChanged() {
-            refreshSelectedDetailSidebar();
+            refreshActionsAndSelectedSidebar();
         },
         onTitleValidationChanged(event) {
             titleValidations.set(event.titleId, event);
@@ -541,7 +434,7 @@ connectAppSocket({
                     }
                 }
 
-                refreshOpenDetailSidebarForGroup(group);
+                refreshDetailSidebarForGroup(group);
             }
         },
     }),
@@ -549,9 +442,27 @@ connectAppSocket({
 
 logger.log('client', 'Client initialized');
 
-setupSidebars();
+setupUi({
+    downloads: downloadQueue,
+    storageCopies,
+    deletes,
+    libraryValidations,
+    libraryConversions,
+    titleValidations,
+    onRefreshLibrary: refreshLibrary,
+    onValidateLibrary: validateLibraryContent,
+    queueStorageCopy,
+    queueLibraryConvert,
+    requestTitleValidation(titleId, name) {
+        sendAppSocketCommand({
+            type: TITLE_VALIDATE_SOCKET_COMMAND.queue,
+            titleId,
+            name,
+        });
+    },
+    populateFat32DeviceSelect,
+});
 
 setupVersion();
-void setupTheme();
 
 void loadInitialData();

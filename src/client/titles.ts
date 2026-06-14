@@ -10,11 +10,6 @@ import {
     VirtualConsolePlatform,
 } from '../shared/titles.js';
 import {
-    buildDetailSidebar,
-    getSelectedDetailFamily,
-    toggleDetailSidebar,
-} from './sidebar.js';
-import {
     getBaseBadgeState,
     getChildBadgeState,
     getEntry,
@@ -35,6 +30,9 @@ type TitlesOptions = {
     onValidate: () => void | Promise<void>;
     onOpenSettings: () => void;
     renderDownloadMarkers: () => void;
+    buildDetailSidebar: () => HTMLElement;
+    getSelectedDetailFamily: () => string | null;
+    toggleDetailSidebar: (sidebar: HTMLElement, group: TitleGroup) => void;
 };
 type RenderTitlesOptions = {
     loading?: boolean;
@@ -472,8 +470,8 @@ function renderGroups(
         )) {
             const element = renderGroup(
                 group,
-                (selected) => toggleDetailSidebar(sidebar, selected),
-                getSelectedDetailFamily()
+                (selected) => options?.toggleDetailSidebar(sidebar, selected),
+                options?.getSelectedDetailFamily() ?? null
             );
             if (element) fragment.append(element);
         }
@@ -727,7 +725,8 @@ export function buildTitlesContent(
     const fragment = document.createDocumentFragment();
     const grid = document.createElement('div');
     grid.className = 'library-grid';
-    const sidebar = buildDetailSidebar();
+    const sidebar =
+        options?.buildDetailSidebar() ?? document.createElement('aside');
     const controls = buildControls(allGroups, groups, grid, sidebar);
     const loadingLine = document.createElement('div');
     loadingLine.className = 'library-loading';
