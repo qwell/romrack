@@ -1,6 +1,8 @@
 import { type DownloadQueueItem } from '../shared/download.js';
-import { type DeleteItem } from '../shared/delete.js';
-import { type StorageCopyItem } from '../shared/storage.js';
+import {
+    type StorageCopyItem,
+    type StorageDeleteItem,
+} from '../shared/storage.js';
 import {
     type SocketCommand,
     type SocketEvent,
@@ -10,7 +12,7 @@ import {
     APP_SOCKET_EVENT,
     DOWNLOAD_SOCKET_EVENT,
     STORAGE_COPY_SOCKET_EVENT,
-    DELETE_SOCKET_EVENT,
+    STORAGE_DELETE_SOCKET_EVENT,
     LIBRARY_CONVERT_SOCKET_EVENT,
     LIBRARY_VERIFY_SOCKET_EVENT,
     TITLE_VALIDATE_SOCKET_EVENT,
@@ -18,8 +20,7 @@ import {
 import { type TitleGroup } from '../shared/titles.js';
 import { syncDownloadQueue } from './download.js';
 import { removeTitlesFromLibrary } from './library.js';
-import { syncDeletes } from './delete.js';
-import { syncStorageCopies } from './storage.js';
+import { syncStorageCopies, syncStorageDeletes } from './storage.js';
 
 type AppSocketOptions = {
     reconnectMs: number;
@@ -31,7 +32,7 @@ type AppSocketOptions = {
 type AppEventOptions = {
     downloads: DownloadQueueItem[];
     storageCopies: StorageCopyItem[];
-    deletes: DeleteItem[];
+    storageDeletes: StorageDeleteItem[];
     haystacks: WeakMap<TitleGroup, string>;
     getGroups: () => TitleGroup[];
     onServerAvailable: () => void;
@@ -148,7 +149,10 @@ export function createAppEventHandler(
                     )
                 );
                 reconcileRemovedTitles(
-                    syncDeletes(options.deletes, event.deletes)
+                    syncStorageDeletes(
+                        options.storageDeletes,
+                        event.storageDeletes
+                    )
                 );
 
                 if (event.libraryVerifyStatus) {
@@ -178,10 +182,10 @@ export function createAppEventHandler(
                 options.onActionsChanged?.();
                 return;
 
-            case DELETE_SOCKET_EVENT.changed:
+            case STORAGE_DELETE_SOCKET_EVENT.changed:
                 options.onServerAvailable();
                 reconcileRemovedTitles(
-                    syncDeletes(options.deletes, event.items)
+                    syncStorageDeletes(options.storageDeletes, event.items)
                 );
                 options.onActionsChanged?.();
                 return;

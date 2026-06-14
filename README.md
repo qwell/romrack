@@ -140,18 +140,18 @@ yarn generate:titles
 - `GET /api/storage/list-fat32`: List FAT32 storage destinations. On WSL, unmounted Windows-only drives are returned for display but must be mounted in WSL before use.
 - `GET /api/storage/copy?titleId=...&dest=...`: Queue a local title copy to a FAT32 destination.
 - `GET /api/storage/move?titleId=...&dest=...`: Queue a local title move to a FAT32 destination and remove the local source after a successful copy.
-- `GET /api/delete?titleId=...`: Queue deletion of all local copies for a title ID.
+- `GET /api/storage/delete?titleId=...`: Queue deletion of all local copies for a title ID.
 
 ## WebSocket API
 
-The browser connects to `/api/socket`. On connection the server sends an `app.connected` event with the current state (downloads, storage copies, deletes, and optional library verification status).
+The browser connects to `/api/socket`. On connection the server sends an `app.connected` event with the current state (downloads, storage copies, storage deletes, and optional library verification status).
 
 Server events:
 
-- `app.connected`: Initial app state payload (downloads, storageCopies, deletes, libraryVerifyStatus, libraryConversions).
+- `app.connected`: Initial app state payload (downloads, storageCopies, storageDeletes, libraryVerifyStatus, libraryConversions).
 - `download.queueChanged`: Current download queue updates.
 - `storage.copyChanged`: Current storage copy/move queue updates.
-- `delete.changed`: Current delete queue updates.
+- `storage.delete.changed`: Current storage delete queue updates.
 - `library.verifyStatus`: Full library verification progress and status updates.
 - `library.convertChanged`: Current WUD/WUX conversion queue.
 - `title.validate.changed`: Size-only title validation progress and results.
@@ -165,8 +165,9 @@ Client commands:
 - `storage.copy.retry`: Retry a storage copy/move (payload: id).
 - `storage.copy.clear`: Clear a storage copy/move entry (payload: id).
 - `storage.copy.cancel`: Cancel an active storage copy/move (payload: id).
-- `delete.retry`: Retry a delete operation (payload: id).
-- `delete.clear`: Clear a delete entry (payload: id).
+- `storage.delete.retry`: Retry a storage delete operation (payload: id).
+- `storage.delete.clear`: Clear a storage delete entry (payload: id).
+- `storage.delete.cancel`: Cancel a storage delete operation (payload: id).
 - `library.verify.cancel`: Cancel an in-progress full library verification.
 - `library.verify.clear`: Clear current verification status.
 - `library.verify.download`: Queue downloads for verification failures.

@@ -1,12 +1,14 @@
 import { type StorageFat32ListResponse } from '../shared/api.js';
-import { type DeleteItem } from '../shared/delete.js';
 import { type DownloadQueueItem } from '../shared/download.js';
 import {
     type LibraryConvertItem,
     type LibraryVerifyStatusEvent,
     type TitleValidationSocketEvent,
 } from '../shared/socket.js';
-import { type StorageCopyItem } from '../shared/storage.js';
+import {
+    type StorageCopyItem,
+    type StorageDeleteItem,
+} from '../shared/storage.js';
 import { type TitleGroup, TitleKinds } from '../shared/titles.js';
 import { mountActionBar, updateActionBar } from './actionbar.js';
 import {
@@ -18,11 +20,6 @@ import {
     queueDownloads,
     renderDownloadMarkers,
 } from './download.js';
-import {
-    confirmAndQueueDeletes,
-    getDeleteActionBarEntries,
-    handleDeleteActionBarCommand,
-} from './delete.js';
 import {
     getLibraryConvertActionBarEntries,
     getLibraryVerifyActionBarEntries,
@@ -47,8 +44,11 @@ import {
     toggleDetailSidebar,
 } from './sidebar.js';
 import {
+    confirmAndQueueStorageDeletes,
     getStorageCopyActionBarEntries,
+    getStorageDeleteActionBarEntries,
     handleStorageCopyActionBarCommand,
+    handleStorageDeleteActionBarCommand,
 } from './storage.js';
 import {
     getCurrentTitleGroups,
@@ -60,7 +60,7 @@ import {
 type UiOptions = {
     downloads: DownloadQueueItem[];
     storageCopies: StorageCopyItem[];
-    deletes: DeleteItem[];
+    storageDeletes: StorageDeleteItem[];
     libraryVerifications: LibraryVerifyStatusEvent[];
     libraryConversions: LibraryConvertItem[];
     titleValidations: Map<string, TitleValidationSocketEvent>;
@@ -93,7 +93,7 @@ function getBusyKinds(options: UiOptions, group: TitleGroup): Set<TitleKinds> {
             busyKinds.add(item.kind);
         }
     }
-    for (const item of [...options.deletes, ...options.storageCopies]) {
+    for (const item of [...options.storageDeletes, ...options.storageCopies]) {
         if (item.titleId?.slice(8) !== group.family || !running(item.state)) {
             continue;
         }
@@ -110,7 +110,7 @@ function setupActionBar(options: UiOptions): void {
         getItems: () => [
             ...getDownloadActionBarEntries(options.downloads),
             ...getStorageCopyActionBarEntries(options.storageCopies),
-            ...getDeleteActionBarEntries(options.deletes),
+            ...getStorageDeleteActionBarEntries(options.storageDeletes),
             ...getLibraryVerifyActionBarEntries(
                 options.libraryVerifications,
                 options.downloads
@@ -130,7 +130,7 @@ function setupActionBar(options: UiOptions): void {
             if (handleStorageCopyActionBarCommand(action, itemId)) {
                 return;
             }
-            if (handleDeleteActionBarCommand(action, itemId)) {
+            if (handleStorageDeleteActionBarCommand(action, itemId)) {
                 return;
             }
             handleLibraryActionBarCommand(
@@ -191,7 +191,7 @@ function setupSidebars(options: UiOptions): void {
             );
         },
         getBusyKinds: (group) => getBusyKinds(options, group),
-        confirmAndQueueDeletes,
+        confirmAndQueueStorageDeletes,
         queueStorageCopy: options.queueStorageCopy,
         requestTitleValidation: options.requestTitleValidation,
         isValidationFailed,

@@ -4,10 +4,21 @@ import {
     formatActionState,
     formatActionStateIcon,
 } from '../shared/action.js';
-import { STORAGE_COPY_SOCKET_COMMAND } from '../shared/socket.js';
-import { type StorageCopyItem } from '../shared/storage.js';
+import {
+    requestJson,
+    type StorageDeleteQueuedResponse,
+} from '../shared/api.js';
+import {
+    STORAGE_COPY_SOCKET_COMMAND,
+    STORAGE_DELETE_SOCKET_COMMAND,
+} from '../shared/socket.js';
+import {
+    type StorageCopyItem,
+    type StorageDeleteItem,
+} from '../shared/storage.js';
 import { sendAppSocketCommand } from './app-socket.js';
-import { formatSize } from '../shared/shared.js';
+import { formatSize, formatTitleDisplay } from '../shared/shared.js';
+import { type TitleEntry } from '../shared/titles.js';
 
 export function syncStorageCopies(
     copies: StorageCopyItem[],
@@ -171,6 +182,200 @@ export function clearStorageCopy(itemId: string): void {
 export function cancelStorageCopy(itemId: string): void {
     sendAppSocketCommand({
         type: STORAGE_COPY_SOCKET_COMMAND.cancel,
+        id: itemId,
+    });
+}
+
+export function syncStorageDeletes(
+    storageDeletes: StorageDeleteItem[],
+    nextDeletes: StorageDeleteItem[]
+): string[] {
+    const previousById = new Map(storageDeletes.map((item) => [item.id, item]));
+    const shouldReconcileCompleted = previousById.size === 0;
+
+    storageDeletes.splice(0, storageDeletes.length, ...nextDeletes);
+
+    return storageDeletes
+        .filter((item) => {
+            const previous = previousById.get(item.id);
+            return (
+                item.state === 'complete' &&
+                ((previous && previous.state !== 'complete') ||
+                    shouldReconcileCompleted)
+            );
+        })
+        .map((item) => item.titleId);
+}
+
+export function queueStorageDelete(
+    titleId: string
+): Promise<StorageDeleteQueuedResponse> {
+    const params = new URLSearchParams({ titleId });
+    return requestJson(`/api/storage/delete?${params}`);
+}
+
+export async function confirmAndQueueStorageDeletes(
+    titleIds: string[],
+    entries: TitleEntry[],
+    button: HTMLButtonElement,
+    label = 'local'
+): Promise<void> {
+    const selected = new Set(titleIds);
+    const selectedEntries = entries.filter((entry) =>
+        selected.has(entry.titleId)
+    );
+    if (selectedEntries.length === 0) return;
+
+    const names = selectedEntries
+        .map((entry) =>
+            formatTitleDisplay(
+                entry.name,
+                entry.titleId,
+                entry.kind,
+                entry.version
+            )
+        )
+        .join('\n');
+    const confirmed = window.confirm(
+        selectedEntries.length === 1
+            ? `Delete this ${label} title?\n\n${names}`
+            : `Delete these ${selectedEntries.length} ${label} titles?\n\n${names}`
+    );
+    if (!confirmed) return;
+
+    button.disabled = true;
+    try {
+        await Promise.all(titleIds.map(queueStorageDelete));
+    } finally {
+        button.disabled = false;
+    }
+}
+
+export function formatStorageDeleteProgress(item: StorageDeleteItem): string {
+    if (item.state === 'complete') {
+        return 'Done';
+    }
+
+    if (item.state === 'cancelled') {
+        return '-';
+    }
+
+    if (item.totalCount !== null && item.totalCount > 0) {
+        return `${item.deletedCount}/${item.totalCount}`;
+    }
+
+    return '-';
+}
+
+export function formatStorageDeleteTitle(item: StorageDeleteItem): string {
+    return item.titleName ?? item.titleId;
+}
+
+export function formatStorageDeleteState(item: StorageDeleteItem): string {
+    return formatActionState(item.state, {
+        'in-progress': 'Deleting',
+        complete: 'Deleted',
+    });
+}
+
+export function formatStorageDeleteIcon(item: StorageDeleteItem): string {
+    return formatActionStateIcon(item.state, '⌫');
+}
+
+export function formatStorageDeleteDetails(item: StorageDeleteItem): string {
+    if (item.error) {
+        return item.error;
+    }
+
+    return item.message ?? formatStorageDeleteState(item);
+}
+
+export function getStorageDeleteActionBarEntries(items: StorageDeleteItem[]) {
+    return items.map((item) => {
+        const terminal =
+            item.state === 'complete' || item.state === 'cancelled';
+
+        const title = formatStorageDeleteTitle(item);
+        return {
+            key: `storage-delete:${item.id}`,
+            id: item.id,
+            state: item.state,
+            clearCommand: STORAGE_DELETE_SOCKET_COMMAND.clear,
+            cells: [
+                {
+                    className: 'action-bar-progress',
+                    text: formatStorageDeleteProgress(item),
+                },
+                { className: 'action-bar-files', text: '' },
+                {
+                    className: 'action-bar-icon',
+                    text: formatStorageDeleteIcon(item),
+                },
+                {
+                    className: 'action-bar-state',
+                    text: formatStorageDeleteState(item),
+                },
+                { className: 'action-bar-size', text: '' },
+                { className: 'action-bar-title', text: title, title },
+            ],
+            details: {
+                title: item.error ?? '',
+                buttons:
+                    item.state === 'failed'
+                        ? [
+                              {
+                                  text: 'Retry',
+                                  command: STORAGE_DELETE_SOCKET_COMMAND.retry,
+                              },
+                              {
+                                  text: 'Clear',
+                                  command: STORAGE_DELETE_SOCKET_COMMAND.clear,
+                              },
+                          ]
+                        : [
+                              {
+                                  text: terminal ? 'Clear' : 'Cancel',
+                                  command: terminal
+                                      ? STORAGE_DELETE_SOCKET_COMMAND.clear
+                                      : STORAGE_DELETE_SOCKET_COMMAND.cancel,
+                              },
+                          ],
+            },
+        };
+    });
+}
+
+export function handleStorageDeleteActionBarCommand(
+    action: string,
+    itemId: string
+): boolean {
+    if (action === STORAGE_DELETE_SOCKET_COMMAND.cancel)
+        cancelStorageDelete(itemId);
+    else if (action === STORAGE_DELETE_SOCKET_COMMAND.retry)
+        retryStorageDelete(itemId);
+    else if (action === STORAGE_DELETE_SOCKET_COMMAND.clear)
+        clearStorageDelete(itemId);
+    else return false;
+    return true;
+}
+
+export function retryStorageDelete(itemId: string): void {
+    sendAppSocketCommand({
+        type: STORAGE_DELETE_SOCKET_COMMAND.retry,
+        id: itemId,
+    });
+}
+
+export function clearStorageDelete(itemId: string): void {
+    sendAppSocketCommand({
+        type: STORAGE_DELETE_SOCKET_COMMAND.clear,
+        id: itemId,
+    });
+}
+
+export function cancelStorageDelete(itemId: string): void {
+    sendAppSocketCommand({
+        type: STORAGE_DELETE_SOCKET_COMMAND.cancel,
         id: itemId,
     });
 }

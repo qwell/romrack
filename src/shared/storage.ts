@@ -1,4 +1,7 @@
-import { STORAGE_COPY_SOCKET_COMMAND } from './socket.js';
+import {
+    STORAGE_COPY_SOCKET_COMMAND,
+    STORAGE_DELETE_SOCKET_COMMAND,
+} from './socket.js';
 import { type TitleKinds } from './titles.js';
 import { type ActionState } from './action.js';
 
@@ -44,6 +47,26 @@ export type StorageCopyQueueItem = StorageCopyItem & {
     requestedDestination: string | null;
     requestedTitleId: string;
     duplicateSourcePaths: string[];
+};
+
+export type StorageDeleteItem = {
+    id: string;
+    titleId: string;
+    titleName: string | null;
+    titleVersion: number | null;
+    titleKind: TitleKinds | null;
+    state: ActionState;
+    message: string | null;
+    deletedCount: number;
+    totalCount: number | null;
+    error: string | null;
+};
+
+export type StorageDeleteActionBarCommand =
+    (typeof STORAGE_DELETE_SOCKET_COMMAND)[keyof typeof STORAGE_DELETE_SOCKET_COMMAND];
+
+export type StorageDeleteQueueItem = StorageDeleteItem & {
+    sourcePaths: string[];
 };
 
 export function isStorageActionBarCommand(

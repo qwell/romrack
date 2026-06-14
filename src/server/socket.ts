@@ -8,14 +8,14 @@ import {
     LIBRARY_CONVERT_SOCKET_COMMAND,
     LIBRARY_VERIFY_SOCKET_COMMAND,
     STORAGE_COPY_SOCKET_COMMAND,
-    DELETE_SOCKET_COMMAND,
+    STORAGE_DELETE_SOCKET_COMMAND,
     TITLE_VALIDATE_SOCKET_COMMAND,
 } from '../shared/socket.js';
 import { type DownloadQueueItem } from '../shared/download.js';
 import logger from '../shared/logger.js';
 import {
     handleStorageCopySocketCommand,
-    handleDeleteSocketCommand,
+    handleStorageDeleteSocketCommand,
     handleDownloadSocketCommand,
     handleLibraryConvertSocketCommand,
     handleLibraryVerifySocketCommand,
@@ -128,8 +128,8 @@ export function handleAppSocketCommand(command: SocketCommand): void {
     } else if (isSocketCommand(command, STORAGE_COPY_SOCKET_COMMAND)) {
         handleStorageCopySocketCommand(command);
         return;
-    } else if (isSocketCommand(command, DELETE_SOCKET_COMMAND)) {
-        handleDeleteSocketCommand(command);
+    } else if (isSocketCommand(command, STORAGE_DELETE_SOCKET_COMMAND)) {
+        handleStorageDeleteSocketCommand(command);
         return;
     } else if (isSocketCommand(command, LIBRARY_VERIFY_SOCKET_COMMAND)) {
         handleLibraryVerifySocketCommand(command);
@@ -181,7 +181,7 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
         return command;
     } else if (
         isSocketCommand(command, STORAGE_COPY_SOCKET_COMMAND) ||
-        isSocketCommand(command, DELETE_SOCKET_COMMAND)
+        isSocketCommand(command, STORAGE_DELETE_SOCKET_COMMAND)
     ) {
         if (!hasId()) {
             return null;

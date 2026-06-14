@@ -14,8 +14,7 @@ import {
     createConfigRouter,
     createStorageRouter,
     getStorageCopies,
-    createDeleteRouter,
-    getDeletes,
+    getStorageDeletes,
     createLibraryRouter,
     getLibraryConversions,
     getLatestLibraryVerifyStatus,
@@ -64,7 +63,6 @@ app.use('/api/config', createConfigRouter());
 app.use('/api/icon', createIconRouter());
 app.use('/api/library', createLibraryRouter());
 app.use('/api/storage', createStorageRouter());
-app.use('/api/delete', createDeleteRouter());
 app.use('/api/title', createTitleRouter());
 
 const server = createServer(app);
@@ -75,7 +73,7 @@ createAppSocket({
         type: APP_SOCKET_EVENT.connected,
         downloads: getDownloadQueue(),
         storageCopies: getStorageCopies(),
-        deletes: getDeletes(),
+        storageDeletes: getStorageDeletes(),
         libraryVerifyStatus: getLatestLibraryVerifyStatus(),
         libraryConversions: getLibraryConversions(),
     }),

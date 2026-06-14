@@ -8,7 +8,11 @@ import { Router, type Request } from 'express';
 import { getStringQuery, requireTitleIdQuery } from '../request.js';
 import { sendServerError } from '../routes.js';
 import { broadcastAppSocketEvent } from '../socket.js';
-import { findWiiUTitleSourcePaths, readWiiUTitleIdentity } from '../wiiu.js';
+import {
+    clearTitleScanCache,
+    findWiiUTitleSourcePaths,
+    readWiiUTitleIdentity,
+} from '../wiiu.js';
 import { classifyTitleId } from '../../shared/titles.js';
 import { getConfig } from '../../shared/config.js';
 import {
@@ -31,24 +35,28 @@ import {
     formatTitleDisplay,
 } from '../../shared/shared.js';
 import {
+    type ApiErrorResponse,
+    type StorageDeleteQueuedResponse,
     type StorageFat32ListResponse,
     type StorageTransferQueuedResponse,
 } from '../../shared/api.js';
 import {
     type StorageCopyItem,
     type StorageCopyQueueItem,
+    type StorageDeleteItem,
+    type StorageDeleteQueueItem,
     type StorageTransferQueueInput,
 } from '../../shared/storage.js';
 import {
     STORAGE_COPY_SOCKET_COMMAND,
     STORAGE_COPY_SOCKET_EVENT,
+    STORAGE_DELETE_SOCKET_COMMAND,
+    STORAGE_DELETE_SOCKET_EVENT,
     type StorageCopySocketCommand,
+    type StorageDeleteSocketCommand,
 } from '../../shared/socket.js';
 import { getLibraryCacheEntry } from './library.js';
-import {
-    deleteLocalTitleSourcePaths,
-    getSafeLocalDeletePaths,
-} from './delete.js';
+import { markTitleCopiesValidating, revalidateTitleCopies } from './title.js';
 import { downloadNusBaseMetadata } from '../title.js';
 
 type RouteResult<TBody> = {
@@ -98,6 +106,26 @@ export function createStorageRouter(): Router {
                 `Failed to queue storage move: ${formatLogError(error)}`
             );
             sendServerError(res, 'Failed to queue storage move', error, {
+                includeDetails: true,
+            });
+        }
+    });
+
+    router.get('/delete', (req, res) => {
+        const titleId = requireTitleIdQuery(req, res);
+        if (titleId === null) {
+            return;
+        }
+
+        try {
+            const result = queueStorageDelete(titleId);
+            res.status(result.status).json(result.body);
+        } catch (error) {
+            logger.warn(
+                'server',
+                `Failed to queue storage delete: ${formatLogError(error)}`
+            );
+            sendServerError(res, 'Failed to queue storage delete', error, {
                 includeDetails: true,
             });
         }
@@ -757,7 +785,7 @@ async function processStorageCopyQueue(): Promise<void> {
         nextItem.error = null;
 
         if (nextItem.operation === 'move') {
-            await deleteLocalTitleSourcePaths(nextItem.duplicateSourcePaths);
+            await deleteStorageTitleSourcePaths(nextItem.duplicateSourcePaths);
         }
 
         logger.log('server', `storage ${nextItem.operation} stream completed`);
@@ -931,7 +959,7 @@ function shouldStopStorageCopy(itemId: string): boolean {
 export async function hasConflictingStorageCopyPath(
     sourcePaths: string[]
 ): Promise<boolean> {
-    const deletePaths = await getSafeLocalDeletePaths(sourcePaths);
+    const deletePaths = await getSafeStorageDeletePaths(sourcePaths);
 
     for (const item of storageCopyQueue) {
         if (item.state !== 'queued' && item.state !== 'in-progress') {
@@ -1038,4 +1066,448 @@ function createStorageCopyCancelledError(): Error {
     const error = new Error('Storage copy cancelled');
     error.name = 'AbortError';
     return error;
+}
+
+let storageDeleteQueue: StorageDeleteQueueItem[] = [];
+let storageDeletes: StorageDeleteItem[] = [];
+let broadcastStorageDeletesTimer: ReturnType<typeof setTimeout> | null = null;
+let activeStorageDeleteId: string | null = null;
+let activeStorageDeleteAbortController: AbortController | null = null;
+let activeStorageDeleteMutationStarted = false;
+
+function queueStorageDelete(
+    titleId: string
+): RouteResult<StorageDeleteQueuedResponse | ApiErrorResponse> {
+    if (!/^[0-9a-f]{16}$/i.test(titleId)) {
+        return {
+            status: 400,
+            body: {
+                error: 'titleId query parameter must be 16 hexadecimal characters',
+            },
+        };
+    }
+
+    const normalizedTitleId = titleId.toLowerCase();
+    const existingItem =
+        storageDeleteQueue.find(
+            (item) =>
+                (item.state === 'queued' || item.state === 'in-progress') &&
+                item.titleId === normalizedTitleId
+        ) ?? null;
+
+    if (existingItem) {
+        return {
+            status: 200,
+            body: {
+                storageDeleteId: existingItem.id,
+                item: existingItem,
+                duplicate: true,
+            },
+        };
+    }
+
+    const storageDeleteId = randomUUID();
+    const storageDeleteTitleKind = classifyTitleId(normalizedTitleId).kind;
+    const storageDeleteCached = getLibraryCacheEntry(normalizedTitleId);
+    const storageDeleteItem: StorageDeleteItem = {
+        id: storageDeleteId,
+        titleId: normalizedTitleId,
+        titleName: formatTitleDisplay(
+            storageDeleteCached?.name ?? null,
+            normalizedTitleId,
+            storageDeleteTitleKind,
+            null
+        ),
+        titleVersion: storageDeleteCached?.version ?? null,
+        titleKind: storageDeleteTitleKind,
+        state: 'queued',
+        message: 'Queued',
+        deletedCount: 0,
+        totalCount: null,
+        error: null,
+    };
+    const queueItem: StorageDeleteQueueItem = {
+        ...storageDeleteItem,
+        sourcePaths: [],
+    };
+
+    storageDeletes = [...storageDeletes, storageDeleteItem];
+    storageDeleteQueue = [...storageDeleteQueue, queueItem];
+
+    broadcastStorageDeletes();
+    void processStorageDeleteQueue();
+
+    return {
+        status: 202,
+        body: {
+            storageDeleteId,
+            item: storageDeleteItem,
+        },
+    };
+}
+
+export function getStorageDeletes(): StorageDeleteItem[] {
+    return storageDeletes;
+}
+
+async function processStorageDeleteQueue(): Promise<void> {
+    if (activeStorageDeleteId) {
+        return;
+    }
+
+    const nextItem = storageDeleteQueue.find((item) => item.state === 'queued');
+
+    if (!nextItem) {
+        broadcastStorageDeletes();
+        return;
+    }
+
+    activeStorageDeleteId = nextItem.id;
+    const abortController = new AbortController();
+    activeStorageDeleteAbortController = abortController;
+    activeStorageDeleteMutationStarted = false;
+    nextItem.state = 'in-progress';
+    nextItem.message =
+        nextItem.sourcePaths.length > 0
+            ? 'Deleting...'
+            : 'Finding local copies...';
+    nextItem.error = null;
+    nextItem.deletedCount = 0;
+    nextItem.totalCount =
+        nextItem.sourcePaths.length > 0 ? nextItem.sourcePaths.length : null;
+
+    updateStorageDelete(nextItem.id, {
+        state: nextItem.state,
+        message: nextItem.message,
+        error: nextItem.error,
+        deletedCount: nextItem.deletedCount,
+        totalCount: nextItem.totalCount,
+    });
+
+    try {
+        if (nextItem.sourcePaths.length === 0) {
+            const sourcePaths = await findWiiUTitleSourcePaths(
+                getConfig().wiiuRoots,
+                nextItem.titleId
+            );
+
+            if (sourcePaths.length === 0) {
+                throw new Error(`No local title found for ${nextItem.titleId}`);
+            }
+
+            const safeSourcePaths =
+                await getSafeStorageDeletePaths(sourcePaths);
+            if (safeSourcePaths.length === 0) {
+                throw new Error(`No local title found for ${nextItem.titleId}`);
+            }
+
+            const titleIdentity = await readWiiUTitleIdentity(
+                safeSourcePaths[0]
+            );
+
+            nextItem.sourcePaths = safeSourcePaths;
+            nextItem.totalCount = safeSourcePaths.length;
+
+            nextItem.titleKind = titleIdentity?.kind ?? null;
+            nextItem.titleVersion = titleIdentity?.version ?? null;
+            const storageDeleteCached = getLibraryCacheEntry(nextItem.titleId);
+            nextItem.titleName = formatTitleDisplay(
+                storageDeleteCached?.name ?? null,
+                nextItem.titleId,
+                nextItem.titleKind,
+                null
+            );
+
+            nextItem.message = 'Deleting...';
+
+            updateStorageDelete(nextItem.id, {
+                titleName: nextItem.titleName,
+                titleVersion: nextItem.titleVersion,
+                titleKind: nextItem.titleKind,
+                totalCount: nextItem.totalCount,
+                message: nextItem.message,
+            });
+        }
+
+        if (await hasConflictingStorageCopyPath(nextItem.sourcePaths)) {
+            throw new Error(
+                `Cannot delete ${nextItem.titleId} while it is queued or copying`
+            );
+        }
+
+        activeStorageDeleteMutationStarted = true;
+        const deletedCount = await deleteStorageTitleSourcePaths(
+            nextItem.sourcePaths,
+            (nextDeletedCount) => {
+                nextItem.deletedCount = nextDeletedCount;
+                nextItem.message = `Deleted ${nextDeletedCount}/${nextItem.totalCount ?? nextDeletedCount}`;
+                updateStorageDeleteProgress(nextItem.id, {
+                    deletedCount: nextItem.deletedCount,
+                    message: nextItem.message,
+                });
+            },
+            abortController.signal
+        );
+
+        nextItem.state = 'complete';
+        nextItem.deletedCount = deletedCount;
+        nextItem.message = 'Deleted';
+        nextItem.error = null;
+        clearTitleScanCache();
+
+        updateStorageDelete(nextItem.id, {
+            state: nextItem.state,
+            deletedCount: nextItem.deletedCount,
+            message: nextItem.message,
+            error: nextItem.error,
+        });
+    } catch (error) {
+        if (abortController.signal.aborted) {
+            return;
+        }
+
+        nextItem.state = 'failed';
+        nextItem.error = error instanceof Error ? error.message : String(error);
+        nextItem.message = nextItem.error;
+
+        logger.warn(
+            'server',
+            `Storage delete failed: ${formatLogError(error)}`
+        );
+
+        updateStorageDelete(nextItem.id, {
+            state: nextItem.state,
+            error: nextItem.error,
+            message: nextItem.message,
+            deletedCount: nextItem.deletedCount,
+        });
+        if (activeStorageDeleteMutationStarted) {
+            clearTitleScanCache();
+            revalidateTitleCopies([
+                {
+                    titleId: nextItem.titleId,
+                    sourcePaths: nextItem.sourcePaths,
+                },
+            ]);
+        }
+    } finally {
+        if (
+            abortController.signal.aborted &&
+            activeStorageDeleteMutationStarted
+        ) {
+            clearTitleScanCache();
+            revalidateTitleCopies([
+                {
+                    titleId: nextItem.titleId,
+                    sourcePaths: nextItem.sourcePaths,
+                },
+            ]);
+        }
+
+        if (activeStorageDeleteId === nextItem.id) {
+            activeStorageDeleteId = null;
+            activeStorageDeleteAbortController = null;
+            activeStorageDeleteMutationStarted = false;
+        }
+
+        void processStorageDeleteQueue();
+    }
+}
+
+function broadcastStorageDeletes(): void {
+    if (broadcastStorageDeletesTimer !== null) {
+        clearTimeout(broadcastStorageDeletesTimer);
+        broadcastStorageDeletesTimer = null;
+    }
+
+    broadcastAppSocketEvent({
+        type: STORAGE_DELETE_SOCKET_EVENT.changed,
+        items: storageDeletes,
+    });
+}
+
+function scheduleBroadcastStorageDeletes(): void {
+    if (broadcastStorageDeletesTimer !== null) {
+        return;
+    }
+
+    broadcastStorageDeletesTimer = setTimeout(() => {
+        broadcastStorageDeletesTimer = null;
+        broadcastStorageDeletes();
+    }, 200);
+}
+
+function updateStorageDelete(
+    id: string,
+    update: Partial<Omit<StorageDeleteItem, 'id'>>
+): void {
+    storageDeletes = storageDeletes.map((item) =>
+        item.id === id ? { ...item, ...update } : item
+    );
+    broadcastStorageDeletes();
+}
+
+function updateStorageDeleteProgress(
+    id: string,
+    update: Partial<Omit<StorageDeleteItem, 'id'>>
+): void {
+    storageDeletes = storageDeletes.map((item) =>
+        item.id === id ? { ...item, ...update } : item
+    );
+    scheduleBroadcastStorageDeletes();
+}
+
+function removeStorageDeleteFromState(id: string): StorageDeleteItem | null {
+    const item =
+        storageDeletes.find((candidate) => candidate.id === id) ?? null;
+
+    storageDeletes = storageDeletes.filter((candidate) => candidate.id !== id);
+    storageDeleteQueue = storageDeleteQueue.filter(
+        (candidate) => candidate.id !== id
+    );
+
+    return item;
+}
+
+function clearStorageDelete(id: string): void {
+    const item = storageDeletes.find((candidate) => candidate.id === id);
+    if (!item || !isTerminalActionState(item.state)) {
+        logger.log(
+            'server',
+            `storage delete clear ignored: id=${id} item=${item?.state ?? 'missing'}`
+        );
+        broadcastStorageDeletes();
+        return;
+    }
+
+    removeStorageDeleteFromState(id);
+    broadcastStorageDeletes();
+}
+
+function cancelStorageDelete(id: string): void {
+    const item = storageDeleteQueue.find((candidate) => candidate.id === id);
+    if (!item || (item.state !== 'queued' && item.state !== 'in-progress')) {
+        logger.log(
+            'server',
+            `storage delete cancel ignored: missing active id=${id}`
+        );
+        return;
+    }
+
+    const isActive = activeStorageDeleteId === id;
+    item.state = 'cancelled';
+    item.message = 'Cancelled';
+    if (isActive) {
+        activeStorageDeleteAbortController?.abort();
+        if (activeStorageDeleteMutationStarted) {
+            markTitleCopiesValidating([item.titleId]);
+        }
+    }
+    updateStorageDelete(id, {
+        state: item.state,
+        message: item.message,
+    });
+    logger.log('server', `storage delete cancelled: ${item.titleId}`);
+    void processStorageDeleteQueue();
+}
+
+function retryStorageDelete(id: string): void {
+    const item = storageDeleteQueue.find((candidate) => candidate.id === id);
+    if (!item || item.state !== 'failed') {
+        return;
+    }
+
+    logger.log('server', `storage delete retry queued: ${item.titleId}`);
+
+    item.state = 'queued';
+    item.error = null;
+    item.message = 'Queued';
+    item.deletedCount = 0;
+    item.totalCount =
+        item.sourcePaths.length > 0 ? item.sourcePaths.length : null;
+    updateStorageDelete(id, {
+        state: item.state,
+        error: item.error,
+        message: item.message,
+        deletedCount: item.deletedCount,
+        totalCount: item.totalCount,
+    });
+    void processStorageDeleteQueue();
+}
+
+export function handleStorageDeleteSocketCommand(
+    command: StorageDeleteSocketCommand
+): void {
+    switch (command.type) {
+        case STORAGE_DELETE_SOCKET_COMMAND.clear:
+            clearStorageDelete(command.id);
+            return;
+
+        case STORAGE_DELETE_SOCKET_COMMAND.cancel:
+            cancelStorageDelete(command.id);
+            return;
+
+        case STORAGE_DELETE_SOCKET_COMMAND.retry:
+            retryStorageDelete(command.id);
+            return;
+    }
+}
+
+export async function getSafeStorageDeletePaths(
+    sourcePaths: string[]
+): Promise<string[]> {
+    const rootPaths = await Promise.all(
+        getConfig().wiiuRoots.map(async (root) => {
+            const readableRoot = await resolveReadablePath(root);
+            return realpath(readableRoot);
+        })
+    );
+
+    const deletePaths: string[] = [];
+
+    for (const sourcePath of sourcePaths) {
+        const readableSourcePath = await resolveReadablePath(sourcePath);
+        const realSourcePath = await realpath(readableSourcePath);
+        const containingRoot = rootPaths.find((rootPath) =>
+            isSameOrNestedPath(rootPath, realSourcePath)
+        );
+
+        if (!containingRoot) {
+            throw new Error(
+                `Refusing to delete path outside configured Wii U roots: ${sourcePath}`
+            );
+        }
+
+        if (containingRoot === realSourcePath) {
+            throw new Error(
+                `Refusing to delete configured Wii U root: ${sourcePath}`
+            );
+        }
+
+        deletePaths.push(realSourcePath);
+    }
+
+    return [...new Set(deletePaths)];
+}
+
+export async function deleteStorageTitleSourcePaths(
+    sourcePaths: string[],
+    onProgress?: (deletedCount: number) => void,
+    signal?: AbortSignal
+): Promise<number> {
+    signal?.throwIfAborted();
+    const deletePaths = await getSafeStorageDeletePaths(sourcePaths);
+    let deletedCount = 0;
+
+    for (const deletePath of deletePaths) {
+        signal?.throwIfAborted();
+        await rm(deletePath, {
+            recursive: true,
+            force: true,
+        });
+        deletedCount += 1;
+        onProgress?.(deletedCount);
+    }
+
+    return deletedCount;
 }

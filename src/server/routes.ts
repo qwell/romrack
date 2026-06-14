@@ -29,7 +29,6 @@ function getErrorStage(error: unknown): string | null {
 }
 
 export * from './routes/config.js';
-export * from './routes/delete.js';
 export * from './routes/download.js';
 export * from './routes/icon.js';
 export * from './routes/library.js';

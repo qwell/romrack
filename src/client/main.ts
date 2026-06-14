@@ -13,8 +13,10 @@ import {
     LIBRARY_VERIFY_SOCKET_EVENT,
     TITLE_VALIDATE_SOCKET_COMMAND,
 } from '../shared/socket.js';
-import { type DeleteItem } from '../shared/delete.js';
-import { type StorageCopyItem } from '../shared/storage.js';
+import {
+    type StorageCopyItem,
+    type StorageDeleteItem,
+} from '../shared/storage.js';
 import { type TitleGroup, TitleKinds } from '../shared/titles.js';
 import { type DownloadQueueItem } from '../shared/download.js';
 import { formatSize } from '../shared/shared.js';
@@ -65,7 +67,7 @@ let activeLibraryRequestId = 0;
 let allLibraryGroups: TitleGroup[] = [];
 const downloadQueue: DownloadQueueItem[] = [];
 const storageCopies: StorageCopyItem[] = [];
-const deletes: DeleteItem[] = [];
+const storageDeletes: StorageDeleteItem[] = [];
 const titleValidations = new Map<string, TitleValidationSocketEvent>();
 
 function reconcileCompletedLibraryConversions(
@@ -332,7 +334,7 @@ connectAppSocket({
     onEvent: createAppEventHandler({
         downloads: downloadQueue,
         storageCopies,
-        deletes: deletes,
+        storageDeletes: storageDeletes,
         haystacks: titleSearchHaystacks,
         getGroups: getCurrentTitleGroups,
         onServerAvailable: hideServerGoneModal,
@@ -426,7 +428,7 @@ logger.log('client', 'Client initialized');
 setupUi({
     downloads: downloadQueue,
     storageCopies,
-    deletes,
+    storageDeletes,
     libraryVerifications,
     libraryConversions,
     titleValidations,

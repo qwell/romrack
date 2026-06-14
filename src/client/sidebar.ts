@@ -19,7 +19,7 @@ type SidebarOptions = {
     ) => string | null;
     queueSelectedDownloads: (root: HTMLElement, selectedOnly: boolean) => void;
     getBusyKinds: (group: TitleGroup) => Set<TitleKinds>;
-    confirmAndQueueDeletes: (
+    confirmAndQueueStorageDeletes: (
         titleIds: string[],
         entries: TitleEntry[],
         button: HTMLButtonElement,
@@ -713,7 +713,7 @@ function renderInvalidActions(
                     .length > 0;
             const titleIds = getSelectedDownloadedTitleIds(list, hasSelection);
 
-            await options?.confirmAndQueueDeletes(
+            await options?.confirmAndQueueStorageDeletes(
                 titleIds,
                 entries,
                 deleteButton,
@@ -928,7 +928,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
                     hasSelection
                 );
 
-                await detailOptions?.confirmAndQueueDeletes(
+                await detailOptions?.confirmAndQueueStorageDeletes(
                     titleIds,
                     localEntries,
                     deleteButton
