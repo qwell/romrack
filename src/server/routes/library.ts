@@ -192,7 +192,7 @@ export function createLibraryRouter(): Router {
             clearTitleScanCache();
             broadcastLibraryVerifyStatus({
                 type: LIBRARY_VERIFY_SOCKET_EVENT.status,
-                state: failed === 0 ? 'complete' : 'failed',
+                state: 'complete',
                 status: 'complete',
                 total: titles.length,
                 failed,
