@@ -230,7 +230,9 @@ function renderSlotBadge(
 
 function renderVirtualConsoleBadge(group: TitleGroup): HTMLElement | null {
     const platform = getVirtualConsolePlatform(group.productCode);
-    if (!platform) return null;
+    if (!platform) {
+        return null;
+    }
     const badge = document.createElement('div');
     badge.className = 'title-slot-badge title-slot-badge-vc';
     badge.textContent = platform.toString();
@@ -239,7 +241,9 @@ function renderVirtualConsoleBadge(group: TitleGroup): HTMLElement | null {
 }
 
 function renderWudBadge(group: TitleGroup): HTMLElement | null {
-    if (group.wudEntries.length === 0) return null;
+    if (group.wudEntries.length === 0) {
+        return null;
+    }
     const badge = document.createElement('div');
     badge.className = 'title-slot-badge title-slot-badge-wud';
     badge.textContent = 'WUD';
@@ -256,7 +260,9 @@ function renderGroup(
     onSelect: (group: TitleGroup) => void,
     selectedFamily: string | null
 ): HTMLElement | null {
-    if (!group.name) return null;
+    if (!group.name) {
+        return null;
+    }
     const root = document.createElement('div');
     root.className = `title-group title-group-${group.status}`;
     root.dataset.family = group.family;
@@ -290,8 +296,12 @@ function renderGroup(
     badgeList.className = 'title-slot-badges';
     const vcBadge = renderVirtualConsoleBadge(group);
     const wudBadge = renderWudBadge(group);
-    if (vcBadge) badgeList.append(vcBadge);
-    if (wudBadge) badgeList.append(wudBadge);
+    if (vcBadge) {
+        badgeList.append(vcBadge);
+    }
+    if (wudBadge) {
+        badgeList.append(wudBadge);
+    }
     badgeList.append(
         renderSlotBadge(group, TitleKinds.Base, getBaseBadgeState(group)),
         renderSlotBadge(
@@ -336,8 +346,9 @@ export function markSlotBadgeComplete(family: string, kind: TitleKinds): void {
     for (const badge of document.querySelectorAll<HTMLElement>(
         '.title-slot-badge'
     )) {
-        if (badge.dataset.family !== family || badge.dataset.kind !== kind)
+        if (badge.dataset.family !== family || badge.dataset.kind !== kind) {
             continue;
+        }
         setSlotBadgeState(badge, 'complete');
         const marker = badge.querySelector<HTMLElement>(
             '.title-slot-badge-download'
@@ -365,7 +376,9 @@ export function updateRenderedTitleGroup(group: TitleGroup): void {
     const element = document.querySelector<HTMLElement>(
         `.title-group[data-family="${CSS.escape(group.family)}"]`
     );
-    if (!element) return;
+    if (!element) {
+        return;
+    }
     element.classList.remove(
         'title-group-complete',
         'title-group-incomplete',
@@ -383,7 +396,9 @@ export function updateRenderedTitleGroup(group: TitleGroup): void {
         const badge = element.querySelector<HTMLElement>(
             `.title-slot-badge[data-kind="${CSS.escape(kind)}"]`
         );
-        if (badge) setSlotBadgeState(badge, state);
+        if (badge) {
+            setSlotBadgeState(badge, state);
+        }
     }
 }
 
@@ -392,9 +407,13 @@ function resetIconObserver(): void {
     iconObserver = new IntersectionObserver(
         (entries) => {
             for (const entry of entries) {
-                if (!entry.isIntersecting) continue;
+                if (!entry.isIntersecting) {
+                    continue;
+                }
                 const image = entry.target;
-                if (!(image instanceof HTMLImageElement)) continue;
+                if (!(image instanceof HTMLImageElement)) {
+                    continue;
+                }
                 const src = image.dataset.src;
                 if (src) {
                     image.src = src;
@@ -413,7 +432,9 @@ function normalizeSearch(value: string | null | undefined): string {
 
 function getSearchHaystack(group: TitleGroup): string {
     let haystack = titleSearchHaystacks.get(group);
-    if (haystack !== undefined) return haystack;
+    if (haystack !== undefined) {
+        return haystack;
+    }
 
     const parts: (string | null)[] = [group.name, group.family, group.region];
     for (const entry of group.entries) {
@@ -486,19 +507,25 @@ function renderGroups(
         if (
             controlState.status !== 'all' &&
             group.status !== controlState.status
-        )
+        ) {
             return false;
+        }
         if (
             controlState.region !== 'all' &&
             group.region !== controlState.region
-        )
+        ) {
             return false;
+        }
 
         const platform = group.productCode
             ? getVirtualConsolePlatform(group.productCode)
             : null;
-        if (controlState.vc === 'vc' && !platform) return false;
-        if (controlState.vc === 'non-vc' && platform) return false;
+        if (controlState.vc === 'vc' && !platform) {
+            return false;
+        }
+        if (controlState.vc === 'non-vc' && platform) {
+            return false;
+        }
         if (
             controlState.vc !== 'all' &&
             controlState.vc !== 'vc' &&
@@ -528,7 +555,9 @@ function renderGroups(
                 (selected) => options?.toggleDetailSidebar(sidebar, selected),
                 options?.getSelectedDetailFamily() ?? null
             );
-            if (element) fragment.append(element);
+            if (element) {
+                fragment.append(element);
+            }
         }
         grid.insertBefore(fragment, sentinel);
         renderedCount += batchSize;
@@ -544,7 +573,9 @@ function renderGroups(
 
     const observer = new IntersectionObserver(
         (entries) => {
-            if (!entries.some((entry) => entry.isIntersecting)) return;
+            if (!entries.some((entry) => entry.isIntersecting)) {
+                return;
+            }
             appendBatch();
             if (renderedCount >= filtered.length) {
                 observer.disconnect();
@@ -600,7 +631,9 @@ function buildViewControl(grid: HTMLDivElement): HTMLElement {
             button.dataset.active = String(active);
             button.setAttribute('aria-pressed', String(active));
         }
-        if (save) localStorage.setItem('libraryViewMode', mode);
+        if (save) {
+            localStorage.setItem('libraryViewMode', mode);
+        }
     };
     apply(
         localStorage.getItem('libraryViewMode') === 'list' ? 'list' : 'table'

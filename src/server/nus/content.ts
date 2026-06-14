@@ -221,7 +221,9 @@ export function decryptHashedContent(
             blockOffset,
             Math.min(blockOffset + HASHED_BLOCK_SIZE, encryptedContent.length)
         );
-        if (encryptedBlock.length === 0) continue;
+        if (encryptedBlock.length === 0) {
+            continue;
+        }
 
         const decryptedHashArea = decryptContentWithIv(
             encryptedBlock.slice(0, HASHED_BLOCK_DATA_OFFSET),

@@ -280,7 +280,9 @@ async function verifyLibraryContent(): Promise<void> {
 
     try {
         const response = await verifyLibrary();
-        if (response.status === 'cancelled') return;
+        if (response.status === 'cancelled') {
+            return;
+        }
         const changedGroups = mergeFailedVerificationsIntoAvailable(
             getCurrentTitleGroups(),
             response.titles

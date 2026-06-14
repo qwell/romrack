@@ -100,7 +100,9 @@ function getBusyKinds(options: UiOptions, group: TitleGroup): Set<TitleKinds> {
         const kind =
             item.titleKind ??
             group.entries.find((entry) => entry.titleId === item.titleId)?.kind;
-        if (kind) busyKinds.add(kind);
+        if (kind) {
+            busyKinds.add(kind);
+        }
     }
     return busyKinds;
 }
@@ -234,8 +236,12 @@ function setTheme(darkMode: boolean, save = false): void {
         localStorage.theme = document.documentElement.dataset.theme;
     }
 
-    if (lightIcon) lightIcon.hidden = !darkMode;
-    if (darkIcon) darkIcon.hidden = darkMode;
+    if (lightIcon) {
+        lightIcon.hidden = !darkMode;
+    }
+    if (darkIcon) {
+        darkIcon.hidden = darkMode;
+    }
 }
 
 function setupTheme(): void {

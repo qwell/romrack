@@ -147,28 +147,36 @@ export function handleDownloadActionBarCommand(
     itemId: string,
     downloads: DownloadQueueItem[]
 ): boolean {
-    const item = downloads.find((candidate) => candidate.id === itemId);
-    const ids = item
-        ? downloads
-              .filter(
-                  (candidate) =>
-                      candidate.state !== 'complete' &&
-                      candidate.state !== 'cancelled' &&
-                      getDownloadDedupeKey(candidate) ===
-                          getDownloadDedupeKey(item)
-              )
-              .map((candidate) => candidate.id)
-        : [itemId];
+    const getIds = () => {
+        const item = downloads.find((candidate) => candidate.id === itemId);
 
-    if (action === DOWNLOAD_SOCKET_COMMAND.cancel) {
-        ids.forEach(cancelDownload);
-    } else if (action === DOWNLOAD_SOCKET_COMMAND.retry) {
-        ids.forEach(retryDownload);
-    } else if (action === DOWNLOAD_SOCKET_COMMAND.clear) {
-        clearDownload(itemId);
-    } else {
+        return item
+            ? downloads
+                  .filter(
+                      (candidate) =>
+                          candidate.state !== 'complete' &&
+                          candidate.state !== 'cancelled' &&
+                          getDownloadDedupeKey(candidate) ===
+                              getDownloadDedupeKey(item)
+                  )
+                  .map((candidate) => candidate.id)
+            : [itemId];
+    };
+
+    const handlers: Record<string, () => void> = {
+        [DOWNLOAD_SOCKET_COMMAND.cancel]: () =>
+            getIds().forEach(cancelDownload),
+        [DOWNLOAD_SOCKET_COMMAND.retry]: () => getIds().forEach(retryDownload),
+        [DOWNLOAD_SOCKET_COMMAND.clear]: () => clearDownload(itemId),
+    };
+
+    const handler = handlers[action];
+
+    if (!handler) {
         return false;
     }
+
+    handler();
     return true;
 }
 

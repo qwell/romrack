@@ -155,13 +155,19 @@ export function handleStorageCopyActionBarCommand(
     action: string,
     itemId: string
 ): boolean {
-    if (action === STORAGE_COPY_SOCKET_COMMAND.cancel)
-        cancelStorageCopy(itemId);
-    else if (action === STORAGE_COPY_SOCKET_COMMAND.retry)
-        retryStorageCopy(itemId);
-    else if (action === STORAGE_COPY_SOCKET_COMMAND.clear)
-        clearStorageCopy(itemId);
-    else return false;
+    const handlers: Record<string, (itemId: string) => void> = {
+        [STORAGE_COPY_SOCKET_COMMAND.cancel]: cancelStorageCopy,
+        [STORAGE_COPY_SOCKET_COMMAND.retry]: retryStorageCopy,
+        [STORAGE_COPY_SOCKET_COMMAND.clear]: clearStorageCopy,
+    };
+
+    const handler = handlers[action];
+
+    if (!handler) {
+        return false;
+    }
+
+    handler(itemId);
     return true;
 }
 
@@ -224,7 +230,9 @@ export async function confirmAndQueueStorageDeletes(
     const selectedEntries = entries.filter((entry) =>
         selected.has(entry.titleId)
     );
-    if (selectedEntries.length === 0) return;
+    if (selectedEntries.length === 0) {
+        return;
+    }
 
     const names = selectedEntries
         .map((entry) =>
@@ -241,7 +249,9 @@ export async function confirmAndQueueStorageDeletes(
             ? `Delete this ${label} title?\n\n${names}`
             : `Delete these ${selectedEntries.length} ${label} titles?\n\n${names}`
     );
-    if (!confirmed) return;
+    if (!confirmed) {
+        return;
+    }
 
     button.disabled = true;
     try {
@@ -349,13 +359,19 @@ export function handleStorageDeleteActionBarCommand(
     action: string,
     itemId: string
 ): boolean {
-    if (action === STORAGE_DELETE_SOCKET_COMMAND.cancel)
-        cancelStorageDelete(itemId);
-    else if (action === STORAGE_DELETE_SOCKET_COMMAND.retry)
-        retryStorageDelete(itemId);
-    else if (action === STORAGE_DELETE_SOCKET_COMMAND.clear)
-        clearStorageDelete(itemId);
-    else return false;
+    const handlers: Record<string, (itemId: string) => void> = {
+        [STORAGE_DELETE_SOCKET_COMMAND.cancel]: cancelStorageDelete,
+        [STORAGE_DELETE_SOCKET_COMMAND.retry]: retryStorageDelete,
+        [STORAGE_DELETE_SOCKET_COMMAND.clear]: clearStorageDelete,
+    };
+
+    const handler = handlers[action];
+
+    if (!handler) {
+        return false;
+    }
+
+    handler(itemId);
     return true;
 }
 

@@ -920,7 +920,9 @@ function parseFstEntries(decryptedFst: Uint8Array, tmd: Tmd): FstEntry[] {
 }
 
 function startsWithXml(buffer: Uint8Array | null): boolean {
-    if (!buffer || buffer.length === 0) return false;
+    if (!buffer || buffer.length === 0) {
+        return false;
+    }
     const text = Buffer.from(
         buffer.subarray(0, Math.min(buffer.length, 16))
     ).toString('latin1');

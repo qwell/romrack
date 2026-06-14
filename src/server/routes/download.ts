@@ -62,7 +62,9 @@ function hasDownloadQueueItem(id: string): boolean {
 let broadcastDownloadQueueTimer: ReturnType<typeof setTimeout> | null = null;
 
 function scheduleBroadcastDownloadQueue(): void {
-    if (broadcastDownloadQueueTimer !== null) return;
+    if (broadcastDownloadQueueTimer !== null) {
+        return;
+    }
     broadcastDownloadQueueTimer = setTimeout(() => {
         broadcastDownloadQueueTimer = null;
         broadcastDownloadQueue();

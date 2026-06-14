@@ -77,22 +77,30 @@ export function mergeFailedVerificationsIntoAvailable(
 
     for (const title of titles) {
         const entry = verificationToAvailableEntry(title);
-        if (!entry) continue;
+        if (!entry) {
+            continue;
+        }
 
         const family = classifyTitleId(entry.titleId).family;
         const group = groups.find(
             (candidate) => candidate.family.toLowerCase() === family
         );
-        if (!group) continue;
+        if (!group) {
+            continue;
+        }
 
         const entryIndex = group.entries.findIndex(
             (candidate) =>
                 candidate.kind === entry.kind &&
                 candidate.titleId.toLowerCase() === entry.titleId
         );
-        if (entryIndex !== -1) group.entries.splice(entryIndex, 1);
+        if (entryIndex !== -1) {
+            group.entries.splice(entryIndex, 1);
+        }
         addAvailableEntry(group, entry);
-        if (!changedGroups.includes(group)) changedGroups.push(group);
+        if (!changedGroups.includes(group)) {
+            changedGroups.push(group);
+        }
     }
 
     return changedGroups;
@@ -486,7 +494,9 @@ export function renderLibrarySidebarWud(
     action.disabled = conversionBusy;
     action.title = 'Convert the disc image to installable title content';
     action.addEventListener('click', () => {
-        if (!conversionTitle || action.disabled) return;
+        if (!conversionTitle || action.disabled) {
+            return;
+        }
 
         action.disabled = true;
         void queueConvert(conversionTitle.titleId).catch((error) => {
@@ -662,7 +672,9 @@ export function syncLibraryVerifyActions(
     items: LibraryVerifyStatusEvent[],
     event: LibraryVerifyStatusEvent | null
 ): void {
-    if (event?.status === 'started') items.splice(0);
+    if (event?.status === 'started') {
+        items.splice(0);
+    }
 
     if (event?.status === 'verified' && event.result === 'failed') {
         const failed = { ...event, state: 'failed' as const };
@@ -672,15 +684,22 @@ export function syncLibraryVerifyActions(
                 isLibraryVerifyFailure(item) &&
                 getLibraryVerifyFailureKey(item) === key
         );
-        if (index >= 0) items.splice(index, 1, failed);
-        else items.push(failed);
+        if (index >= 0) {
+            items.splice(index, 1, failed);
+        } else {
+            items.push(failed);
+        }
         return;
     }
 
     const index = items.findIndex((item) => !isLibraryVerifyFailure(item));
-    if (event === null && index >= 0) items.splice(index, 1);
-    else if (event && index >= 0) items.splice(index, 1, event);
-    else if (event) items.push(event);
+    if (event === null && index >= 0) {
+        items.splice(index, 1);
+    } else if (event && index >= 0) {
+        items.splice(index, 1, event);
+    } else if (event) {
+        items.push(event);
+    }
 }
 
 export function handleLibraryActionBarCommand(
@@ -689,51 +708,72 @@ export function handleLibraryActionBarCommand(
     verifications: LibraryVerifyStatusEvent[],
     queueVerificationDownloads: (items: DownloadQueueItem[]) => void
 ): boolean {
-    if (action === LIBRARY_VERIFY_SOCKET_COMMAND.clear) {
-        const index = verifications.findIndex(
-            (item) => getLibraryVerifyId(item) === itemId
-        );
-        if (index >= 0) verifications.splice(index, 1);
-    } else if (action === LIBRARY_VERIFY_SOCKET_COMMAND.cancel) {
-        sendAppSocketCommand({ type: LIBRARY_VERIFY_SOCKET_COMMAND.cancel });
-    } else if (action === LIBRARY_VERIFY_SOCKET_COMMAND.download) {
-        const item = verifications.find(
-            (candidate) => getLibraryVerifyId(candidate) === itemId
-        );
-        if (!item?.titleId || !item.kind) return true;
-        queueVerificationDownloads([
-            {
-                id: crypto.randomUUID(),
-                family: item.titleId.toLowerCase().slice(8),
-                groupName: item.name ?? item.titleId,
-                kind: item.kind,
-                label: item.kind,
-                titleId: item.titleId,
-                sizeText: null,
-                totalBytes: null,
-                state: 'queued',
-                error: null,
-                progress: 0,
-                downloadedBytes: null,
-                speedText: null,
-                completedFiles: null,
-                totalFiles: null,
-                currentFileName: null,
-                currentFileSizeBytes: null,
-                installedSizeBytes: null,
-                installedVersion: null,
-                installedTitleName: null,
-                installedSourcePath: null,
-            },
-        ]);
-    } else if (
-        action === LIBRARY_CONVERT_SOCKET_COMMAND.cancel ||
-        action === LIBRARY_CONVERT_SOCKET_COMMAND.clear ||
-        action === LIBRARY_CONVERT_SOCKET_COMMAND.retry
-    ) {
-        sendAppSocketCommand({ type: action, id: itemId });
-    } else {
-        return false;
+    switch (action) {
+        // Verify
+        case LIBRARY_VERIFY_SOCKET_COMMAND.clear: {
+            const index = verifications.findIndex(
+                (item) => getLibraryVerifyId(item) === itemId
+            );
+
+            if (index >= 0) {
+                verifications.splice(index, 1);
+            }
+
+            return true;
+        }
+
+        case LIBRARY_VERIFY_SOCKET_COMMAND.cancel:
+            sendAppSocketCommand({
+                type: LIBRARY_VERIFY_SOCKET_COMMAND.cancel,
+            });
+            return true;
+
+        case LIBRARY_VERIFY_SOCKET_COMMAND.download: {
+            const item = verifications.find(
+                (candidate) => getLibraryVerifyId(candidate) === itemId
+            );
+
+            if (!item?.titleId || !item.kind) {
+                return true;
+            }
+
+            queueVerificationDownloads([
+                {
+                    id: crypto.randomUUID(),
+                    family: item.titleId.toLowerCase().slice(8),
+                    groupName: item.name ?? item.titleId,
+                    kind: item.kind,
+                    label: item.kind,
+                    titleId: item.titleId,
+                    sizeText: null,
+                    totalBytes: null,
+                    state: 'queued',
+                    error: null,
+                    progress: 0,
+                    downloadedBytes: null,
+                    speedText: null,
+                    completedFiles: null,
+                    totalFiles: null,
+                    currentFileName: null,
+                    currentFileSizeBytes: null,
+                    installedSizeBytes: null,
+                    installedVersion: null,
+                    installedTitleName: null,
+                    installedSourcePath: null,
+                },
+            ]);
+
+            return true;
+        }
+
+        // Convert
+        case LIBRARY_CONVERT_SOCKET_COMMAND.cancel:
+        case LIBRARY_CONVERT_SOCKET_COMMAND.clear:
+        case LIBRARY_CONVERT_SOCKET_COMMAND.retry:
+            sendAppSocketCommand({ type: action, id: itemId });
+            return true;
+
+        default:
+            return false;
     }
-    return true;
 }

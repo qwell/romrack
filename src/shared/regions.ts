@@ -38,7 +38,9 @@ export function normalizeRegion(
 }
 
 export function parseRegion(value: string | null | undefined): string {
-    if (!value) return '';
+    if (!value) {
+        return '';
+    }
 
     const normalized = value.toUpperCase();
     if (normalized.length === 3) {

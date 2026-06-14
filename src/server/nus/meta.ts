@@ -68,7 +68,9 @@ export function readMetaXmlJson(
 export function findXmlStartByte(buffer: Uint8Array): number {
     const source = Buffer.from(buffer);
     const xmlIndex = source.indexOf(Buffer.from('<?xml'));
-    if (xmlIndex >= 0) return xmlIndex;
+    if (xmlIndex >= 0) {
+        return xmlIndex;
+    }
     const menuIndex = source.indexOf(Buffer.from('<menu'));
     return menuIndex >= 0 ? menuIndex : -1;
 }
@@ -82,12 +84,16 @@ function getMenuString(
     key: string
 ): string | null {
     const value = menu?.[key];
-    if (typeof value !== 'string') return null;
+    if (typeof value !== 'string') {
+        return null;
+    }
     return value.length > 0 ? value : null;
 }
 
 function parseMetaUnsignedInt(value: string | null): number | null {
-    if (!value) return null;
+    if (!value) {
+        return null;
+    }
     const parsed = Number.parseInt(value, 10);
     return Number.isFinite(parsed) ? parsed : null;
 }
