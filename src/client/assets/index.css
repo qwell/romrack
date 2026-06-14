@@ -396,11 +396,6 @@ select {
     font-size: 12px;
 }
 
-.library-field-verify[aria-busy='true'] {
-    opacity: 1;
-    cursor: wait;
-}
-
 .library-checkbox {
     display: inline-flex;
     align-items: center;
@@ -416,6 +411,13 @@ select {
     opacity: 0.45;
     cursor: not-allowed;
     pointer-events: none;
+}
+
+.library-field-refresh[aria-busy='true'],
+.library-field-verify[aria-busy='true'] {
+    opacity: 1;
+    cursor: wait;
+    pointer-events: auto;
 }
 
 .library-view-toggle {

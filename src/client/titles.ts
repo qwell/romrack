@@ -55,6 +55,7 @@ let vcSelect: HTMLSelectElement | null = null;
 let searchInput: HTMLInputElement | null = null;
 let showAllInput: HTMLInputElement | null = null;
 let refreshButton: HTMLButtonElement | null = null;
+let verifyButton: HTMLButtonElement | null = null;
 
 export const titleSearchHaystacks = new WeakMap<TitleGroup, string>();
 
@@ -75,11 +76,13 @@ export function mountTitles(root: HTMLElement): void {
 
     root.replaceChildren(controls, loadingLine, titlesGrid, titlesSidebar);
     updateTitlesControls();
+    updateTitleActionButtons();
 }
 
 export function renderTitles(groups: TitleGroup[]): void {
     currentGroups = groups;
     updateTitlesControls();
+    updateTitleActionButtons();
 
     if (titlesGrid && titlesSidebar) {
         renderGroups(currentGroups, titlesGrid, titlesSidebar);
@@ -90,6 +93,7 @@ export function renderTitlesError(message: string): void {
     currentGroups = [];
     resetIconObserver();
     updateTitlesControls();
+    updateTitleActionButtons();
 
     if (!titlesGrid) {
         return;
@@ -151,7 +155,7 @@ export function setTitlesStatus(next: {
         titlesGrid?.replaceChildren();
     }
     updateTitlesControls();
-    updateVerificationButtonState();
+    updateTitleActionButtons();
 }
 
 function formatRegion(region: string | null): {
@@ -678,7 +682,7 @@ function buildControls(
         'Refresh library',
         'refresh'
     );
-    const verify = iconButton(
+    verifyButton = iconButton(
         'library-field-verify',
         'Verify library',
         'check-double'
@@ -697,7 +701,7 @@ function buildControls(
         showAllLabel,
         buildViewControl(grid),
         refreshButton,
-        verify,
+        verifyButton,
         settings
     );
 
@@ -720,7 +724,7 @@ function buildControls(
         update();
     });
     refreshButton.addEventListener('click', () => void options?.onRefresh());
-    verify.addEventListener('click', () => void options?.onVerify());
+    verifyButton.addEventListener('click', () => void options?.onVerify());
     settings.addEventListener('click', () => options?.onOpenSettings());
 
     return root;
@@ -765,23 +769,47 @@ function updateTitlesControls(): void {
     }
 
     const disabled = currentGroups.length === 0;
-    for (const control of [regionSelect, statusSelect, vcSelect, searchInput]) {
-        if (control) control.disabled = disabled;
+    for (const control of [
+        regionSelect,
+        statusSelect,
+        vcSelect,
+        searchInput,
+        showAllInput,
+    ]) {
+        if (control) {
+            control.disabled = disabled;
+        }
     }
-    if (showAllInput) showAllInput.disabled = currentGroups.length === 0;
-    if (refreshButton) refreshButton.disabled = loading;
+}
+
+function updateTitleActionButtons(): void {
+    updateRefreshButtonState();
+    updateVerificationButtonState();
+}
+
+function updateRefreshButtonState(): void {
+    const icon = refreshButton?.querySelector<HTMLElement>('i');
+    if (!refreshButton || !icon) {
+        return;
+    }
+    refreshButton.title = loading ? 'Refreshing library' : 'Refresh library';
+    refreshButton.setAttribute('aria-label', refreshButton.title);
+    refreshButton.setAttribute('aria-busy', String(loading));
+    refreshButton.disabled = loading;
+    icon.className = loading
+        ? 'fa-solid fa-spinner fa-spin'
+        : 'fa-solid fa-refresh';
 }
 
 function updateVerificationButtonState(): void {
-    const button = document.querySelector<HTMLButtonElement>(
-        '.library-field-verify'
-    );
-    const icon = button?.querySelector<HTMLElement>('i');
-    if (!button || !icon) return;
-    button.title = verifying ? 'Verifying library' : 'Verify library';
-    button.setAttribute('aria-label', button.title);
-    button.setAttribute('aria-busy', String(verifying));
-    button.disabled = loading || verifying || currentGroups.length === 0;
+    const icon = verifyButton?.querySelector<HTMLElement>('i');
+    if (!verifyButton || !icon) {
+        return;
+    }
+    verifyButton.title = verifying ? 'Verifying library' : 'Verify library';
+    verifyButton.setAttribute('aria-label', verifyButton.title);
+    verifyButton.setAttribute('aria-busy', String(verifying));
+    verifyButton.disabled = loading || verifying || currentGroups.length === 0;
     icon.className = verifying
         ? 'fa-solid fa-spinner fa-spin'
         : 'fa-solid fa-check-double';
