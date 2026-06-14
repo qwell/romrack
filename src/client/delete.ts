@@ -9,27 +9,21 @@ import { type TitleEntry } from '../shared/titles.js';
 export function syncDeletes(
     deletes: DeleteItem[],
     nextDeletes: DeleteItem[]
-): DeleteItem[] {
+): string[] {
     const previousById = new Map(deletes.map((item) => [item.id, item]));
     const shouldReconcileCompleted = previousById.size === 0;
 
     deletes.splice(0, deletes.length, ...nextDeletes);
 
-    const completedItems = deletes.filter((item) => {
-        const previous = previousById.get(item.id);
-        return (
-            item.state === 'complete' &&
-            ((previous && previous.state !== 'complete') ||
-                shouldReconcileCompleted)
-        );
-    });
-
-    return completedItems;
-}
-
-export function getCompletedDeletedTitleIds(items: DeleteItem[]): string[] {
-    return items
-        .filter((item) => item.state === 'complete')
+    return deletes
+        .filter((item) => {
+            const previous = previousById.get(item.id);
+            return (
+                item.state === 'complete' &&
+                ((previous && previous.state !== 'complete') ||
+                    shouldReconcileCompleted)
+            );
+        })
         .map((item) => item.titleId);
 }
 

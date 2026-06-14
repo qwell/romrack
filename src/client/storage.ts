@@ -12,32 +12,23 @@ import { formatSize } from '../shared/shared.js';
 export function syncStorageCopies(
     copies: StorageCopyItem[],
     nextCopies: StorageCopyItem[]
-): StorageCopyItem[] {
+): string[] {
     const previousById = new Map(copies.map((item) => [item.id, item]));
     const shouldReconcileCompleted = previousById.size === 0;
 
     copies.splice(0, copies.length, ...nextCopies);
 
-    const completedItems = copies.filter((item) => {
-        const previous = previousById.get(item.id);
-        return (
-            item.state === 'complete' &&
-            ((previous && previous.state !== 'complete') ||
-                shouldReconcileCompleted)
-        );
-    });
-
-    return completedItems;
-}
-
-export function getCompletedMovedTitleIds(items: StorageCopyItem[]): string[] {
-    return items
-        .filter(
-            (item) =>
+    return copies
+        .filter((item) => {
+            const previous = previousById.get(item.id);
+            return (
                 item.state === 'complete' &&
                 item.operation === 'move' &&
-                item.titleId !== null
-        )
+                item.titleId !== null &&
+                ((previous && previous.state !== 'complete') ||
+                    shouldReconcileCompleted)
+            );
+        })
         .map((item) => item.titleId as string);
 }
 
