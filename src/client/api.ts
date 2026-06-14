@@ -4,7 +4,7 @@ import {
     type ConfigValidateRootResponse,
     type LibraryResponse,
     type LibraryConvertQueuedResponse,
-    type LibraryValidateResponse,
+    type LibraryVerifyResponse,
     type StorageFat32ListResponse,
     type StorageTransferQueuedResponse,
 } from '../shared/api.js';
@@ -14,8 +14,8 @@ export function getLibrary(): Promise<LibraryResponse> {
     return requestJson('/api/library');
 }
 
-export function validateLibrary(): Promise<LibraryValidateResponse> {
-    return requestJson('/api/library/validate');
+export function verifyLibrary(): Promise<LibraryVerifyResponse> {
+    return requestJson('/api/library/verify');
 }
 
 export function queueLibraryConvert(

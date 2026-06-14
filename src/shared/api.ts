@@ -27,7 +27,7 @@ export type LibraryResponse = {
     groups: TitleGroup[];
 };
 
-export type LibraryValidateTitle = {
+export type LibraryVerifyTitle = {
     root: string | null;
     directory: string | null;
     name: string;
@@ -40,11 +40,11 @@ export type LibraryValidateTitle = {
     verification: unknown[];
 };
 
-export type LibraryValidateResponse = {
+export type LibraryVerifyResponse = {
     status: 'ok' | 'failed' | 'cancelled';
     total: number;
     failed: number;
-    titles: LibraryValidateTitle[];
+    titles: LibraryVerifyTitle[];
 };
 
 export type LibraryConvertQueuedResponse = {

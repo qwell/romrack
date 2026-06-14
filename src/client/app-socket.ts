@@ -6,13 +6,13 @@ import {
     type SocketEvent,
     type TitleValidationSocketEvent,
     type LibraryConvertSocketEvent,
-    type LibraryValidateStatusEvent,
+    type LibraryVerifyStatusEvent,
     APP_SOCKET_EVENT,
     DOWNLOAD_SOCKET_EVENT,
     STORAGE_COPY_SOCKET_EVENT,
     DELETE_SOCKET_EVENT,
     LIBRARY_CONVERT_SOCKET_EVENT,
-    LIBRARY_VALIDATE_SOCKET_EVENT,
+    LIBRARY_VERIFY_SOCKET_EVENT,
     TITLE_VALIDATE_SOCKET_EVENT,
 } from '../shared/socket.js';
 import { type TitleGroup } from '../shared/titles.js';
@@ -37,11 +37,11 @@ type AppEventOptions = {
     onServerAvailable: () => void;
     onGroupChanged: (group: TitleGroup) => void;
     onActionsChanged?: () => void;
-    onValidationStateChanged: (validating: boolean) => void;
+    onVerificationStateChanged: (verifying: boolean) => void;
     onLibraryConvertChanged?: (
         items: LibraryConvertSocketEvent['items']
     ) => void;
-    onLibraryValidateChanged: (event: LibraryValidateStatusEvent) => void;
+    onLibraryVerifyChanged: (event: LibraryVerifyStatusEvent) => void;
     onTitleValidationChanged: (event: TitleValidationSocketEvent) => void;
 };
 
@@ -151,8 +151,8 @@ export function createAppEventHandler(
                     syncDeletes(options.deletes, event.deletes)
                 );
 
-                if (event.libraryValidateStatus) {
-                    handle(event.libraryValidateStatus);
+                if (event.libraryVerifyStatus) {
+                    handle(event.libraryVerifyStatus);
                 }
                 options.onLibraryConvertChanged?.(event.libraryConversions);
                 options.onActionsChanged?.();
@@ -186,13 +186,13 @@ export function createAppEventHandler(
                 options.onActionsChanged?.();
                 return;
 
-            case LIBRARY_VALIDATE_SOCKET_EVENT.status: {
+            case LIBRARY_VERIFY_SOCKET_EVENT.status: {
                 options.onServerAvailable();
-                options.onValidationStateChanged(
+                options.onVerificationStateChanged(
                     event.status !== 'complete' && event.status !== 'failed'
                 );
 
-                options.onLibraryValidateChanged(event);
+                options.onLibraryVerifyChanged(event);
                 return;
             }
 

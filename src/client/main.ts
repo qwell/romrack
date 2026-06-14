@@ -3,14 +3,14 @@ import {
     listFat32Volumes,
     queueLibraryConvert,
     queueStorageCopy,
-    validateLibrary,
+    verifyLibrary,
 } from './api.js';
 import { type StorageFat32ListResponse } from '../shared/api.js';
 import {
     type LibraryConvertItem,
     type TitleValidationSocketEvent,
-    type LibraryValidateStatusEvent,
-    LIBRARY_VALIDATE_SOCKET_EVENT,
+    type LibraryVerifyStatusEvent,
+    LIBRARY_VERIFY_SOCKET_EVENT,
     TITLE_VALIDATE_SOCKET_COMMAND,
 } from '../shared/socket.js';
 import { type DeleteItem } from '../shared/delete.js';
@@ -24,8 +24,8 @@ import {
     addAvailableEntry,
     createAvailableEntry,
     isValidationFailed,
-    mergeFailedValidationsIntoAvailable,
-    syncLibraryValidateActions,
+    mergeFailedVerificationsIntoAvailable,
+    syncLibraryVerifyActions,
     syncGroupStatusFromSlots,
 } from './library.js';
 import {
@@ -57,9 +57,9 @@ declare const __APP_VERSION__: string;
 const SOCKET_RECONNECT_MS = 2000;
 
 let fat32ListPromise: Promise<StorageFat32ListResponse> | null = null;
-const libraryValidations: LibraryValidateStatusEvent[] = [];
+const libraryVerifications: LibraryVerifyStatusEvent[] = [];
 const libraryConversions: LibraryConvertItem[] = [];
-let validatingLibrary = false;
+let verifyingLibrary = false;
 let libraryLoading = false;
 let activeLibraryRequestId = 0;
 let allLibraryGroups: TitleGroup[] = [];
@@ -271,28 +271,28 @@ async function loadLibrary(output: HTMLElement): Promise<void> {
     }
 }
 
-async function validateLibraryContent(): Promise<void> {
+async function verifyLibraryContent(): Promise<void> {
     if (
         libraryLoading ||
-        validatingLibrary ||
+        verifyingLibrary ||
         getCurrentTitleGroups().length === 0
     ) {
         return;
     }
 
-    validatingLibrary = true;
-    setTitlesStatus({ validating: true });
-    syncLibraryValidateActions(libraryValidations, {
-        type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
+    verifyingLibrary = true;
+    setTitlesStatus({ verifying: true });
+    syncLibraryVerifyActions(libraryVerifications, {
+        type: LIBRARY_VERIFY_SOCKET_EVENT.status,
         state: 'in-progress',
         status: 'started',
     });
     refreshActionBar();
 
     try {
-        const response = await validateLibrary();
+        const response = await verifyLibrary();
         if (response.status === 'cancelled') return;
-        const changedGroups = mergeFailedValidationsIntoAvailable(
+        const changedGroups = mergeFailedVerificationsIntoAvailable(
             getCurrentTitleGroups(),
             response.titles
         );
@@ -302,16 +302,16 @@ async function validateLibraryContent(): Promise<void> {
         }
     } catch (error) {
         console.error(error);
-        syncLibraryValidateActions(libraryValidations, {
-            type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
+        syncLibraryVerifyActions(libraryVerifications, {
+            type: LIBRARY_VERIFY_SOCKET_EVENT.status,
             state: 'failed',
             status: 'failed',
             error: error instanceof Error ? error.message : String(error),
         });
         refreshActionBar();
     } finally {
-        validatingLibrary = false;
-        setTitlesStatus({ validating: false });
+        verifyingLibrary = false;
+        setTitlesStatus({ verifying: false });
     }
 }
 
@@ -356,12 +356,12 @@ connectAppSocket({
         getGroups: getCurrentTitleGroups,
         onServerAvailable: hideServerGoneModal,
         onGroupChanged: refreshTitleGroupUi,
-        onValidationStateChanged(validating) {
-            validatingLibrary = validating;
-            setTitlesStatus({ validating });
+        onVerificationStateChanged(verifying) {
+            verifyingLibrary = verifying;
+            setTitlesStatus({ verifying });
         },
-        onLibraryValidateChanged(event) {
-            syncLibraryValidateActions(libraryValidations, event);
+        onLibraryVerifyChanged(event) {
+            syncLibraryVerifyActions(libraryVerifications, event);
             refreshActionBar();
         },
         onLibraryConvertChanged(items) {
@@ -446,11 +446,11 @@ setupUi({
     downloads: downloadQueue,
     storageCopies,
     deletes,
-    libraryValidations,
+    libraryVerifications,
     libraryConversions,
     titleValidations,
     onRefreshLibrary: refreshLibrary,
-    onValidateLibrary: validateLibraryContent,
+    onVerifyLibrary: verifyLibraryContent,
     queueStorageCopy,
     queueLibraryConvert,
     requestTitleValidation(titleId, name) {

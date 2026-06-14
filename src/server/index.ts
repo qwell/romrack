@@ -18,7 +18,7 @@ import {
     getDeletes,
     createLibraryRouter,
     getLibraryConversions,
-    getLatestLibraryValidateStatus,
+    getLatestLibraryVerifyStatus,
     createTitleRouter,
     getDownloadQueue,
 } from './routes.js';
@@ -76,7 +76,7 @@ createAppSocket({
         downloads: getDownloadQueue(),
         storageCopies: getStorageCopies(),
         deletes: getDeletes(),
-        libraryValidateStatus: getLatestLibraryValidateStatus(),
+        libraryVerifyStatus: getLatestLibraryVerifyStatus(),
         libraryConversions: getLibraryConversions(),
     }),
     onCommand: handleAppSocketCommand,

@@ -3,7 +3,7 @@ import { type DeleteItem } from '../shared/delete.js';
 import { type DownloadQueueItem } from '../shared/download.js';
 import {
     type LibraryConvertItem,
-    type LibraryValidateStatusEvent,
+    type LibraryVerifyStatusEvent,
     type TitleValidationSocketEvent,
 } from '../shared/socket.js';
 import { type StorageCopyItem } from '../shared/storage.js';
@@ -25,7 +25,7 @@ import {
 } from './delete.js';
 import {
     getLibraryConvertActionBarEntries,
-    getLibraryValidateActionBarEntries,
+    getLibraryVerifyActionBarEntries,
     handleLibraryActionBarCommand,
     isValidationFailed,
     renderLibrarySidebarWud,
@@ -60,11 +60,11 @@ type UiOptions = {
     downloads: DownloadQueueItem[];
     storageCopies: StorageCopyItem[];
     deletes: DeleteItem[];
-    libraryValidations: LibraryValidateStatusEvent[];
+    libraryVerifications: LibraryVerifyStatusEvent[];
     libraryConversions: LibraryConvertItem[];
     titleValidations: Map<string, TitleValidationSocketEvent>;
     onRefreshLibrary: () => void | Promise<void>;
-    onValidateLibrary: () => void | Promise<void>;
+    onVerifyLibrary: () => void | Promise<void>;
     queueStorageCopy: (
         titleId: string,
         destination: string
@@ -110,8 +110,8 @@ function setupActionBar(options: UiOptions): void {
             ...getDownloadActionBarEntries(options.downloads),
             ...getStorageCopyActionBarEntries(options.storageCopies),
             ...getDeleteActionBarEntries(options.deletes),
-            ...getLibraryValidateActionBarEntries(
-                options.libraryValidations,
+            ...getLibraryVerifyActionBarEntries(
+                options.libraryVerifications,
                 options.downloads
             ),
             ...getLibraryConvertActionBarEntries(options.libraryConversions),
@@ -135,7 +135,7 @@ function setupActionBar(options: UiOptions): void {
             handleLibraryActionBarCommand(
                 action,
                 itemId,
-                options.libraryValidations,
+                options.libraryVerifications,
                 (items) => queueDownloads(options.downloads, items)
             );
             updateActionBar();
@@ -208,7 +208,7 @@ function setupTitlesUi(options: UiOptions): void {
     setupTitles({
         downloads: options.downloads,
         onRefresh: options.onRefreshLibrary,
-        onValidate: options.onValidateLibrary,
+        onVerify: options.onVerifyLibrary,
         onOpenSettings: openSettingsSidebar,
         renderDownloadMarkers: () => renderDownloadMarkers(options.downloads),
         buildDetailSidebar,

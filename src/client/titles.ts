@@ -27,7 +27,7 @@ type TitlesControlState = {
 type TitlesOptions = {
     downloads: DownloadQueueItem[];
     onRefresh: () => void | Promise<void>;
-    onValidate: () => void | Promise<void>;
+    onVerify: () => void | Promise<void>;
     onOpenSettings: () => void;
     renderDownloadMarkers: () => void;
     buildDetailSidebar: () => HTMLElement;
@@ -49,7 +49,7 @@ let controlState: TitlesControlState = {
 };
 let iconObserver: IntersectionObserver | null = null;
 let loading = false;
-let validating = false;
+let verifying = false;
 
 export const titleSearchHaystacks = new WeakMap<TitleGroup, string>();
 
@@ -96,11 +96,11 @@ export function observeTitleIcon(image: HTMLImageElement, src: string): void {
 
 export function setTitlesStatus(next: {
     loading?: boolean;
-    validating?: boolean;
+    verifying?: boolean;
 }): void {
     loading = next.loading ?? loading;
-    validating = next.validating ?? validating;
-    updateValidationButtonState();
+    verifying = next.verifying ?? verifying;
+    updateVerificationButtonState();
 }
 
 function formatRegion(region: string | null): {
@@ -652,9 +652,9 @@ function buildControls(
         'refresh'
     );
     refresh.disabled = loading;
-    const validate = iconButton(
-        'library-field-validate',
-        'Validate library',
+    const verify = iconButton(
+        'library-field-verify',
+        'Verify library',
         'check-double'
     );
     const settings = iconButton(
@@ -671,7 +671,7 @@ function buildControls(
         showAllLabel,
         buildViewControl(grid),
         refresh,
-        validate,
+        verify,
         settings
     );
 
@@ -693,24 +693,24 @@ function buildControls(
         update();
     });
     refresh.addEventListener('click', () => void options?.onRefresh());
-    validate.addEventListener('click', () => void options?.onValidate());
+    verify.addEventListener('click', () => void options?.onVerify());
     settings.addEventListener('click', () => options?.onOpenSettings());
 
     if (!loading && groups.length > 0) update();
     return root;
 }
 
-function updateValidationButtonState(): void {
+function updateVerificationButtonState(): void {
     const button = document.querySelector<HTMLButtonElement>(
-        '.library-field-validate'
+        '.library-field-verify'
     );
     const icon = button?.querySelector<HTMLElement>('i');
     if (!button || !icon) return;
-    button.title = validating ? 'Validating library' : 'Validate library';
+    button.title = verifying ? 'Verifying library' : 'Verify library';
     button.setAttribute('aria-label', button.title);
-    button.setAttribute('aria-busy', String(validating));
-    button.disabled = loading || validating || currentGroups.length === 0;
-    icon.className = validating
+    button.setAttribute('aria-busy', String(verifying));
+    button.disabled = loading || verifying || currentGroups.length === 0;
+    icon.className = verifying
         ? 'fa-solid fa-spinner fa-spin'
         : 'fa-solid fa-check-double';
 }
@@ -734,6 +734,6 @@ export function buildTitlesContent(
     loadingLine.setAttribute('role', 'status');
     loadingLine.setAttribute('aria-live', 'polite');
     fragment.append(controls, loadingLine, grid, sidebar);
-    queueMicrotask(updateValidationButtonState);
+    queueMicrotask(updateVerificationButtonState);
     return fragment;
 }

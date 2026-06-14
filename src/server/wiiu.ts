@@ -34,7 +34,7 @@ import { getImmediatePathSizeBytes } from '../shared/file.js';
 import { readTmd } from './title.js';
 import logger from '../shared/logger.js';
 import { ansi } from '../shared/ansi.js';
-import { LibraryValidateTitle } from '../shared/api.js';
+import { LibraryVerifyTitle } from '../shared/api.js';
 import { resolveReadablePath } from '../shared/os.js';
 import { TMD_TITLE_FILE } from './nus/tmd.js';
 import { scanWudTitleEntries } from './wud.js';
@@ -774,9 +774,9 @@ export async function findFirstReadableWiiURoot(
     throw new Error(`No readable Wii U roots found. ${errors.join('; ')}`);
 }
 
-type LibraryValidateProgress =
+type LibraryVerifyProgress =
     | {
-          status: 'validating';
+          status: 'verifying';
           titleId: string;
           name: string;
           kind: TitleKinds;
@@ -787,7 +787,7 @@ type LibraryValidateProgress =
           total: number;
       }
     | {
-          status: 'validated';
+          status: 'verified';
           titleId: string;
           name: string;
           kind: TitleKinds;
@@ -798,22 +798,22 @@ type LibraryValidateProgress =
           total: number;
       };
 
-export type LibraryValidateProgressCallback = (
-    progress: LibraryValidateProgress
+export type LibraryVerifyProgressCallback = (
+    progress: LibraryVerifyProgress
 ) => void;
 
-export async function validateWiiUTitles(
+export async function verifyWiiUTitles(
     root: string,
-    onProgress?: (progress: LibraryValidateProgress) => void,
+    onProgress?: (progress: LibraryVerifyProgress) => void,
     options: {
         directories?: string[];
         offset?: number;
         total?: number;
         signal?: AbortSignal;
     } = {}
-): Promise<LibraryValidateTitle[]> {
+): Promise<LibraryVerifyTitle[]> {
     const directories = options.directories ?? (await findTitleDirs(root));
-    const validations: LibraryValidateTitle[] = [];
+    const verifications: LibraryVerifyTitle[] = [];
     const titleDatabase = await readTitleDatabase();
     const offset = options.offset ?? 0;
     const total = options.total ?? directories.length;
@@ -827,7 +827,7 @@ export async function validateWiiUTitles(
     );
 
     for (const [index, directory] of directories.entries()) {
-        throwIfLibraryValidateCancelled(options.signal);
+        throwIfLibraryVerifyCancelled(options.signal);
 
         const dirPath = path.join(root, directory);
 
@@ -845,7 +845,7 @@ export async function validateWiiUTitles(
         const sizeText = formatSize(sizeBytes);
 
         onProgress?.({
-            status: 'validating',
+            status: 'verifying',
             titleId,
             name: titleName,
             kind: titleKind,
@@ -856,7 +856,7 @@ export async function validateWiiUTitles(
 
         logger.log(
             'wiiu',
-            `validating title: ${formatTitleDisplay(
+            `verifying title: ${formatTitleDisplay(
                 titleName,
                 titleId,
                 titleKind,
@@ -867,7 +867,7 @@ export async function validateWiiUTitles(
             dirPath,
             (progress) => {
                 onProgress?.({
-                    status: 'validating',
+                    status: 'verifying',
                     titleId,
                     name: titleName,
                     kind: titleKind,
@@ -879,7 +879,7 @@ export async function validateWiiUTitles(
                 });
             }
         );
-        throwIfLibraryValidateCancelled(options.signal);
+        throwIfLibraryVerifyCancelled(options.signal);
         const result = verification.status === 'ok' ? 'ok' : 'failed';
         const status =
             verification.status === 'failed'
@@ -889,7 +889,7 @@ export async function validateWiiUTitles(
         // Keep the extra space, for alignment purposes
         logger.log(
             'wiiu',
-            `validated title:  ${formatTitleDisplay(
+            `verified title:  ${formatTitleDisplay(
                 titleName,
                 titleId,
                 titleKind,
@@ -898,7 +898,7 @@ export async function validateWiiUTitles(
         );
 
         onProgress?.({
-            status: 'validated',
+            status: 'verified',
             titleId,
             name: titleName,
             kind: titleKind,
@@ -909,7 +909,7 @@ export async function validateWiiUTitles(
             total,
         });
 
-        validations.push({
+        verifications.push({
             root,
             directory,
             name: titleName,
@@ -923,19 +923,19 @@ export async function validateWiiUTitles(
         });
     }
 
-    return validations;
+    return verifications;
 }
 
 export async function verifyWiiUTitleRoots(
     roots: string[],
-    onProgress?: (progress: LibraryValidateProgress) => void,
+    onProgress?: (progress: LibraryVerifyProgress) => void,
     signal?: AbortSignal
-): Promise<LibraryValidateTitle[]> {
-    const validations: LibraryValidateTitle[] = [];
+): Promise<LibraryVerifyTitle[]> {
+    const verifications: LibraryVerifyTitle[] = [];
     const readableRoots: { root: string; directories: string[] }[] = [];
 
     for (const root of roots) {
-        throwIfLibraryValidateCancelled(signal);
+        throwIfLibraryVerifyCancelled(signal);
 
         try {
             const readableRoot = await resolveReadablePath(root);
@@ -956,10 +956,10 @@ export async function verifyWiiUTitleRoots(
     let offset = 0;
 
     for (const root of readableRoots) {
-        throwIfLibraryValidateCancelled(signal);
+        throwIfLibraryVerifyCancelled(signal);
 
-        validations.push(
-            ...(await validateWiiUTitles(root.root, onProgress, {
+        verifications.push(
+            ...(await verifyWiiUTitles(root.root, onProgress, {
                 directories: root.directories,
                 offset,
                 total,
@@ -969,26 +969,26 @@ export async function verifyWiiUTitleRoots(
         offset += root.directories.length;
     }
 
-    validations.push(
-        ...createMissingExpectedChildValidations(
+    verifications.push(
+        ...createMissingExpectedChildVerifications(
             await scanWiiUTitleRoots(roots),
-            validations
+            verifications
         )
     );
 
-    return sortLibraryTitleValidations(validations);
+    return sortLibraryTitleVerifications(verifications);
 }
 
-function throwIfLibraryValidateCancelled(signal?: AbortSignal): void {
+function throwIfLibraryVerifyCancelled(signal?: AbortSignal): void {
     if (signal?.aborted) {
-        throw new Error('Validation cancelled');
+        throw new Error('Verification cancelled');
     }
 }
 
-function sortLibraryTitleValidations(
-    validations: LibraryValidateTitle[]
-): LibraryValidateTitle[] {
-    return validations.sort((a, b) => {
+function sortLibraryTitleVerifications(
+    verifications: LibraryVerifyTitle[]
+): LibraryVerifyTitle[] {
+    return verifications.sort((a, b) => {
         const nameComparison = a.name.localeCompare(b.name);
         if (nameComparison !== 0) {
             return nameComparison;
@@ -1000,16 +1000,16 @@ function sortLibraryTitleValidations(
     });
 }
 
-function createMissingExpectedChildValidations(
+function createMissingExpectedChildVerifications(
     groups: TitleGroup[],
-    existingValidations: LibraryValidateTitle[]
-): LibraryValidateTitle[] {
+    existingVerifications: LibraryVerifyTitle[]
+): LibraryVerifyTitle[] {
     const installedTitleIds = new Set(
-        existingValidations
-            .map((validation) => validation.titleId)
+        existingVerifications
+            .map((verification) => verification.titleId)
             .filter((titleId): titleId is string => titleId !== null)
     );
-    const missing: LibraryValidateTitle[] = [];
+    const missing: LibraryVerifyTitle[] = [];
 
     for (const group of groups) {
         if (group.entries.length === 0) {

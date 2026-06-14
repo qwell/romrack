@@ -6,7 +6,7 @@ import {
     type SocketEvent,
     DOWNLOAD_SOCKET_COMMAND,
     LIBRARY_CONVERT_SOCKET_COMMAND,
-    LIBRARY_VALIDATE_SOCKET_COMMAND,
+    LIBRARY_VERIFY_SOCKET_COMMAND,
     STORAGE_COPY_SOCKET_COMMAND,
     DELETE_SOCKET_COMMAND,
     TITLE_VALIDATE_SOCKET_COMMAND,
@@ -18,7 +18,7 @@ import {
     handleDeleteSocketCommand,
     handleDownloadSocketCommand,
     handleLibraryConvertSocketCommand,
-    handleLibraryValidateSocketCommand,
+    handleLibraryVerifySocketCommand,
     handleTitleValidationSocketCommand,
 } from './routes.js';
 
@@ -131,8 +131,8 @@ export function handleAppSocketCommand(command: SocketCommand): void {
     } else if (isSocketCommand(command, DELETE_SOCKET_COMMAND)) {
         handleDeleteSocketCommand(command);
         return;
-    } else if (isSocketCommand(command, LIBRARY_VALIDATE_SOCKET_COMMAND)) {
-        handleLibraryValidateSocketCommand(command);
+    } else if (isSocketCommand(command, LIBRARY_VERIFY_SOCKET_COMMAND)) {
+        handleLibraryVerifySocketCommand(command);
         return;
     } else if (isSocketCommand(command, LIBRARY_CONVERT_SOCKET_COMMAND)) {
         handleLibraryConvertSocketCommand(command);
@@ -188,7 +188,7 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
         }
 
         return command;
-    } else if (isSocketCommand(command, LIBRARY_VALIDATE_SOCKET_COMMAND)) {
+    } else if (isSocketCommand(command, LIBRARY_VERIFY_SOCKET_COMMAND)) {
         return command;
     } else if (isSocketCommand(command, LIBRARY_CONVERT_SOCKET_COMMAND)) {
         return hasId() ? command : null;

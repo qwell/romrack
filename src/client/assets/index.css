@@ -370,7 +370,7 @@ select {
     grid-row: 2;
 }
 
-.library-field-validate {
+.library-field-verify {
     grid-column: 8;
     grid-row: 2;
 }
@@ -381,7 +381,7 @@ select {
 }
 
 .library-field-refresh,
-.library-field-validate,
+.library-field-verify,
 .library-field-settings {
     width: 22px;
     height: 22px;
@@ -396,7 +396,7 @@ select {
     font-size: 12px;
 }
 
-.library-field-validate[aria-busy='true'] {
+.library-field-verify[aria-busy='true'] {
     opacity: 1;
     cursor: wait;
 }
@@ -411,7 +411,7 @@ select {
 }
 
 .library-field-refresh:disabled,
-.library-field-validate:disabled,
+.library-field-verify:disabled,
 .library-field-settings:disabled {
     opacity: 0.45;
     cursor: not-allowed;

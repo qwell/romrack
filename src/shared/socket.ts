@@ -16,9 +16,9 @@ export const SOCKET_COMMAND = {
     deleteRetry: 'delete.retry',
     deleteClear: 'delete.clear',
     deleteCancel: 'delete.cancel',
-    libraryValidateCancel: 'library.validate.cancel',
-    libraryValidateClear: 'library.validate.clear',
-    libraryValidateDownload: 'library.validate.download',
+    libraryVerifyCancel: 'library.verify.cancel',
+    libraryVerifyClear: 'library.verify.clear',
+    libraryVerifyDownload: 'library.verify.download',
     libraryConvertCancel: 'library.convert.cancel',
     libraryConvertClear: 'library.convert.clear',
     libraryConvertRetry: 'library.convert.retry',
@@ -30,7 +30,7 @@ export const SOCKET_EVENT = {
     downloadQueueChanged: 'download.queueChanged',
     storageCopyChanged: 'storage.copyChanged',
     deleteChanged: 'delete.changed',
-    libraryValidateStatus: 'library.validateStatus',
+    libraryVerifyStatus: 'library.verifyStatus',
     libraryConvertChanged: 'library.convertChanged',
     titleValidateChanged: 'title.validate.changed',
 } as const;
@@ -54,10 +54,10 @@ export const DELETE_SOCKET_COMMAND = {
     cancel: SOCKET_COMMAND.deleteCancel,
 } as const;
 
-export const LIBRARY_VALIDATE_SOCKET_COMMAND = {
-    cancel: SOCKET_COMMAND.libraryValidateCancel,
-    clear: SOCKET_COMMAND.libraryValidateClear,
-    download: SOCKET_COMMAND.libraryValidateDownload,
+export const LIBRARY_VERIFY_SOCKET_COMMAND = {
+    cancel: SOCKET_COMMAND.libraryVerifyCancel,
+    clear: SOCKET_COMMAND.libraryVerifyClear,
+    download: SOCKET_COMMAND.libraryVerifyDownload,
 } as const;
 
 export const TITLE_VALIDATE_SOCKET_COMMAND = {
@@ -80,8 +80,8 @@ export const DELETE_SOCKET_EVENT = {
     changed: SOCKET_EVENT.deleteChanged,
 } as const;
 
-export const LIBRARY_VALIDATE_SOCKET_EVENT = {
-    status: SOCKET_EVENT.libraryValidateStatus,
+export const LIBRARY_VERIFY_SOCKET_EVENT = {
+    status: SOCKET_EVENT.libraryVerifyStatus,
 } as const;
 
 export const LIBRARY_CONVERT_SOCKET_EVENT = {
@@ -144,15 +144,15 @@ export type DeleteSocketCommand =
           id: string;
       };
 
-export type LibraryValidateSocketCommand =
+export type LibraryVerifySocketCommand =
     | {
-          type: typeof LIBRARY_VALIDATE_SOCKET_COMMAND.cancel;
+          type: typeof LIBRARY_VERIFY_SOCKET_COMMAND.cancel;
       }
     | {
-          type: typeof LIBRARY_VALIDATE_SOCKET_COMMAND.clear;
+          type: typeof LIBRARY_VERIFY_SOCKET_COMMAND.clear;
       }
     | {
-          type: typeof LIBRARY_VALIDATE_SOCKET_COMMAND.download;
+          type: typeof LIBRARY_VERIFY_SOCKET_COMMAND.download;
       };
 
 export type LibraryConvertSocketCommand =
@@ -179,7 +179,7 @@ export type SocketCommand =
     | DownloadSocketCommand
     | StorageCopySocketCommand
     | DeleteSocketCommand
-    | LibraryValidateSocketCommand
+    | LibraryVerifySocketCommand
     | LibraryConvertSocketCommand
     | TitleValidationSocketCommand;
 
@@ -188,7 +188,7 @@ export type AppConnectedEvent = {
     downloads: DownloadQueueItem[];
     storageCopies: StorageCopyItem[];
     deletes: DeleteItem[];
-    libraryValidateStatus?: LibraryValidateStatusEvent | null;
+    libraryVerifyStatus?: LibraryVerifyStatusEvent | null;
     libraryConversions: LibraryConvertItem[];
 };
 
@@ -207,18 +207,18 @@ export type DeleteSocketEvent = {
     items: DeleteItem[];
 };
 
-export type LibraryValidateStatus =
+export type LibraryVerifyStatus =
     | 'started'
-    | 'validating'
-    | 'validated'
+    | 'verifying'
+    | 'verified'
     | 'complete'
     | 'failed'
     | 'cancelled';
 
-export type LibraryValidateStatusEvent = {
-    type: typeof SOCKET_EVENT.libraryValidateStatus;
+export type LibraryVerifyStatusEvent = {
+    type: typeof SOCKET_EVENT.libraryVerifyStatus;
     state: ActionState;
-    status: LibraryValidateStatus;
+    status: LibraryVerifyStatus;
     titleId?: string;
     name?: string;
     kind?: TitleKinds;
@@ -283,7 +283,7 @@ export type SocketEvent =
     | DownloadSocketEvent
     | StorageCopySocketEvent
     | DeleteSocketEvent
-    | LibraryValidateStatusEvent
+    | LibraryVerifyStatusEvent
     | LibraryConvertSocketEvent
     | TitleValidationSocketEvent;
 

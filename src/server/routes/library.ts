@@ -17,7 +17,7 @@ import {
 } from './title.js';
 import {
     type LibraryResponse,
-    type LibraryValidateResponse,
+    type LibraryVerifyResponse,
 } from '../../shared/api.js';
 import { getConfig } from '../../shared/config.js';
 import logger from '../../shared/logger.js';
@@ -26,12 +26,12 @@ import { formatLogError } from '../../shared/shared.js';
 import {
     LIBRARY_CONVERT_SOCKET_COMMAND,
     LIBRARY_CONVERT_SOCKET_EVENT,
-    LIBRARY_VALIDATE_SOCKET_COMMAND,
-    LIBRARY_VALIDATE_SOCKET_EVENT,
+    LIBRARY_VERIFY_SOCKET_COMMAND,
+    LIBRARY_VERIFY_SOCKET_EVENT,
     type LibraryConvertSocketCommand,
     type LibraryConvertItem,
-    type LibraryValidateSocketCommand,
-    type LibraryValidateStatusEvent,
+    type LibraryVerifySocketCommand,
+    type LibraryVerifyStatusEvent,
 } from '../../shared/socket.js';
 import {
     classifyTitleId,
@@ -39,10 +39,10 @@ import {
     TitleKinds,
 } from '../../shared/titles.js';
 
-let latestLibraryValidateStatus: LibraryValidateStatusEvent | null = null;
-let activeLibraryValidateAbortController: AbortController | null = null;
-let libraryValidateStatusTimer: ReturnType<typeof setTimeout> | null = null;
-let pendingLibraryValidateStatus: LibraryValidateStatusEvent | null = null;
+let latestLibraryVerifyStatus: LibraryVerifyStatusEvent | null = null;
+let activeLibraryVerifyAbortController: AbortController | null = null;
+let libraryVerifyStatusTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingLibraryVerifyStatus: LibraryVerifyStatusEvent | null = null;
 let libraryConversions: LibraryConvertItem[] = [];
 let activeLibraryConvertId: string | null = null;
 let activeLibraryConvertAbortController: AbortController | null = null;
@@ -73,52 +73,48 @@ export function getLibraryCacheEntry(
     };
 }
 
-export function getLatestLibraryValidateStatus(): LibraryValidateStatusEvent | null {
-    return latestLibraryValidateStatus;
+export function getLatestLibraryVerifyStatus(): LibraryVerifyStatusEvent | null {
+    return latestLibraryVerifyStatus;
 }
 
 export function getLibraryConversions(): LibraryConvertItem[] {
     return libraryConversions;
 }
 
-function broadcastLibraryValidateStatus(
-    event: LibraryValidateStatusEvent
-): void {
-    clearScheduledLibraryValidateStatus();
-    latestLibraryValidateStatus = event;
+function broadcastLibraryVerifyStatus(event: LibraryVerifyStatusEvent): void {
+    clearScheduledLibraryVerifyStatus();
+    latestLibraryVerifyStatus = event;
     broadcastAppSocketEvent(event);
 }
 
-function scheduleLibraryValidateStatus(
-    event: LibraryValidateStatusEvent
-): void {
-    pendingLibraryValidateStatus = event;
+function scheduleLibraryVerifyStatus(event: LibraryVerifyStatusEvent): void {
+    pendingLibraryVerifyStatus = event;
 
-    if (libraryValidateStatusTimer !== null) {
+    if (libraryVerifyStatusTimer !== null) {
         return;
     }
 
-    libraryValidateStatusTimer = setTimeout(() => {
-        libraryValidateStatusTimer = null;
+    libraryVerifyStatusTimer = setTimeout(() => {
+        libraryVerifyStatusTimer = null;
 
-        if (!pendingLibraryValidateStatus) {
+        if (!pendingLibraryVerifyStatus) {
             return;
         }
 
-        const nextEvent = pendingLibraryValidateStatus;
-        pendingLibraryValidateStatus = null;
-        latestLibraryValidateStatus = nextEvent;
+        const nextEvent = pendingLibraryVerifyStatus;
+        pendingLibraryVerifyStatus = null;
+        latestLibraryVerifyStatus = nextEvent;
         broadcastAppSocketEvent(nextEvent);
     }, 200);
 }
 
-function clearScheduledLibraryValidateStatus(): void {
-    if (libraryValidateStatusTimer !== null) {
-        clearTimeout(libraryValidateStatusTimer);
-        libraryValidateStatusTimer = null;
+function clearScheduledLibraryVerifyStatus(): void {
+    if (libraryVerifyStatusTimer !== null) {
+        clearTimeout(libraryVerifyStatusTimer);
+        libraryVerifyStatusTimer = null;
     }
 
-    pendingLibraryValidateStatus = null;
+    pendingLibraryVerifyStatus = null;
 }
 
 function broadcastLibraryConversions(): void {
@@ -158,13 +154,13 @@ export function createLibraryRouter(): Router {
         }
     });
 
-    router.get('/validate', async (_req, res) => {
+    router.get('/verify', async (_req, res) => {
         const abortController = new AbortController();
-        activeLibraryValidateAbortController = abortController;
+        activeLibraryVerifyAbortController = abortController;
 
         try {
-            broadcastLibraryValidateStatus({
-                type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
+            broadcastLibraryVerifyStatus({
+                type: LIBRARY_VERIFY_SOCKET_EVENT.status,
                 state: 'in-progress',
                 status: 'started',
             });
@@ -172,19 +168,19 @@ export function createLibraryRouter(): Router {
             const titles = await verifyWiiUTitleRoots(
                 getConfig().wiiuRoots,
                 (progress) => {
-                    const event: LibraryValidateStatusEvent = {
-                        type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
+                    const event: LibraryVerifyStatusEvent = {
+                        type: LIBRARY_VERIFY_SOCKET_EVENT.status,
                         state: 'in-progress',
                         ...progress,
                     };
 
                     if (
-                        progress.status === 'validated' &&
+                        progress.status === 'verified' &&
                         progress.result === 'failed'
                     ) {
-                        broadcastLibraryValidateStatus(event);
+                        broadcastLibraryVerifyStatus(event);
                     } else {
-                        scheduleLibraryValidateStatus(event);
+                        scheduleLibraryVerifyStatus(event);
                     }
                 },
                 abortController.signal
@@ -194,15 +190,15 @@ export function createLibraryRouter(): Router {
             ).length;
 
             clearTitleScanCache();
-            broadcastLibraryValidateStatus({
-                type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
+            broadcastLibraryVerifyStatus({
+                type: LIBRARY_VERIFY_SOCKET_EVENT.status,
                 state: failed === 0 ? 'complete' : 'failed',
                 status: 'complete',
                 total: titles.length,
                 failed,
             });
 
-            const response: LibraryValidateResponse = {
+            const response: LibraryVerifyResponse = {
                 status: failed === 0 ? 'ok' : 'failed',
                 total: titles.length,
                 failed,
@@ -211,12 +207,12 @@ export function createLibraryRouter(): Router {
             res.json(response);
         } catch (error) {
             if (abortController.signal.aborted) {
-                broadcastLibraryValidateStatus({
-                    type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
+                broadcastLibraryVerifyStatus({
+                    type: LIBRARY_VERIFY_SOCKET_EVENT.status,
                     state: 'cancelled',
                     status: 'cancelled',
                 });
-                const response: LibraryValidateResponse = {
+                const response: LibraryVerifyResponse = {
                     status: 'cancelled',
                     total: 0,
                     failed: 0,
@@ -228,8 +224,8 @@ export function createLibraryRouter(): Router {
 
             const message =
                 error instanceof Error ? error.message : String(error);
-            broadcastLibraryValidateStatus({
-                type: LIBRARY_VALIDATE_SOCKET_EVENT.status,
+            broadcastLibraryVerifyStatus({
+                type: LIBRARY_VERIFY_SOCKET_EVENT.status,
                 state: 'failed',
                 status: 'failed',
                 error: message,
@@ -237,14 +233,14 @@ export function createLibraryRouter(): Router {
 
             logger.warn(
                 'server',
-                `Failed to validate library: ${formatLogError(error)}`
+                `Failed to verify library: ${formatLogError(error)}`
             );
-            sendServerError(res, 'Failed to validate library', error, {
+            sendServerError(res, 'Failed to verify library', error, {
                 includeDetails: true,
             });
         } finally {
-            if (activeLibraryValidateAbortController === abortController) {
-                activeLibraryValidateAbortController = null;
+            if (activeLibraryVerifyAbortController === abortController) {
+                activeLibraryVerifyAbortController = null;
             }
         }
     });
@@ -477,12 +473,12 @@ async function processLibraryConvertQueue(): Promise<void> {
     }
 }
 
-export function handleLibraryValidateSocketCommand(
-    command: LibraryValidateSocketCommand
+export function handleLibraryVerifySocketCommand(
+    command: LibraryVerifySocketCommand
 ): void {
     switch (command.type) {
-        case LIBRARY_VALIDATE_SOCKET_COMMAND.cancel:
-            activeLibraryValidateAbortController?.abort();
+        case LIBRARY_VERIFY_SOCKET_COMMAND.cancel:
+            activeLibraryVerifyAbortController?.abort();
             return;
     }
 }
