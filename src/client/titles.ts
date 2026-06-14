@@ -34,10 +34,6 @@ type TitlesOptions = {
     getSelectedDetailFamily: () => string | null;
     toggleDetailSidebar: (sidebar: HTMLElement, group: TitleGroup) => void;
 };
-type RenderTitlesOptions = {
-    loading?: boolean;
-};
-
 let options: TitlesOptions | null = null;
 let showAllTitles = false;
 let currentGroups: TitleGroup[] = [];
@@ -50,11 +46,58 @@ let controlState: TitlesControlState = {
 let iconObserver: IntersectionObserver | null = null;
 let loading = false;
 let verifying = false;
+let titlesGrid: HTMLDivElement | null = null;
+let titlesSidebar: HTMLElement | null = null;
+let loadingLine: HTMLDivElement | null = null;
+let regionSelect: HTMLSelectElement | null = null;
+let statusSelect: HTMLSelectElement | null = null;
+let vcSelect: HTMLSelectElement | null = null;
+let searchInput: HTMLInputElement | null = null;
+let showAllInput: HTMLInputElement | null = null;
+let refreshButton: HTMLButtonElement | null = null;
 
 export const titleSearchHaystacks = new WeakMap<TitleGroup, string>();
 
 export function setupTitles(nextOptions: TitlesOptions): void {
     options = nextOptions;
+}
+
+export function mountTitles(root: HTMLElement): void {
+    titlesGrid = document.createElement('div');
+    titlesGrid.className = 'library-grid';
+    titlesSidebar =
+        options?.buildDetailSidebar() ?? document.createElement('aside');
+    const controls = buildControls(titlesGrid, titlesSidebar);
+    loadingLine = document.createElement('div');
+    loadingLine.className = 'library-loading';
+    loadingLine.setAttribute('role', 'status');
+    loadingLine.setAttribute('aria-live', 'polite');
+
+    root.replaceChildren(controls, loadingLine, titlesGrid, titlesSidebar);
+    updateTitlesControls();
+}
+
+export function renderTitles(groups: TitleGroup[]): void {
+    currentGroups = groups;
+    updateTitlesControls();
+
+    if (titlesGrid && titlesSidebar) {
+        renderGroups(currentGroups, titlesGrid, titlesSidebar);
+    }
+}
+
+export function renderTitlesError(message: string): void {
+    currentGroups = [];
+    resetIconObserver();
+    updateTitlesControls();
+
+    if (!titlesGrid) {
+        return;
+    }
+
+    const error = document.createElement('div');
+    error.textContent = message;
+    titlesGrid.replaceChildren(error);
 }
 
 export function getCurrentTitleGroups(): TitleGroup[] {
@@ -100,6 +143,14 @@ export function setTitlesStatus(next: {
 }): void {
     loading = next.loading ?? loading;
     verifying = next.verifying ?? verifying;
+    if (loadingLine) {
+        loadingLine.textContent = loading ? 'Loading...' : '';
+    }
+    if (next.loading === true) {
+        resetIconObserver();
+        titlesGrid?.replaceChildren();
+    }
+    updateTitlesControls();
     updateVerificationButtonState();
 }
 
@@ -554,12 +605,9 @@ function buildViewControl(grid: HTMLDivElement): HTMLElement {
 }
 
 function buildControls(
-    allGroups: TitleGroup[],
-    groups: TitleGroup[],
     grid: HTMLDivElement,
     sidebar: HTMLElement
 ): HTMLElement {
-    normalizeControlState(groups);
     const root = document.createElement('div');
     root.className = 'library-controls';
 
@@ -576,16 +624,12 @@ function buildControls(
         root.append(label);
     }
 
-    const region = document.createElement('select');
-    region.className = 'library-field-region';
-    appendOptions(region, [
-        { value: 'all', label: 'All' },
-        ...collectRegions(groups).map((value) => ({ value, label: value })),
-    ]);
-    const status = document.createElement('select');
-    status.className = 'library-field-status';
+    regionSelect = document.createElement('select');
+    regionSelect.className = 'library-field-region';
+    statusSelect = document.createElement('select');
+    statusSelect.className = 'library-field-status';
     appendOptions(
-        status,
+        statusSelect,
         [
             'all',
             'complete',
@@ -598,40 +642,23 @@ function buildControls(
             label: value[0].toUpperCase() + value.slice(1),
         }))
     );
-    const vc = document.createElement('select');
-    vc.className = 'library-field-vc';
-    appendOptions(vc, [
-        { value: 'all', label: 'All' },
-        { value: 'vc', label: 'VC only' },
-        { value: 'non-vc', label: 'Non-VC' },
-        ...collectVcPlatforms(groups).map((value) => ({
-            value: value.toString(),
-            label: value.toString(),
-        })),
-    ]);
-    for (const select of [region, status, vc]) {
-        select.disabled = loading || groups.length === 0;
-    }
-    region.value = controlState.region;
-    status.value = controlState.status;
-    vc.value = controlState.vc;
+    vcSelect = document.createElement('select');
+    vcSelect.className = 'library-field-vc';
 
-    const search = document.createElement('input');
-    search.type = 'search';
-    search.placeholder = 'Name, title ID, or region';
-    search.className = 'library-field-search';
-    search.disabled = loading || groups.length === 0;
-    search.value = controlState.search;
+    searchInput = document.createElement('input');
+    searchInput.type = 'search';
+    searchInput.placeholder = 'Name, title ID, or region';
+    searchInput.className = 'library-field-search';
+    searchInput.value = controlState.search;
 
     const showAllLabel = document.createElement('label');
     showAllLabel.className = 'library-checkbox library-field-show-all';
-    const showAll = document.createElement('input');
-    showAll.type = 'checkbox';
-    showAll.checked = showAllTitles;
-    showAll.disabled = loading;
+    showAllInput = document.createElement('input');
+    showAllInput.type = 'checkbox';
+    showAllInput.checked = showAllTitles;
     const showAllText = document.createElement('span');
     showAllText.textContent = 'Show all';
-    showAllLabel.append(showAll, showAllText);
+    showAllLabel.append(showAllInput, showAllText);
 
     const iconButton = (
         className: string,
@@ -646,12 +673,11 @@ function buildControls(
         button.innerHTML = `<i class="fa-solid fa-${icon}"></i>`;
         return button;
     };
-    const refresh = iconButton(
+    refreshButton = iconButton(
         'library-field-refresh',
         'Refresh library',
         'refresh'
     );
-    refresh.disabled = loading;
     const verify = iconButton(
         'library-field-verify',
         'Verify library',
@@ -664,40 +690,86 @@ function buildControls(
     );
 
     root.append(
-        region,
-        status,
-        vc,
-        search,
+        regionSelect,
+        statusSelect,
+        vcSelect,
+        searchInput,
         showAllLabel,
         buildViewControl(grid),
-        refresh,
+        refreshButton,
         verify,
         settings
     );
 
     const update = (): void => {
         controlState = {
-            region: region.value,
-            status: status.value as TitlesControlState['status'],
-            vc: vc.value as TitlesVcFilter,
-            search: search.value,
+            region: regionSelect?.value ?? 'all',
+            status:
+                (statusSelect?.value as TitlesControlState['status']) ?? 'all',
+            vc: (vcSelect?.value as TitlesVcFilter) ?? 'all',
+            search: searchInput?.value ?? '',
         };
-        renderGroups(allGroups, grid, sidebar);
+        renderGroups(currentGroups, grid, sidebar);
     };
-    region.addEventListener('change', update);
-    status.addEventListener('change', update);
-    vc.addEventListener('change', update);
-    search.addEventListener('input', update);
-    showAll.addEventListener('change', () => {
-        showAllTitles = showAll.checked;
+    regionSelect.addEventListener('change', update);
+    statusSelect.addEventListener('change', update);
+    vcSelect.addEventListener('change', update);
+    searchInput.addEventListener('input', update);
+    showAllInput.addEventListener('change', () => {
+        showAllTitles = showAllInput?.checked ?? false;
         update();
     });
-    refresh.addEventListener('click', () => void options?.onRefresh());
+    refreshButton.addEventListener('click', () => void options?.onRefresh());
     verify.addEventListener('click', () => void options?.onVerify());
     settings.addEventListener('click', () => options?.onOpenSettings());
 
-    if (!loading && groups.length > 0) update();
     return root;
+}
+
+function updateTitlesControls(): void {
+    const visibleGroups = filterVisibleTitleGroups(currentGroups);
+    normalizeControlState(visibleGroups);
+
+    if (regionSelect) {
+        regionSelect.replaceChildren();
+        appendOptions(regionSelect, [
+            { value: 'all', label: 'All' },
+            ...collectRegions(visibleGroups).map((value) => ({
+                value,
+                label: value,
+            })),
+        ]);
+        regionSelect.value = controlState.region;
+    }
+    if (statusSelect) {
+        statusSelect.value = controlState.status;
+    }
+    if (vcSelect) {
+        vcSelect.replaceChildren();
+        appendOptions(vcSelect, [
+            { value: 'all', label: 'All' },
+            { value: 'vc', label: 'VC only' },
+            { value: 'non-vc', label: 'Non-VC' },
+            ...collectVcPlatforms(visibleGroups).map((value) => ({
+                value: value.toString(),
+                label: value.toString(),
+            })),
+        ]);
+        vcSelect.value = controlState.vc;
+    }
+    if (searchInput && searchInput.value !== controlState.search) {
+        searchInput.value = controlState.search;
+    }
+    if (showAllInput) {
+        showAllInput.checked = showAllTitles;
+    }
+
+    const disabled = currentGroups.length === 0;
+    for (const control of [regionSelect, statusSelect, vcSelect, searchInput]) {
+        if (control) control.disabled = disabled;
+    }
+    if (showAllInput) showAllInput.disabled = currentGroups.length === 0;
+    if (refreshButton) refreshButton.disabled = loading;
 }
 
 function updateVerificationButtonState(): void {
@@ -713,27 +785,4 @@ function updateVerificationButtonState(): void {
     icon.className = verifying
         ? 'fa-solid fa-spinner fa-spin'
         : 'fa-solid fa-check-double';
-}
-
-export function buildTitlesContent(
-    allGroups: TitleGroup[],
-    groups: TitleGroup[],
-    renderOptions: RenderTitlesOptions = {}
-): DocumentFragment {
-    loading = renderOptions.loading ?? false;
-    currentGroups = allGroups;
-    const fragment = document.createDocumentFragment();
-    const grid = document.createElement('div');
-    grid.className = 'library-grid';
-    const sidebar =
-        options?.buildDetailSidebar() ?? document.createElement('aside');
-    const controls = buildControls(allGroups, groups, grid, sidebar);
-    const loadingLine = document.createElement('div');
-    loadingLine.className = 'library-loading';
-    loadingLine.textContent = loading ? 'Loading...' : '';
-    loadingLine.setAttribute('role', 'status');
-    loadingLine.setAttribute('aria-live', 'polite');
-    fragment.append(controls, loadingLine, grid, sidebar);
-    queueMicrotask(updateVerificationButtonState);
-    return fragment;
 }

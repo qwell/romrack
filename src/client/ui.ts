@@ -52,6 +52,7 @@ import {
 } from './storage.js';
 import {
     getCurrentTitleGroups,
+    mountTitles,
     setupTitles,
     updateRenderedTitleGroup,
 } from './titles.js';
@@ -215,6 +216,12 @@ function setupTitlesUi(options: UiOptions): void {
         getSelectedDetailFamily,
         toggleDetailSidebar,
     });
+
+    const root = document.querySelector<HTMLElement>('#output');
+    if (!root) {
+        throw new Error('Missing #output');
+    }
+    mountTitles(root);
 }
 
 function setTheme(darkMode: boolean, save = false): void {

@@ -35,11 +35,11 @@ import {
 } from './app-socket.js';
 import logger from '../shared/logger.js';
 import {
-    buildTitlesContent,
     compareTitleGroups,
-    filterVisibleTitleGroups,
     getCurrentTitleGroups,
     invalidateTitleSearch,
+    renderTitles,
+    renderTitlesError,
     setTitlesStatus,
     titleSearchHaystacks,
     updateRenderedTitleGroup,
@@ -221,16 +221,12 @@ export function getPathDisplayName(value: string): string {
     return name.replace(/(?:\s+\[[^\]]+\])+$/g, '').trim() || name;
 }
 
-async function loadLibrary(output: HTMLElement): Promise<void> {
+async function loadLibrary(): Promise<void> {
     const requestId = ++activeLibraryRequestId;
 
     libraryLoading = true;
     setTitlesStatus({ loading: true });
     resetUiDetailSidebars();
-
-    output.replaceChildren(
-        buildTitlesContent(allLibraryGroups, [], { loading: true })
-    );
 
     try {
         const data = await getLibrary();
@@ -245,12 +241,7 @@ async function loadLibrary(output: HTMLElement): Promise<void> {
         }
 
         allLibraryGroups = [...data.groups].sort(compareTitleGroups);
-        output.replaceChildren(
-            buildTitlesContent(
-                allLibraryGroups,
-                filterVisibleTitleGroups(allLibraryGroups)
-            )
-        );
+        renderTitles(allLibraryGroups);
     } catch (error) {
         if (requestId !== activeLibraryRequestId) {
             return;
@@ -258,11 +249,7 @@ async function loadLibrary(output: HTMLElement): Promise<void> {
 
         console.error(error);
 
-        output.replaceChildren();
-
-        const message = document.createElement('div');
-        message.textContent = 'Failed to load library.';
-        output.append(message);
+        renderTitlesError('Failed to load library.');
     } finally {
         if (requestId === activeLibraryRequestId) {
             libraryLoading = false;
@@ -316,13 +303,7 @@ async function verifyLibraryContent(): Promise<void> {
 }
 
 async function refreshLibrary(): Promise<void> {
-    const output = document.querySelector<HTMLElement>('#output');
-
-    if (!output) {
-        throw new Error('Missing #output');
-    }
-
-    await loadLibrary(output);
+    await loadLibrary();
 }
 
 function setupVersion(): void {
