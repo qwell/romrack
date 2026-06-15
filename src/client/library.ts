@@ -2,6 +2,8 @@ import { type LibraryVerifyTitle } from '../shared/api.js';
 import {
     type LibraryConvertItem,
     type LibraryVerifyEvent,
+    type LibraryVerifyFailure,
+    type LibraryVerifyProgress,
     type TitleValidationSocketEvent,
     LIBRARY_CONVERT_SOCKET_COMMAND,
     LIBRARY_VERIFY_SOCKET_COMMAND,
@@ -310,13 +312,7 @@ function formatLibraryVerifyProgress(item: LibraryVerifyEvent): string {
         return '100%';
     }
 
-    if (item.state === 'failed') {
-        return item.current !== undefined && item.total
-            ? `${Math.round((item.current / item.total) * 100)}%`
-            : '-';
-    }
-
-    if (item.current !== undefined && item.total) {
+    if (isLibraryVerifyTitleEvent(item) && item.total) {
         return `${Math.round((item.current / item.total) * 100)}%`;
     }
 
@@ -324,7 +320,7 @@ function formatLibraryVerifyProgress(item: LibraryVerifyEvent): string {
 }
 
 function formatLibraryVerifyFileCount(item: LibraryVerifyEvent): string {
-    if (item.current !== undefined && item.total !== undefined) {
+    if (isLibraryVerifyTitleEvent(item)) {
         const current =
             item.state === 'in-progress' &&
             item.result === undefined &&
@@ -349,41 +345,35 @@ function formatLibraryVerifyState(item: LibraryVerifyEvent): string {
 }
 
 function formatLibraryVerifyTitle(item: LibraryVerifyEvent): string {
-    if (item.kind && item.titleId) {
-        return formatTitleDisplay(
-            item.name ?? null,
-            item.titleId,
-            item.kind,
-            null
-        );
+    if (isLibraryVerifyTitleEvent(item)) {
+        return formatTitleDisplay(item.name, item.titleId, item.kind, null);
     }
 
     return '';
 }
 
 function formatLibraryVerifySize(item: LibraryVerifyEvent): string {
-    return item.state === 'in-progress'
+    return isLibraryVerifyProgress(item)
         ? formatSize(item.currentFileSizeBytes ?? null)
         : '';
 }
 
 function formatLibraryVerifyDetails(item: LibraryVerifyEvent): string {
-    const state = item.state;
-    if (state === 'in-progress') {
+    if (isLibraryVerifyProgress(item)) {
         return item.currentFileName
             ? item.currentFileName
             : 'Checking files...';
     }
 
-    if (state === 'complete') {
-        return `${item.total ?? 0} titles`;
+    if (item.state === 'complete') {
+        return `${item.total} titles`;
     }
 
     return '';
 }
 
-function getLibraryVerifyFailureKey(item: LibraryVerifyEvent): string {
-    return item.titleId ?? item.name ?? 'unknown';
+function getLibraryVerifyFailureKey(item: LibraryVerifyFailure): string {
+    return item.titleId;
 }
 
 function getLibraryVerifyId(item: LibraryVerifyEvent): string {
@@ -392,16 +382,28 @@ function getLibraryVerifyId(item: LibraryVerifyEvent): string {
         : 'main';
 }
 
-function isLibraryVerifyFailure(item: LibraryVerifyEvent): boolean {
-    return (
-        item.state === 'failed' &&
-        item.result === 'failed' &&
-        item.titleId !== undefined
-    );
+function isLibraryVerifyTitleEvent(
+    item: LibraryVerifyEvent
+): item is LibraryVerifyProgress | LibraryVerifyFailure {
+    return 'titleId' in item;
 }
 
-function isLibraryVerifyFailureResult(item: LibraryVerifyEvent): boolean {
-    return item.result === 'failed' && item.titleId !== undefined;
+function isLibraryVerifyProgress(
+    item: LibraryVerifyEvent
+): item is LibraryVerifyProgress {
+    return item.state === 'in-progress' && 'titleId' in item;
+}
+
+function isLibraryVerifyFailure(
+    item: LibraryVerifyEvent
+): item is LibraryVerifyFailure {
+    return item.state === 'failed' && 'titleId' in item;
+}
+
+function isLibraryVerifyFailureResult(
+    item: LibraryVerifyEvent
+): item is LibraryVerifyProgress & { result: 'failed' } {
+    return isLibraryVerifyProgress(item) && item.result === 'failed';
 }
 
 function formatLibraryConvertProgress(item: LibraryConvertItem): string {
@@ -509,7 +511,7 @@ export function getLibraryVerifyActionBarEntries(
     return items.map((item) => {
         const id = getLibraryVerifyId(item);
         let downloadDisabled = false;
-        if (isLibraryVerifyFailure(item) && item.titleId && item.kind) {
+        if (isLibraryVerifyFailure(item)) {
             const family = item.titleId.toLowerCase().slice(8);
             downloadDisabled = downloads.some(
                 (candidate) =>
@@ -518,7 +520,7 @@ export function getLibraryVerifyActionBarEntries(
                     candidate.family === family &&
                     candidate.kind === item.kind &&
                     candidate.titleId.toLowerCase() ===
-                        item.titleId?.toLowerCase()
+                        item.titleId.toLowerCase()
             );
         }
 
@@ -557,7 +559,7 @@ export function getLibraryVerifyActionBarEntries(
                         ? formatLibraryVerifyDetails(item)
                         : undefined,
                 buttons: [
-                    ...(isLibraryVerifyFailure(item) && item.titleId
+                    ...(isLibraryVerifyFailure(item)
                         ? [
                               {
                                   text: 'Download',
@@ -647,7 +649,7 @@ export function syncLibraryVerifyActions(
     items: LibraryVerifyEvent[],
     event: LibraryVerifyEvent | null
 ): void {
-    if (event?.reset) {
+    if (event?.state === 'in-progress' && 'reset' in event && event.reset) {
         items.splice(0);
     }
 
@@ -708,7 +710,7 @@ export function handleLibraryActionBarCommand(
                 (candidate) => getLibraryVerifyId(candidate) === itemId
             );
 
-            if (!item?.titleId || !item.kind) {
+            if (!item || !isLibraryVerifyFailure(item)) {
                 return true;
             }
 

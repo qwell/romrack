@@ -5,11 +5,13 @@ import { linux } from './os/linux.js';
 import { macos } from './os/macos.js';
 import { windows } from './os/windows.js';
 import { inspectWslPath, wsl2, isWsl2 } from './os/wsl2.js';
-import { type Fat32Volume, type OsOperations } from './os/types.js';
+import {
+    type Fat32Volume,
+    type OsOperations,
+    type RuntimeOs,
+} from './os/types.js';
 
-export type { Fat32Volume, OsOperations } from './os/types.js';
-
-export type RuntimeOs = 'windows' | 'linux' | 'wsl2' | 'macos' | 'unsupported';
+export type { Fat32Volume, OsOperations, RuntimeOs } from './os/types.js';
 
 let runtimeOperationsPromise: Promise<OsOperations | null> | null = null;
 

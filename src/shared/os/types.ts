@@ -6,6 +6,8 @@ export type Fat32Volume = {
     freeBytes: number | null;
 };
 
+export type RuntimeOs = 'windows' | 'linux' | 'wsl2' | 'macos' | 'unsupported';
+
 export type OsOperations = {
     listFat32Volumes: () => Promise<Fat32Volume[]>;
 };

@@ -1,4 +1,7 @@
-import { type DownloadQueueItem } from './download.js';
+import {
+    type DownloadQueueItem,
+    type DownloadQueueItemDetails,
+} from './download.js';
 import { type ActionState } from './action.js';
 
 import { type StorageCopyItem, type StorageDeleteItem } from './storage.js';
@@ -100,7 +103,7 @@ export const TITLE_VALIDATE_SOCKET_EVENT = {
 export type DownloadSocketCommand =
     | {
           type: typeof DOWNLOAD_SOCKET_COMMAND.queue;
-          items: DownloadQueueItem[];
+          items: DownloadQueueItemDetails[];
       }
     | {
           type: typeof DOWNLOAD_SOCKET_COMMAND.retry;
@@ -187,8 +190,9 @@ export type AppConnectedEvent = {
     downloads: DownloadQueueItem[];
     storageCopies: StorageCopyItem[];
     storageDeletes: StorageDeleteItem[];
-    libraryVerifyEvent?: LibraryVerifyEvent | null;
+    libraryVerifyEvents: LibraryVerifyEvent[];
     libraryConversions: LibraryConvertItem[];
+    titleValidations: TitleValidationSocketEvent[];
 };
 
 export type DownloadSocketEvent = {
@@ -206,38 +210,52 @@ export type StorageDeleteSocketEvent = {
     items: StorageDeleteItem[];
 };
 
-type LibraryVerifyEventBase = {
+export type LibraryVerifyProgress = {
     type: typeof SOCKET_EVENT.libraryVerifyChanged;
-    titleId?: string;
-    name?: string;
-    kind?: TitleKinds;
-    version?: number | null;
+    state: 'in-progress';
+    titleId: string;
+    name: string;
+    kind: TitleKinds;
+    version: number | null;
     currentFileName?: string | null;
     currentFileSizeBytes?: number | null;
     result?: 'ok' | 'failed';
-    current?: number;
-    total?: number;
-    failed?: number;
     error?: string | null;
+    current: number;
+    total: number;
+};
+
+export type LibraryVerifyFailure = Omit<
+    LibraryVerifyProgress,
+    'state' | 'result'
+> & {
+    state: 'failed';
+    result: 'failed';
 };
 
 export type LibraryVerifyEvent =
-    | (LibraryVerifyEventBase & {
+    | {
+          type: typeof SOCKET_EVENT.libraryVerifyChanged;
           state: 'in-progress';
-          reset?: boolean;
-      })
-    | (LibraryVerifyEventBase & {
+          reset: true;
+      }
+    | LibraryVerifyProgress
+    | LibraryVerifyFailure
+    | {
+          type: typeof SOCKET_EVENT.libraryVerifyChanged;
           state: 'complete';
           total: number;
           failed: number;
-      })
-    | (LibraryVerifyEventBase & {
+      }
+    | {
+          type: typeof SOCKET_EVENT.libraryVerifyChanged;
           state: 'failed';
-          error: string | null;
-      })
-    | (LibraryVerifyEventBase & {
+          error: string;
+      }
+    | {
+          type: typeof SOCKET_EVENT.libraryVerifyChanged;
           state: 'cancelled';
-      });
+      };
 
 export type LibraryConvertItem = {
     id: string;

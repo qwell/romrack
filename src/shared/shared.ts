@@ -62,8 +62,9 @@ export async function mapConcurrent<T, U>(
     });
 
     await Promise.all(workers);
-    if (failure !== null) {
-        throw failure.error;
+    const caughtFailure = failure as { error: unknown } | null;
+    if (caughtFailure !== null) {
+        throw caughtFailure.error;
     }
 
     return results;

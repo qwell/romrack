@@ -14,6 +14,7 @@ import { broadcastAppSocketEvent } from '../socket.js';
 import {
     clearTitleScanCache,
     findWiiUTitleSourcePaths,
+    getLibraryCacheEntry,
     readWiiUTitleIdentity,
 } from '../wiiu.js';
 import { classifyTitleId } from '../../shared/titles.js';
@@ -58,7 +59,6 @@ import {
     type StorageCopySocketCommand,
     type StorageDeleteSocketCommand,
 } from '../../shared/socket.js';
-import { getLibraryCacheEntry } from './library.js';
 import { markTitleCopiesValidating, revalidateTitleCopies } from './title.js';
 import { downloadNusBaseMetadata } from '../title.js';
 

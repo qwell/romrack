@@ -2,7 +2,7 @@ import {
     type AppConfigResponse,
     type AppConfigValidateRootResponse,
 } from './config.js';
-import { type Fat32Volume, type RuntimeOs } from './os.js';
+import { type Fat32Volume, type RuntimeOs } from './os/types.js';
 import { type StorageCopyItem, type StorageDeleteItem } from './storage.js';
 import { type LibraryConvertItem } from './socket.js';
 import { type TitleGroup, type TitleKinds } from './titles.js';

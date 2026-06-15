@@ -45,6 +45,35 @@ type GameTdbLocale = {
     synopsis?: string;
 };
 
+let libraryGroups: TitleGroup[] = [];
+
+export function setLibraryCacheGroups(groups: TitleGroup[]): void {
+    libraryGroups = groups;
+}
+
+export function getLibraryCacheEntry(
+    titleId: string
+): { name: string; version: number | null; kind: TitleKinds | null } | null {
+    const normalized = titleId.toLowerCase();
+    const family = normalized.slice(8);
+    const group = libraryGroups.find(
+        (candidate) => candidate.family === family
+    );
+    if (!group || !group.name) {
+        return null;
+    }
+
+    const entry =
+        group.entries.find(
+            (candidate) => candidate.titleId.toLowerCase() === normalized
+        ) ?? null;
+    return {
+        name: group.name,
+        version: entry?.version ?? null,
+        kind: entry?.kind ?? null,
+    };
+}
+
 type GameTdbControl = {
     '@type'?: string;
     '@required'?: string;
@@ -1051,4 +1080,5 @@ function createMissingExpectedChildVerifications(
 
 export function clearTitleScanCache(): void {
     titleScanCache.clear();
+    libraryGroups = [];
 }

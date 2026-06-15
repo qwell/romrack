@@ -10,10 +10,13 @@ type AppSocketOptions = {
 let appSocket: WebSocket | null = null;
 let reconnectSocketTimer: number | null = null;
 let appSocketOptions: AppSocketOptions | null = null;
+const pendingCommands: SocketCommand[] = [];
 
 export function sendAppSocketCommand(command: SocketCommand): void {
     if (!appSocket || appSocket.readyState !== WebSocket.OPEN) {
+        pendingCommands.push(command);
         appSocketOptions?.onGone();
+        scheduleAppSocketReconnect();
         return;
     }
 
@@ -57,6 +60,9 @@ export function connectAppSocket(options: AppSocketOptions): void {
 
     appSocket.addEventListener('open', () => {
         options.onAvailable();
+        for (const command of pendingCommands.splice(0)) {
+            appSocket?.send(JSON.stringify(command));
+        }
     });
 
     appSocket.addEventListener('message', (event: MessageEvent) => {

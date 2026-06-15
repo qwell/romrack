@@ -4,7 +4,9 @@ import { randomUUID } from 'node:crypto';
 import { broadcastAppSocketEvent } from '../socket.js';
 import {
     clearTitleScanCache,
+    getLibraryCacheEntry,
     scanWiiUTitleRoots,
+    setLibraryCacheGroups,
     verifyWiiUTitleRoots,
 } from '../wiiu.js';
 import { convertWudImagesInRoots } from '../wud.js';
@@ -32,13 +34,10 @@ import {
     type LibraryVerifySocketCommand,
     type LibraryVerifyEvent,
 } from '../../shared/socket.js';
-import {
-    classifyTitleId,
-    TitleGroup,
-    TitleKinds,
-} from '../../shared/titles.js';
+import { classifyTitleId } from '../../shared/titles.js';
 
 let latestLibraryVerifyEvent: LibraryVerifyEvent | null = null;
+const libraryVerifyFailures = new Map<string, LibraryVerifyEvent>();
 let activeLibraryVerifyAbortController: AbortController | null = null;
 let libraryVerifyEventTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingLibraryVerifyEvent: LibraryVerifyEvent | null = null;
@@ -47,33 +46,11 @@ let activeLibraryConvertId: string | null = null;
 let activeLibraryConvertAbortController: AbortController | null = null;
 let activeLibraryConvertSourcePaths = new Map<string, Set<string>>();
 
-let libraryGroups: TitleGroup[] = [];
-
-export function setLibraryCacheGroups(groups: TitleGroup[]): void {
-    libraryGroups = groups;
-}
-
-export function getLibraryCacheEntry(
-    titleId: string
-): { name: string; version: number | null; kind: TitleKinds | null } | null {
-    const normalized = titleId.toLowerCase();
-    const family = normalized.slice(8);
-    const group = libraryGroups.find((g) => g.family === family);
-    if (!group || !group.name) {
-        return null;
-    }
-    const entry =
-        group.entries.find((e) => e.titleId.toLowerCase() === normalized) ??
-        null;
-    return {
-        name: group.name,
-        version: entry?.version ?? null,
-        kind: entry?.kind ?? null,
-    };
-}
-
-export function getLatestLibraryVerifyEvent(): LibraryVerifyEvent | null {
-    return latestLibraryVerifyEvent;
+export function getLibraryVerifyEvents(): LibraryVerifyEvent[] {
+    return [
+        ...(latestLibraryVerifyEvent ? [latestLibraryVerifyEvent] : []),
+        ...libraryVerifyFailures.values(),
+    ];
 }
 
 export function getLibraryConversions(): LibraryConvertItem[] {
@@ -170,6 +147,7 @@ export function createLibraryRouter(): Router {
                 state: 'in-progress',
                 reset: true,
             });
+            libraryVerifyFailures.clear();
 
             const titles = await verifyWiiUTitleRoots(
                 getConfig().wiiuRoots,
@@ -182,6 +160,7 @@ export function createLibraryRouter(): Router {
 
                     if (progress.result === 'failed') {
                         clearScheduledLibraryVerifyEvent();
+                        libraryVerifyFailures.set(progress.titleId, event);
                         broadcastAppSocketEvent(event);
                     } else {
                         scheduleLibraryVerifyEvent(event);

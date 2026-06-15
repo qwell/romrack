@@ -27,7 +27,7 @@ import {
 import { type TitleGroup } from '../shared/titles.js';
 import { type DownloadQueueItem } from '../shared/download.js';
 import { formatSize } from '../shared/shared.js';
-import { type Fat32Volume, type RuntimeOs } from '../shared/os.js';
+import { type Fat32Volume, type RuntimeOs } from '../shared/os/types.js';
 import { isWindowsPath } from '../shared/os/path.js';
 import {
     addAvailableEntry,
@@ -41,7 +41,6 @@ import {
 import { connectAppSocket, sendAppSocketCommand } from './app-socket.js';
 import { syncDownloadQueue } from './download.js';
 import { syncStorageCopies, syncStorageDeletes } from './storage.js';
-import logger from '../shared/logger.js';
 import {
     compareTitleGroups,
     getCurrentTitleGroups,
@@ -422,8 +421,13 @@ function handleAppEvent(event: SocketEvent): void {
             reconcileRemovedTitles(
                 syncStorageDeletes(storageDeletes, event.storageDeletes)
             );
-            if (event.libraryVerifyEvent) {
-                handleAppEvent(event.libraryVerifyEvent);
+            libraryVerifications.splice(0);
+            for (const verification of event.libraryVerifyEvents) {
+                syncLibraryVerifyActions(libraryVerifications, verification);
+            }
+            titleValidations.clear();
+            for (const validation of event.titleValidations) {
+                handleTitleValidation(validation);
             }
             syncLibraryConversions(event.libraryConversions);
             refreshActionsAndSelectedSidebar();
@@ -478,8 +482,6 @@ connectAppSocket({
     onGone: showServerGoneModal,
     onEvent: handleAppEvent,
 });
-
-logger.log('client', 'Client initialized');
 
 setupUi({
     downloads: downloadQueue,

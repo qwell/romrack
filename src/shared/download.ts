@@ -1,7 +1,7 @@
 import { TitleKinds } from './titles.js';
 import { type ActionState } from './action.js';
 
-export type DownloadQueueItem = {
+export type DownloadQueueItemDetails = {
     id: string;
     family: string;
     groupName: string;
@@ -10,6 +10,9 @@ export type DownloadQueueItem = {
     titleId: string;
     sizeText: string | null;
     totalBytes: number | null;
+};
+
+export type DownloadQueueItem = DownloadQueueItemDetails & {
     state: ActionState;
     error: string | null;
 

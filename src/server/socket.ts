@@ -11,7 +11,7 @@ import {
     STORAGE_DELETE_SOCKET_COMMAND,
     TITLE_VALIDATE_SOCKET_COMMAND,
 } from '../shared/socket.js';
-import { type DownloadQueueItem } from '../shared/download.js';
+import { type DownloadQueueItemDetails } from '../shared/download.js';
 import { TitleKinds } from '../shared/titles.js';
 import logger from '../shared/logger.js';
 
@@ -137,7 +137,7 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
     if (isSocketCommand(command, DOWNLOAD_SOCKET_COMMAND.queue)) {
         const items = (command as { items?: unknown }).items;
 
-        if (!Array.isArray(items) || !items.every(isDownloadQueueItem)) {
+        if (!Array.isArray(items) || !items.every(isDownloadQueueItemDetails)) {
             return null;
         }
 
@@ -197,7 +197,9 @@ function formatSocketCommandArgs(command: SocketCommand): string {
     );
 }
 
-function isDownloadQueueItem(value: unknown): value is DownloadQueueItem {
+function isDownloadQueueItemDetails(
+    value: unknown
+): value is DownloadQueueItemDetails {
     if (!value || typeof value !== 'object') {
         return false;
     }

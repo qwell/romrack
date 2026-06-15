@@ -28,6 +28,10 @@ import { validateTitleInstallFileSizes } from '../install-title.js';
 const activeTitleValidations = new Map<string, AbortController>();
 const titleValidationResults = new Map<string, TitleValidationSocketEvent>();
 
+export function getTitleValidationResults(): TitleValidationSocketEvent[] {
+    return [...titleValidationResults.values()];
+}
+
 export function createTitleRouter(): Router {
     const router = Router();
 
