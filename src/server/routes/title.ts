@@ -5,7 +5,7 @@ import {
     getDlcMetadata,
     getUpdateMetadata,
 } from '../title.js';
-import { sendServerError } from '../routes.js';
+import { sendServerError } from '../request.js';
 import { broadcastAppSocketEvent } from '../socket.js';
 import { requireTitleIdQuery } from '../request.js';
 import { findWiiUTitleSourcePaths } from '../wiiu.js';
@@ -228,6 +228,10 @@ export function markTitleCopiesValidating(titleIds: string[]): void {
     }
 }
 
-export function clearAllTitleValidationResults(): void {
+export function abortAndClearTitleValidations(): void {
+    for (const abortController of activeTitleValidations.values()) {
+        abortController.abort();
+    }
+    activeTitleValidations.clear();
     titleValidationResults.clear();
 }

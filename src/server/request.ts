@@ -1,4 +1,5 @@
 import { type Request, type Response } from 'express';
+import { type ApiErrorResponse } from '../shared/api.js';
 
 type TitleIdQueryResult =
     | {
@@ -18,23 +19,6 @@ export function getStringQuery(req: Request, name: string): string | null {
 
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
-}
-
-export function requireStringQuery(
-    req: Request,
-    res: Response,
-    name: string,
-    errorMessage = `Missing ${name} query parameter`
-): string | null {
-    const value = getStringQuery(req, name);
-    if (value) {
-        return value;
-    }
-
-    res.status(400).json({
-        error: errorMessage,
-    });
-    return null;
 }
 
 export function getStringBodyField(body: unknown, name: string): string {
@@ -82,4 +66,31 @@ export function requireTitleIdQuery(
         error: result.error,
     });
     return null;
+}
+
+export function sendServerError(
+    res: Response,
+    publicError: string,
+    error: unknown,
+    options: { includeDetails?: boolean } = {}
+): void {
+    const body: ApiErrorResponse = {
+        error: publicError,
+    };
+
+    if (options.includeDetails) {
+        body.message = error instanceof Error ? error.message : String(error);
+        body.stage = getErrorStage(error);
+    }
+
+    res.status(500).json(body);
+}
+
+function getErrorStage(error: unknown): string | null {
+    return typeof error === 'object' &&
+        error !== null &&
+        'stage' in error &&
+        typeof error.stage === 'string'
+        ? error.stage
+        : null;
 }

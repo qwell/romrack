@@ -4,9 +4,7 @@ import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { createContentIv, decryptContentWithIv } from '../decryption.js';
-import logger from '../../shared/logger.js';
 import { type TmdContent } from './tmd.js';
-import { isHttpErrorStatus } from '../../shared/download.js';
 
 export type ContentInstallFiles = {
     contentId: string;
@@ -18,12 +16,9 @@ export type ContentInstallFiles = {
 
 export type ContentTreeVerification = {
     contentId: string;
-    status: 'ok' | 'failed' | 'missing-h3';
+    status: 'ok' | 'failed';
     error?: string;
-    cached?: boolean;
 };
-
-export type ContentFileDownload = (targetFile: string) => Promise<void>;
 
 const AES_BLOCK_SIZE = 0x10;
 const UINT32_MAX = 0xffffffff;
@@ -135,63 +130,6 @@ export function verifyContentInstallFiles({
     });
 }
 
-export async function ensureContentInstallFiles({
-    files,
-    content,
-    titleKey,
-    download,
-    downloadApp,
-    downloadH3,
-    signal,
-}: {
-    files: ContentInstallFiles;
-    content: TmdContent;
-    titleKey: Uint8Array;
-    download?: ContentFileDownload;
-    downloadApp?: ContentFileDownload;
-    downloadH3?: ContentFileDownload;
-    signal?: AbortSignal;
-}): Promise<ContentTreeVerification> {
-    throwIfAborted(signal);
-    if (isHashedContent(content)) {
-        if (!files.h3File || !downloadApp || !downloadH3) {
-            return {
-                contentId: files.contentId,
-                status: 'failed',
-                error: 'Missing hashed content install inputs',
-            };
-        }
-
-        return ensureContentTree({
-            appFile: files.appFile,
-            h3File: files.h3File,
-            content,
-            titleKey,
-            contentId: files.contentId,
-            downloadApp,
-            downloadH3,
-            signal,
-        });
-    }
-
-    if (!download) {
-        return {
-            contentId: files.contentId,
-            status: 'failed',
-            error: 'Missing content download input',
-        };
-    }
-
-    return ensureContentHash({
-        appFile: files.appFile,
-        content,
-        titleKey,
-        contentId: files.contentId,
-        download,
-        signal,
-    });
-}
-
 export async function assertExistingContentFileSize(
     appFile: string,
     expectedSize: number,
@@ -284,84 +222,6 @@ export function extractHashedContentSlice(
     return output;
 }
 
-async function ensureContentTree({
-    appFile,
-    h3File,
-    content,
-    titleKey,
-    contentId,
-    downloadApp,
-    downloadH3,
-    signal,
-}: {
-    appFile: string;
-    h3File: string;
-    content: TmdContent;
-    titleKey: Uint8Array;
-    contentId: string;
-    downloadApp: ContentFileDownload;
-    downloadH3: ContentFileDownload;
-    signal?: AbortSignal;
-}): Promise<ContentTreeVerification> {
-    throwIfAborted(signal);
-    const existing = await verifyContentTree({
-        appFile,
-        h3File,
-        content,
-        titleKey,
-        contentId,
-        signal,
-    });
-
-    if (existing.status === 'ok') {
-        logExistingContentSkipped(contentId, content.size);
-        return {
-            ...existing,
-            cached: true,
-        };
-    }
-
-    logExistingContentInvalid(contentId, existing.error);
-    throwIfAborted(signal);
-
-    const h3Downloaded = await downloadH3(h3File)
-        .then(() => true)
-        .catch((error: unknown) => {
-            if (isHttpErrorStatus(error, 404)) {
-                return false;
-            }
-
-            throw error;
-        });
-
-    if (!h3Downloaded) {
-        return {
-            contentId,
-            status: 'missing-h3',
-        };
-    }
-
-    throwIfAborted(signal);
-    await downloadApp(appFile);
-    throwIfAborted(signal);
-
-    const verification = await verifyContentTree({
-        appFile,
-        h3File,
-        content,
-        titleKey,
-        contentId,
-        signal,
-    });
-
-    return verification.status === 'ok'
-        ? {
-              ...verification,
-              cached: false,
-          }
-        : verification;
-}
-
 async function verifyContentTree({
     appFile,
     h3File,
@@ -404,60 +264,6 @@ async function verifyContentTree({
             error: error instanceof Error ? error.message : String(error),
         };
     }
-}
-
-async function ensureContentHash({
-    appFile,
-    content,
-    titleKey,
-    contentId,
-    download,
-    signal,
-}: {
-    appFile: string;
-    content: TmdContent;
-    titleKey: Uint8Array;
-    contentId: string;
-    download: ContentFileDownload;
-    signal?: AbortSignal;
-}): Promise<ContentTreeVerification> {
-    throwIfAborted(signal);
-    const existing = await verifyContentHash({
-        appFile,
-        content,
-        titleKey,
-        contentId,
-        signal,
-    });
-
-    if (existing.status === 'ok') {
-        logExistingContentSkipped(contentId, content.size);
-        return {
-            ...existing,
-            cached: true,
-        };
-    }
-
-    logExistingContentInvalid(contentId, existing.error);
-    throwIfAborted(signal);
-
-    await download(appFile);
-    throwIfAborted(signal);
-
-    const verification = await verifyContentHash({
-        appFile,
-        content,
-        titleKey,
-        contentId,
-        signal,
-    });
-
-    return verification.status === 'ok'
-        ? {
-              ...verification,
-              cached: false,
-          }
-        : verification;
 }
 
 async function verifyContentHash({
@@ -506,27 +312,6 @@ async function verifyContentHash({
             error: error instanceof Error ? error.message : String(error),
         };
     }
-}
-
-function logExistingContentSkipped(contentId: string, size: number): void {
-    logger.log(
-        'download',
-        `content ${contentId} (${size.toString()} bytes, cached)`
-    );
-}
-
-function logExistingContentInvalid(
-    contentId: string,
-    error: string | undefined
-): void {
-    if (error?.includes('ENOENT')) {
-        logger.log('download', `content not found, downloading: ${contentId}`);
-        return;
-    }
-    logger.log(
-        'download',
-        `cached content invalid, redownloading: ${contentId}${error ? ` (${error})` : ''}`
-    );
 }
 
 async function hashDecryptedContentFile(

@@ -11,8 +11,7 @@ import {
 import { validateWiiURoot } from '../../shared/wiiu.js';
 import logger from '../../shared/logger.js';
 import { formatLogError } from '../../shared/shared.js';
-import { getStringBodyField } from '../request.js';
-import { sendServerError } from '../routes.js';
+import { getStringBodyField, sendServerError } from '../request.js';
 
 export function createConfigRouter(): Router {
     const router = Router();

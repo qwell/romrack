@@ -1,11 +1,6 @@
 import path from 'path';
 import { safeDirectoryName } from '../shared/string.js';
-import {
-    decryptContentWithBigIntIv,
-    decryptTitleKey,
-    encryptTitleKey,
-    findGeneratedTitleKey,
-} from './decryption.js';
+import { decryptTitleKey } from './decryption.js';
 import {
     downloadContent,
     downloadTicket,
@@ -19,7 +14,6 @@ import {
     isHashedContent,
     verifyContentInstallFiles,
 } from './nus/content.js';
-import { looksLikeFst } from './nus/fst.js';
 import {
     CERT_TITLE_FILE,
     ContentInstallFiles,
@@ -36,15 +30,14 @@ import {
     normalizeDownloadableTitleId,
     readCommonKey,
     readMetaXml,
+    resolveTitleKey,
     readTikFromBuffer,
     readTikHeader,
     readTmd,
     readTmdFromBuffer,
-    Tik,
     TIK_TITLE_FILE,
     TitleDownloadProgress,
     TitleMetadataError,
-    Tmd,
     TmdContent,
     writeGeneratedTik,
 } from './title.js';
@@ -56,81 +49,7 @@ import { getImmediatePathSizeBytes } from '../shared/file.js';
 import logger from '../shared/logger.js';
 import { isHttpErrorStatus } from '../shared/download.js';
 
-type ResolvedTitleKey = {
-    titleKey: Uint8Array;
-    decryptedFst: Uint8Array;
-    encryptedTitleKey: Uint8Array | null;
-    titleKeyPassword: string | null;
-};
-
 const TITLE_DOWNLOAD_CONCURRENCY = 8;
-
-export function resolveTitleKey({
-    commonKey,
-    encryptedFst,
-    normalizedTitleId,
-    ticket,
-    tmd,
-}: {
-    commonKey: Uint8Array;
-    encryptedFst: Uint8Array;
-    normalizedTitleId: string;
-    ticket: Tik | null;
-    tmd: Tmd;
-}): ResolvedTitleKey {
-    const ticketTitleKey =
-        ticket !== null
-            ? decryptTitleKey(ticket.encryptedKey, commonKey, ticket.titleId)
-            : null;
-    const ticketDecryptedFst =
-        ticketTitleKey !== null
-            ? decryptContentWithBigIntIv(encryptedFst, ticketTitleKey, 0)
-            : null;
-
-    if (
-        ticket !== null &&
-        ticketTitleKey !== null &&
-        ticketDecryptedFst !== null &&
-        looksLikeFst(ticketDecryptedFst)
-    ) {
-        return {
-            titleKey: ticketTitleKey,
-            decryptedFst: ticketDecryptedFst,
-            encryptedTitleKey: ticket.encryptedKey,
-            titleKeyPassword: null,
-        };
-    }
-
-    const generatedMatch = findGeneratedTitleKey(
-        tmd.header.titleId,
-        (candidate) =>
-            looksLikeFst(
-                decryptContentWithBigIntIv(encryptedFst, candidate.titleKey, 0)
-            )
-    );
-
-    if (!generatedMatch) {
-        throw new TitleMetadataError(
-            'resolve_title_key',
-            `No usable title key produced an FST for ${normalizedTitleId}`
-        );
-    }
-
-    return {
-        titleKey: generatedMatch.titleKey,
-        decryptedFst: decryptContentWithBigIntIv(
-            encryptedFst,
-            generatedMatch.titleKey,
-            0
-        ),
-        encryptedTitleKey: encryptTitleKey(
-            generatedMatch.titleKey,
-            commonKey,
-            tmd.header.titleId
-        ),
-        titleKeyPassword: generatedMatch.password,
-    };
-}
 
 export async function generateTitleInstallFiles(
     titleId: string,

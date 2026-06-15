@@ -4,22 +4,38 @@ import { createServer } from 'node:http';
 import path from 'node:path';
 
 import { getAppRoot } from './paths.js';
-import { createAppSocket, handleAppSocketCommand } from './socket.js';
+import { createAppSocket } from './socket.js';
 import { getConfig } from '../shared/config.js';
 import logger from '../shared/logger.js';
 import { formatLogError } from '../shared/shared.js';
-import { APP_SOCKET_EVENT } from '../shared/socket.js';
+import {
+    type SocketCommand,
+    APP_SOCKET_EVENT,
+    DOWNLOAD_SOCKET_COMMAND,
+    LIBRARY_CONVERT_SOCKET_COMMAND,
+    LIBRARY_VERIFY_SOCKET_COMMAND,
+    STORAGE_COPY_SOCKET_COMMAND,
+    STORAGE_DELETE_SOCKET_COMMAND,
+    TITLE_VALIDATE_SOCKET_COMMAND,
+    isSocketCommand,
+} from '../shared/socket.js';
 import {
     createIconRouter,
     createConfigRouter,
     createStorageRouter,
     getStorageCopies,
     getStorageDeletes,
+    handleStorageCopySocketCommand,
+    handleStorageDeleteSocketCommand,
     createLibraryRouter,
     getLibraryConversions,
     getLatestLibraryVerifyStatus,
+    handleLibraryConvertSocketCommand,
+    handleLibraryVerifySocketCommand,
     createTitleRouter,
+    handleTitleValidationSocketCommand,
     getDownloadQueue,
+    handleDownloadSocketCommand,
 } from './routes.js';
 
 const config = getConfig();
@@ -29,6 +45,32 @@ const host = config.host;
 const port = config.port;
 
 const clientDir = path.join(getAppRoot(), 'client');
+
+function handleAppSocketCommand(command: SocketCommand): void {
+    if (isSocketCommand(command, DOWNLOAD_SOCKET_COMMAND)) {
+        handleDownloadSocketCommand(command);
+        return;
+    }
+    if (isSocketCommand(command, STORAGE_COPY_SOCKET_COMMAND)) {
+        handleStorageCopySocketCommand(command);
+        return;
+    }
+    if (isSocketCommand(command, STORAGE_DELETE_SOCKET_COMMAND)) {
+        handleStorageDeleteSocketCommand(command);
+        return;
+    }
+    if (isSocketCommand(command, LIBRARY_VERIFY_SOCKET_COMMAND)) {
+        handleLibraryVerifySocketCommand(command);
+        return;
+    }
+    if (isSocketCommand(command, LIBRARY_CONVERT_SOCKET_COMMAND)) {
+        handleLibraryConvertSocketCommand(command);
+        return;
+    }
+    if (isSocketCommand(command, TITLE_VALIDATE_SOCKET_COMMAND)) {
+        handleTitleValidationSocketCommand(command);
+    }
+}
 
 function formatUrlHost(host: string): string {
     return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;

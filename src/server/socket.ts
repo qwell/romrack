@@ -12,15 +12,8 @@ import {
     TITLE_VALIDATE_SOCKET_COMMAND,
 } from '../shared/socket.js';
 import { type DownloadQueueItem } from '../shared/download.js';
+import { TitleKinds } from '../shared/titles.js';
 import logger from '../shared/logger.js';
-import {
-    handleStorageCopySocketCommand,
-    handleStorageDeleteSocketCommand,
-    handleDownloadSocketCommand,
-    handleLibraryConvertSocketCommand,
-    handleLibraryVerifySocketCommand,
-    handleTitleValidationSocketCommand,
-} from './routes.js';
 
 type AppSocketOptions = {
     server: Server;
@@ -121,30 +114,6 @@ export function sendAppSocketEvent(
     socket.send(JSON.stringify(event));
 }
 
-export function handleAppSocketCommand(command: SocketCommand): void {
-    if (isSocketCommand(command, DOWNLOAD_SOCKET_COMMAND)) {
-        handleDownloadSocketCommand(command);
-        return;
-    } else if (isSocketCommand(command, STORAGE_COPY_SOCKET_COMMAND)) {
-        handleStorageCopySocketCommand(command);
-        return;
-    } else if (isSocketCommand(command, STORAGE_DELETE_SOCKET_COMMAND)) {
-        handleStorageDeleteSocketCommand(command);
-        return;
-    } else if (isSocketCommand(command, LIBRARY_VERIFY_SOCKET_COMMAND)) {
-        handleLibraryVerifySocketCommand(command);
-        return;
-    } else if (isSocketCommand(command, LIBRARY_CONVERT_SOCKET_COMMAND)) {
-        handleLibraryConvertSocketCommand(command);
-        return;
-    } else if (isSocketCommand(command, TITLE_VALIDATE_SOCKET_COMMAND)) {
-        handleTitleValidationSocketCommand(command);
-        return;
-    }
-
-    return;
-}
-
 function parseSocketCommand(data: RawData): SocketCommand | null {
     let parsed: unknown;
 
@@ -194,8 +163,13 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
         return hasId() ? command : null;
     } else if (isSocketCommand(command, TITLE_VALIDATE_SOCKET_COMMAND.queue)) {
         const titleId = (command as { titleId?: unknown }).titleId;
+        const name = (command as { name?: unknown }).name;
 
-        if (typeof titleId !== 'string' || !/^[0-9a-f]{16}$/i.test(titleId)) {
+        if (
+            typeof titleId !== 'string' ||
+            !/^[0-9a-f]{16}$/i.test(titleId) ||
+            typeof name !== 'string'
+        ) {
             return null;
         }
 
@@ -228,15 +202,19 @@ function isDownloadQueueItem(value: unknown): value is DownloadQueueItem {
         return false;
     }
 
-    const item = value as Record<string, DownloadQueueItem>;
+    const item = value as Record<string, unknown>;
 
     return (
         typeof item.id === 'string' &&
+        item.id.length > 0 &&
+        typeof item.titleId === 'string' &&
+        /^[0-9a-f]{16}$/i.test(item.titleId) &&
         typeof item.family === 'string' &&
+        item.family.toLowerCase() === item.titleId.toLowerCase().slice(8) &&
         typeof item.groupName === 'string' &&
         typeof item.label === 'string' &&
-        typeof item.titleId === 'string' &&
         typeof item.kind === 'string' &&
+        Object.values(TitleKinds).includes(item.kind as TitleKinds) &&
         (typeof item.sizeText === 'string' || item.sizeText === null) &&
         (typeof item.totalBytes === 'number' || item.totalBytes === null)
     );

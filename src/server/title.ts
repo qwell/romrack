@@ -3,7 +3,11 @@ import { mkdir, stat, writeFile } from 'node:fs/promises';
 import {
     createContentIv,
     createTitleKeyIv,
+    decryptContentWithBigIntIv,
     decryptContentWithIv,
+    decryptTitleKey,
+    encryptTitleKey,
+    findGeneratedTitleKey,
 } from './decryption.js';
 import {
     DEFAULT_CERT_TITLE_ID,
@@ -30,7 +34,11 @@ import {
     type ContentInstallFiles,
     type ContentTreeVerification,
 } from './nus/content.js';
-import { parseTitleFstEntries, type TitleFstEntry } from './nus/fst.js';
+import {
+    looksLikeFst,
+    parseTitleFstEntries,
+    type TitleFstEntry,
+} from './nus/fst.js';
 import {
     findXmlStartByte,
     readMetaXml,
@@ -55,7 +63,6 @@ import {
     TitleKinds,
 } from '../shared/titles.js';
 import logger from '../shared/logger.js';
-import { resolveTitleKey } from './install-title.js';
 import { isHttpErrorStatus } from '../shared/download.js';
 import { readOptionalFile } from '../shared/file.js';
 
@@ -187,6 +194,13 @@ export type InstalledTitleVerificationProgress = {
     currentFileSizeBytes: number;
 };
 
+type ResolvedTitleKey = {
+    titleKey: Uint8Array;
+    decryptedFst: Uint8Array;
+    encryptedTitleKey: Uint8Array | null;
+    titleKeyPassword: string | null;
+};
+
 export class TitleMetadataError extends Error {
     stage: string;
 
@@ -195,6 +209,73 @@ export class TitleMetadataError extends Error {
         this.name = 'TitleMetadataError';
         this.stage = stage;
     }
+}
+
+export function resolveTitleKey({
+    commonKey,
+    encryptedFst,
+    normalizedTitleId,
+    ticket,
+    tmd,
+}: {
+    commonKey: Uint8Array;
+    encryptedFst: Uint8Array;
+    normalizedTitleId: string;
+    ticket: Tik | null;
+    tmd: Tmd;
+}): ResolvedTitleKey {
+    const ticketTitleKey =
+        ticket !== null
+            ? decryptTitleKey(ticket.encryptedKey, commonKey, ticket.titleId)
+            : null;
+    const ticketDecryptedFst =
+        ticketTitleKey !== null
+            ? decryptContentWithBigIntIv(encryptedFst, ticketTitleKey, 0)
+            : null;
+
+    if (
+        ticket !== null &&
+        ticketTitleKey !== null &&
+        ticketDecryptedFst !== null &&
+        looksLikeFst(ticketDecryptedFst)
+    ) {
+        return {
+            titleKey: ticketTitleKey,
+            decryptedFst: ticketDecryptedFst,
+            encryptedTitleKey: ticket.encryptedKey,
+            titleKeyPassword: null,
+        };
+    }
+
+    const generatedMatch = findGeneratedTitleKey(
+        tmd.header.titleId,
+        (candidate) =>
+            looksLikeFst(
+                decryptContentWithBigIntIv(encryptedFst, candidate.titleKey, 0)
+            )
+    );
+
+    if (!generatedMatch) {
+        throw new TitleMetadataError(
+            'resolve_title_key',
+            `No usable title key produced an FST for ${normalizedTitleId}`
+        );
+    }
+
+    return {
+        titleKey: generatedMatch.titleKey,
+        decryptedFst: decryptContentWithBigIntIv(
+            encryptedFst,
+            generatedMatch.titleKey,
+            0
+        ),
+        encryptedTitleKey: encryptTitleKey(
+            generatedMatch.titleKey,
+            commonKey,
+            tmd.header.titleId
+        ),
+        titleKeyPassword: generatedMatch.password,
+    };
 }
 
 function throwIfAborted(signal?: AbortSignal): void {

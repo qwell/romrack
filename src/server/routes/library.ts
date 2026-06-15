@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 
-import { sendServerError } from '../routes.js';
 import { broadcastAppSocketEvent } from '../socket.js';
 import {
     clearTitleScanCache,
@@ -9,9 +8,9 @@ import {
     verifyWiiUTitleRoots,
 } from '../wiiu.js';
 import { convertWudImagesInRoots } from '../wud.js';
-import { getStringQuery } from '../request.js';
+import { requireTitleIdQuery, sendServerError } from '../request.js';
 import {
-    clearAllTitleValidationResults,
+    abortAndClearTitleValidations,
     markTitleCopiesValidating,
     revalidateTitleCopies,
 } from './title.js';
@@ -129,7 +128,7 @@ export function createLibraryRouter(): Router {
 
     router.get('/', async (req, res) => {
         try {
-            clearAllTitleValidationResults();
+            abortAndClearTitleValidations();
         } catch (error) {
             logger.warn(
                 'server',
@@ -155,6 +154,13 @@ export function createLibraryRouter(): Router {
     });
 
     router.get('/verify', async (_req, res) => {
+        if (activeLibraryVerifyAbortController) {
+            res.status(409).json({
+                error: 'Library verification already in progress',
+            });
+            return;
+        }
+
         const abortController = new AbortController();
         activeLibraryVerifyAbortController = abortController;
 
@@ -246,22 +252,17 @@ export function createLibraryRouter(): Router {
     });
 
     router.get('/convert', (req, res) => {
-        const titleId = getStringQuery(req, 'titleId');
-
-        if (!titleId) {
-            res.status(400).json({
-                error: 'Missing titleId',
-            });
+        const titleId = requireTitleIdQuery(req, res);
+        if (titleId === null) {
             return;
         }
 
-        const normalizedTitleId = titleId.toLowerCase();
-        const cached = getLibraryCacheEntry(normalizedTitleId);
+        const cached = getLibraryCacheEntry(titleId);
         const item: LibraryConvertItem = {
             id: randomUUID(),
-            titleId: normalizedTitleId,
+            titleId,
             name: cached?.name ?? null,
-            kind: classifyTitleId(normalizedTitleId).kind,
+            kind: classifyTitleId(titleId).kind,
             version: cached?.version ?? null,
             state: 'queued',
             currentFileName: null,

@@ -7,12 +7,6 @@ import {
 
 export type TitleKey = Uint8Array;
 
-export type TitleKeyCandidate = {
-    password: string;
-    titleKey: TitleKey;
-    encryptedTitleKey: Uint8Array;
-};
-
 export type GeneratedTitleKey = {
     password: string;
     titleKey: TitleKey;
@@ -96,18 +90,6 @@ export function decryptContentWithBigIntIv(
     value: bigint | number
 ): Uint8Array {
     return aes128CbcDecrypt(encryptedContent, titleKey, createBigIntIv(value));
-}
-
-export function decryptContentWithIndex(
-    encryptedContent: Uint8Array,
-    titleKey: Uint8Array,
-    contentIndex: number
-): Uint8Array {
-    return aes128CbcDecrypt(
-        encryptedContent,
-        titleKey,
-        createContentIv(contentIndex)
-    );
 }
 
 export function decryptContentWithIv(

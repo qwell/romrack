@@ -798,10 +798,6 @@ type LibraryVerifyProgress =
           total: number;
       };
 
-export type LibraryVerifyProgressCallback = (
-    progress: LibraryVerifyProgress
-) => void;
-
 export async function verifyWiiUTitles(
     root: string,
     onProgress?: (progress: LibraryVerifyProgress) => void,

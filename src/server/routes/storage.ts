@@ -5,8 +5,11 @@ import { randomUUID } from 'crypto';
 import { pipeline } from 'stream/promises';
 import { Router, type Request } from 'express';
 
-import { getStringQuery, requireTitleIdQuery } from '../request.js';
-import { sendServerError } from '../routes.js';
+import {
+    getStringQuery,
+    requireTitleIdQuery,
+    sendServerError,
+} from '../request.js';
 import { broadcastAppSocketEvent } from '../socket.js';
 import {
     clearTitleScanCache,
@@ -454,6 +457,9 @@ function cancelStorageCopy(id: string): void {
         if (wasActive) {
             activeStorageCopyAbortController?.abort();
             cancelStorageCopyProcess(id, item);
+            if (queueItem?.operation === 'move') {
+                markTitleCopiesValidating([queueItem.requestedTitleId]);
+            }
         }
     } catch (error) {
         logger.warn(
@@ -531,6 +537,9 @@ async function processStorageCopyQueue(): Promise<void> {
         error: nextItem.error,
     });
 
+    let moveMutationStarted = false;
+    let moveSourcePaths: string[] = [];
+
     try {
         const [runtimeOs, volumes] = await Promise.all([
             getRuntimeOs(),
@@ -604,6 +613,12 @@ async function processStorageCopyQueue(): Promise<void> {
                 !isSameOrNestedPath(destination.path, readablePath)
             );
         });
+        if (nextItem.operation === 'move') {
+            moveSourcePaths = [
+                readableSourcePath,
+                ...nextItem.duplicateSourcePaths,
+            ];
+        }
         const resolvedTitleId = nextItem.requestedTitleId;
         nextItem.titleId = resolvedTitleId;
         nextItem.titleKind = titleIdentity?.kind ?? null;
@@ -704,6 +719,7 @@ async function processStorageCopyQueue(): Promise<void> {
         let currentFilePath: string | null = null;
         let currentFileSizeBytes: number | null = null;
 
+        moveMutationStarted = nextItem.operation === 'move';
         await copyPathWithStreams({
             sourcePath: readableSourcePath,
             destinationPath,
@@ -818,6 +834,16 @@ async function processStorageCopyQueue(): Promise<void> {
             message: nextItem.message,
         });
     } finally {
+        if (moveMutationStarted) {
+            clearTitleScanCache();
+            revalidateTitleCopies([
+                {
+                    titleId: nextItem.requestedTitleId,
+                    sourcePaths: moveSourcePaths,
+                },
+            ]);
+        }
+
         cancelledStorageCopyIds.delete(nextItem.id);
 
         if (activeStorageCopyId === nextItem.id) {

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 
 import { getCachedImage } from '../image-cache.js';
-import { sendServerError } from '../routes.js';
+import { sendServerError } from '../request.js';
 import { getTitleIconUrl } from '../wiiu.js';
 import logger from '../../shared/logger.js';
 import { formatLogError } from '../../shared/shared.js';
