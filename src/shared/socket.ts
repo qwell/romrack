@@ -152,6 +152,7 @@ export type LibraryVerifySocketCommand =
       }
     | {
           type: typeof LIBRARY_VERIFY_SOCKET_COMMAND.clear;
+          id: string;
       }
     | {
           type: typeof LIBRARY_VERIFY_SOCKET_COMMAND.download;

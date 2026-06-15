@@ -258,6 +258,7 @@ async function verifyContentTree({
             status: 'ok',
         };
     } catch (error) {
+        throwIfAborted(signal);
         return {
             contentId,
             status: 'failed',
@@ -306,6 +307,7 @@ async function verifyContentHash({
             status: 'ok',
         };
     } catch (error) {
+        throwIfAborted(signal);
         return {
             contentId,
             status: 'failed',

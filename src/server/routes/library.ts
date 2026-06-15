@@ -455,5 +455,8 @@ export function handleLibraryVerifySocketCommand(
         case LIBRARY_VERIFY_SOCKET_COMMAND.cancel:
             activeLibraryVerifyAbortController?.abort();
             return;
+        case LIBRARY_VERIFY_SOCKET_COMMAND.clear:
+            libraryVerifyFailures.delete(command.id);
+            return;
     }
 }

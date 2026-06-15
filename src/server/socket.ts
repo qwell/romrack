@@ -157,6 +157,8 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
         }
 
         return command;
+    } else if (isSocketCommand(command, LIBRARY_VERIFY_SOCKET_COMMAND.clear)) {
+        return hasId() ? command : null;
     } else if (isSocketCommand(command, LIBRARY_VERIFY_SOCKET_COMMAND)) {
         return command;
     } else if (isSocketCommand(command, LIBRARY_CONVERT_SOCKET_COMMAND)) {

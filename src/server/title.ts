@@ -1,5 +1,5 @@
 import path from 'path';
-import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import {
     createContentIv,
     createTitleKeyIv,
@@ -14,8 +14,6 @@ import {
     NUS_BASE_URL,
     downloadContent,
     downloadContentH3,
-    downloadContentH3ToFile,
-    downloadContentToFile,
     downloadTicket,
     downloadTmd,
     getContentH3Url,
@@ -28,7 +26,6 @@ import {
     decryptHashedContent,
     extractHashedContentSlice,
     getContentInstallFiles,
-    getContentH3FileSize,
     getEncryptedContentFileSize,
     isHashedContent,
     type ContentInstallFiles,
@@ -160,12 +157,6 @@ export function formatInstallDirectoryKind(
     return kind === TitleKinds.Base ? 'Game' : kind;
 }
 
-type DownloadedContentFile = {
-    app: string | null;
-    h3: string | null;
-    cachedFiles: number;
-};
-
 export type TitleDownloadProgress = {
     outputDir: string;
     completedFiles: number;
@@ -276,10 +267,6 @@ export function resolveTitleKey({
         ),
         titleKeyPassword: generatedMatch.password,
     };
-}
-
-function throwIfAborted(signal?: AbortSignal): void {
-    signal?.throwIfAborted();
 }
 
 type FstEntry = TitleFstEntry;
@@ -490,116 +477,6 @@ export async function getDlcMetadata(
         baseTitleId,
         replaceTitleKind(baseTitleId, TitleKinds.DLC)
     );
-}
-
-export async function downloadTitleContentFile({
-    content,
-    outputDir,
-    baseUrl,
-    titleId,
-    onFileStart,
-    onFileComplete,
-    signal,
-}: {
-    content: TmdContent;
-    outputDir: string;
-    baseUrl: string;
-    titleId: string;
-    onFileStart?: (fileName: string, fileSizeBytes: number) => void;
-    onFileComplete?: (fileName: string, fileSizeBytes: number) => void;
-    signal?: AbortSignal;
-}): Promise<DownloadedContentFile> {
-    throwIfAborted(signal);
-    const files = getContentInstallFiles(outputDir, content);
-    const appSizeBytes = Number(getEncryptedContentFileSize(content));
-
-    if (!isHashedContent(content)) {
-        const cached = await hasExpectedFileSize(files.appFile, appSizeBytes);
-        if (!cached) {
-            onFileStart?.(files.appName, appSizeBytes);
-            await downloadContentToFile(
-                baseUrl,
-                titleId,
-                content.id,
-                files.appFile,
-                signal
-            );
-            onFileComplete?.(files.appName, appSizeBytes);
-        }
-
-        return {
-            app: files.appName,
-            h3: null,
-            cachedFiles: cached ? 1 : 0,
-        };
-    }
-
-    const h3SizeBytes = getContentH3FileSize(content);
-    if (!files.h3File || !files.h3Name) {
-        return {
-            app: null,
-            h3: null,
-            cachedFiles: 0,
-        };
-    }
-
-    const appCached = await hasExpectedFileSize(files.appFile, appSizeBytes);
-    const h3Cached = await hasExpectedFileSize(files.h3File, h3SizeBytes);
-    if (!h3Cached) {
-        onFileStart?.(files.h3Name, h3SizeBytes);
-        const h3Downloaded = await downloadContentH3ToFile(
-            baseUrl,
-            titleId,
-            content.id,
-            files.h3File,
-            signal
-        )
-            .then(() => true)
-            .catch((error: unknown) => {
-                if (isHttpErrorStatus(error, 404)) {
-                    return false;
-                }
-                throw error;
-            });
-        if (!h3Downloaded) {
-            return {
-                app: null,
-                h3: null,
-                cachedFiles: Number(appCached),
-            };
-        }
-        onFileComplete?.(files.h3Name, h3SizeBytes);
-    }
-
-    if (!appCached) {
-        onFileStart?.(files.appName, appSizeBytes);
-        await downloadContentToFile(
-            baseUrl,
-            titleId,
-            content.id,
-            files.appFile,
-            signal
-        );
-        onFileComplete?.(files.appName, appSizeBytes);
-    }
-
-    return {
-        app: files.appName,
-        h3: files.h3Name,
-        cachedFiles: Number(appCached) + Number(h3Cached),
-    };
-}
-
-async function hasExpectedFileSize(
-    filePath: string,
-    expectedSize: number
-): Promise<boolean> {
-    try {
-        const file = await stat(filePath);
-        return file.size === expectedSize;
-    } catch {
-        return false;
-    }
 }
 
 export function readTikFromBuffer(buffer: Buffer): Tik | null {

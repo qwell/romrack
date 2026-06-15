@@ -18,6 +18,7 @@ import {
     CHILD_KINDS,
     classifyTitleId,
     replaceTitleKind,
+    normalizeTitleId,
     normalizeTitleName,
     TitleKinds,
     TitleDatabaseEntry,
@@ -54,7 +55,7 @@ export function setLibraryCacheGroups(groups: TitleGroup[]): void {
 export function getLibraryCacheEntry(
     titleId: string
 ): { name: string; version: number | null; kind: TitleKinds | null } | null {
-    const normalized = titleId.toLowerCase();
+    const normalized = normalizeTitleId(titleId);
     const family = normalized.slice(8);
     const group = libraryGroups.find(
         (candidate) => candidate.family === family
@@ -65,7 +66,7 @@ export function getLibraryCacheEntry(
 
     const entry =
         group.entries.find(
-            (candidate) => candidate.titleId.toLowerCase() === normalized
+            (candidate) => normalizeTitleId(candidate.titleId) === normalized
         ) ?? null;
     return {
         name: group.name,
@@ -110,6 +111,18 @@ const LIBRARY_SCAN_CONCURRENCY = 8;
 const availableOnCdnByTitleId = new Map<string, boolean>();
 
 const titleScanCache = new Map<string, LocalTitleEntry[]>();
+
+export function getCachedWiiUTitleSourcePaths(titleId: string): string[] {
+    const normalizedTitleId = normalizeTitleId(titleId);
+    return [
+        ...new Set(
+            [...titleScanCache.values()]
+                .flat()
+                .filter((entry) => entry.titleId === normalizedTitleId)
+                .map((entry) => entry.sourcePath)
+        ),
+    ];
+}
 
 async function assertReadableDirectory(root: string): Promise<void> {
     const info = await stat(root);
@@ -172,16 +185,17 @@ function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
     }
 
     const entries: TitleDatabaseEntry[] = json.map((entry) => {
-        if (typeof entry.titleId !== 'string' || entry.titleId.length !== 16) {
+        const titleId = normalizeTitleId(entry.titleId);
+        if (!titleId) {
             throw new Error(
                 `invalid titleId in titles.json: ${JSON.stringify(entry)}`
             );
         }
 
-        const { family } = classifyTitleId(entry.titleId);
+        const { family } = classifyTitleId(titleId);
 
         return {
-            titleId: entry.titleId.toLowerCase(),
+            titleId,
             name: normalizeTitleName(entry.name),
             region: normalizeRegion(entry.region, entry.productCode),
             companyCode: entry.companyCode?.length ? entry.companyCode : null,
@@ -315,7 +329,7 @@ function getAvailableEntries(
 }
 
 function getTitleAvailableOnCdn(titleId: string): boolean {
-    return availableOnCdnByTitleId.get(titleId.toLowerCase()) ?? true;
+    return availableOnCdnByTitleId.get(normalizeTitleId(titleId)) ?? true;
 }
 
 function parseGameTdbDetails(game: GameTdbGame): TitleDetails {
@@ -397,7 +411,7 @@ async function readTitleDatabase(): Promise<Map<string, TitleDatabaseEntry>> {
     for (const entry of titleEntries) {
         if (entry.availableOnCdn !== undefined) {
             availableOnCdnByTitleId.set(
-                entry.titleId.toLowerCase(),
+                normalizeTitleId(entry.titleId),
                 entry.availableOnCdn === true
             );
         }
@@ -771,7 +785,7 @@ export async function findWiiUTitleSourcePaths(
     roots: string[],
     titleId: string
 ): Promise<string[]> {
-    const normalizedTitleId = titleId.toLowerCase();
+    const normalizedTitleId = normalizeTitleId(titleId);
     const sourcePaths: string[] = [];
     const titleDatabase = await readTitleDatabase();
 
@@ -910,7 +924,8 @@ export async function verifyWiiUTitles(
                     current: offset + index,
                     total,
                 });
-            }
+            },
+            options.signal
         );
         throwIfLibraryVerifyCancelled(options.signal);
         const result = verification.status === 'ok' ? 'ok' : 'failed';

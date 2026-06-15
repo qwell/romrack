@@ -139,7 +139,7 @@ function setupActionBar(options: UiOptions): void {
                 action,
                 itemId,
                 options.libraryVerifications,
-                (items) => queueDownloads(options.downloads, items)
+                (items) => queueDownloads(options.downloads, items).length > 0
             );
             updateActionBar();
         },

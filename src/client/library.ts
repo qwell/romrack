@@ -465,7 +465,7 @@ export function renderLibrarySidebarWud(
     const conversionTitle = baseTitle ?? titles[0];
 
     const action = document.createElement('button');
-    action.className = 'sidebar-button';
+    action.className = 'sidebar-button sidebar-wud-convert';
     action.type = 'button';
     action.textContent = 'Convert';
     action.disabled = conversionBusy;
@@ -683,7 +683,7 @@ export function handleLibraryActionBarCommand(
     action: string,
     itemId: string,
     verifications: LibraryVerifyEvent[],
-    queueVerificationDownloads: (items: DownloadQueueItem[]) => void
+    queueVerificationDownloads: (items: DownloadQueueItem[]) => boolean
 ): boolean {
     switch (action) {
         // Verify
@@ -695,6 +695,10 @@ export function handleLibraryActionBarCommand(
             if (index >= 0) {
                 verifications.splice(index, 1);
             }
+            sendAppSocketCommand({
+                type: LIBRARY_VERIFY_SOCKET_COMMAND.clear,
+                id: itemId,
+            });
 
             return true;
         }
@@ -714,7 +718,7 @@ export function handleLibraryActionBarCommand(
                 return true;
             }
 
-            queueVerificationDownloads([
+            const queued = queueVerificationDownloads([
                 {
                     id: crypto.randomUUID(),
                     family: item.titleId.toLowerCase().slice(8),
@@ -739,6 +743,16 @@ export function handleLibraryActionBarCommand(
                     installedSourcePath: null,
                 },
             ]);
+            if (queued) {
+                const index = verifications.indexOf(item);
+                if (index >= 0) {
+                    verifications.splice(index, 1);
+                }
+                sendAppSocketCommand({
+                    type: LIBRARY_VERIFY_SOCKET_COMMAND.clear,
+                    id: itemId,
+                });
+            }
 
             return true;
         }

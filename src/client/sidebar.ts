@@ -187,7 +187,181 @@ export function refreshOpenDetailSidebarForGroup(group: TitleGroup): void {
         return;
     }
 
+    const convertButton = body.querySelector<HTMLButtonElement>(
+        '.sidebar-wud-convert'
+    );
+    if (convertButton) {
+        convertButton.disabled = getBusyKinds(group).has(TitleKinds.Base);
+    }
+
+    const currentRows = new Map(
+        Array.from(
+            body.querySelectorAll<HTMLElement>('[data-sidebar-item]')
+        ).map((row) => [row.dataset.sidebarItem ?? '', row])
+    );
+    const nextRows = new Map(
+        renderDetailItemRows(group).map((row) => [
+            row.dataset.sidebarItem ?? '',
+            row,
+        ])
+    );
+
+    if (
+        currentRows.size !== nextRows.size ||
+        [...currentRows.keys()].some((key) => !nextRows.has(key))
+    ) {
+        replaceDetailContent(body, group);
+        return;
+    }
+
+    const changedLists = new Set<HTMLElement>();
+    for (const [key, nextRow] of nextRows) {
+        const currentRow = currentRows.get(key);
+        if (!currentRow) {
+            continue;
+        }
+
+        const list = currentRow.parentElement;
+        if (!syncSidebarItemRow(currentRow, nextRow)) {
+            continue;
+        }
+
+        if (list) {
+            changedLists.add(list);
+        }
+    }
+
+    for (const list of changedLists) {
+        list.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+}
+
+function syncSidebarItemRow(
+    currentRow: HTMLElement,
+    nextRow: HTMLElement
+): boolean {
+    const currentChildren = [...currentRow.children];
+    const nextChildren = [...nextRow.children];
+    if (
+        currentRow.tagName !== nextRow.tagName ||
+        currentChildren.length !== nextChildren.length ||
+        currentChildren.some(
+            (child, index) => child.tagName !== nextChildren[index]?.tagName
+        )
+    ) {
+        const currentCheckbox = currentRow.querySelector<HTMLInputElement>(
+            'input[type="checkbox"]'
+        );
+        const nextCheckbox = nextRow.querySelector<HTMLInputElement>(
+            'input[type="checkbox"]'
+        );
+        if (
+            currentCheckbox?.checked &&
+            nextCheckbox &&
+            !nextCheckbox.disabled
+        ) {
+            nextCheckbox.checked = true;
+        }
+        currentRow.replaceWith(nextRow);
+        return true;
+    }
+
+    let changed = false;
+    const insufficientSpace = currentRow.classList.contains(
+        'sidebar-storage-copy-row-insufficient-space'
+    );
+    const nextClassName = insufficientSpace
+        ? `${nextRow.className} sidebar-storage-copy-row-insufficient-space`
+        : nextRow.className;
+    if (currentRow.className !== nextClassName) {
+        currentRow.className = nextClassName;
+        changed = true;
+    }
+    if (!insufficientSpace && currentRow.title !== nextRow.title) {
+        currentRow.title = nextRow.title;
+        changed = true;
+    }
+
+    for (let index = 0; index < currentChildren.length; index += 1) {
+        const current = currentChildren[index];
+        const next = nextChildren[index];
+        if (
+            current instanceof HTMLInputElement &&
+            next instanceof HTMLInputElement
+        ) {
+            changed = syncSidebarCheckbox(current, next) || changed;
+        } else {
+            if (current.className !== next.className) {
+                current.className = next.className;
+                changed = true;
+            }
+            if (current.textContent !== next.textContent) {
+                current.textContent = next.textContent;
+                changed = true;
+            }
+            if (
+                current instanceof HTMLElement &&
+                next instanceof HTMLElement &&
+                current.title !== next.title
+            ) {
+                current.title = next.title;
+                changed = true;
+            }
+        }
+    }
+
+    return changed;
+}
+
+function syncSidebarCheckbox(
+    current: HTMLInputElement,
+    next: HTMLInputElement
+): boolean {
+    let changed = false;
+    if (current.disabled !== next.disabled) {
+        current.disabled = next.disabled;
+        changed = true;
+    }
+    if (current.disabled && current.checked) {
+        current.checked = false;
+        changed = true;
+    }
+    return changed;
+}
+
+function replaceDetailContent(body: HTMLElement, group: TitleGroup): void {
+    const checkedKeys = new Set(
+        Array.from(
+            body.querySelectorAll<HTMLInputElement>(
+                'input[type="checkbox"]:checked'
+            )
+        )
+            .map(getSidebarCheckboxKey)
+            .filter((key): key is string => key !== null)
+    );
+
     body.replaceChildren(renderGroupDetailContent(group));
+
+    for (const checkbox of body.querySelectorAll<HTMLInputElement>(
+        'input[type="checkbox"]'
+    )) {
+        const key = getSidebarCheckboxKey(checkbox);
+        if (!checkbox.disabled && key !== null && checkedKeys.has(key)) {
+            checkbox.checked = true;
+            checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    }
+}
+
+function getSidebarCheckboxKey(checkbox: HTMLInputElement): string | null {
+    const titleId = checkbox.dataset.titleId;
+    const content = checkbox.closest<HTMLElement>('.sidebar-download-content');
+
+    if (!titleId || !content) {
+        return null;
+    }
+
+    return `${content.className}:${titleId.toLowerCase()}`;
 }
 
 function formatCount(value: number, singular: string, plural: string): string {
@@ -278,6 +452,7 @@ function renderDownloadAvailabilityRow(
     if (downloadProgress !== null) {
         const row = document.createElement('div');
         row.className = 'sidebar-download-row sidebar-storage-copy-row';
+        row.dataset.sidebarItem = `available:${entry.titleId.toLowerCase()}`;
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -303,6 +478,7 @@ function renderDownloadAvailabilityRow(
 
     const row = document.createElement('label');
     row.className = 'sidebar-download-row';
+    row.dataset.sidebarItem = `available:${entry.titleId.toLowerCase()}`;
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
@@ -430,6 +606,7 @@ function renderLocalCopyRow(
 ): HTMLElement {
     const row = document.createElement('label');
     row.className = 'sidebar-download-row sidebar-storage-copy-row';
+    row.dataset.sidebarItem = `${downloadData ? 'invalid' : 'downloaded'}:${entry.titleId.toLowerCase()}`;
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
@@ -494,6 +671,64 @@ function renderInvalidCopyRow(
         group,
         label: `${entry.kind} v${entry.version}`,
     });
+}
+
+function getDetailEntries(group: TitleGroup): {
+    localEntries: TitleEntry[];
+    invalidEntries: TitleEntry[];
+    availableEntries: TitleGroup['availableEntries'];
+} {
+    const detailOptions = options;
+    const localEntries = group.entries
+        .filter((entry) => {
+            const validation =
+                detailOptions?.titleValidations?.get(entry.titleId) ?? null;
+            return !isTitleValidationUnavailable(validation);
+        })
+        .sort((a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind));
+    const invalidEntries = group.entries
+        .filter((entry) => {
+            const validation =
+                detailOptions?.titleValidations?.get(entry.titleId) ?? null;
+            return isTitleValidationUnavailable(validation);
+        })
+        .sort((a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind));
+    const availableEntries = group.availableEntries
+        .filter((entry) => {
+            const invalid = invalidEntries.some(
+                (candidate) =>
+                    candidate.kind === entry.kind &&
+                    candidate.titleId.toLowerCase() ===
+                        entry.titleId.toLowerCase()
+            );
+            if (invalid) {
+                return false;
+            }
+
+            const usable = hasUsableLocalEntry(
+                group,
+                entry.kind,
+                detailOptions?.titleValidations ?? null
+            );
+
+            return !usable;
+        })
+        .sort((a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind));
+
+    return { localEntries, invalidEntries, availableEntries };
+}
+
+function renderDetailItemRows(group: TitleGroup): HTMLElement[] {
+    const { localEntries, invalidEntries, availableEntries } =
+        getDetailEntries(group);
+
+    return [
+        ...localEntries.map((entry) => renderDownloadedCopyRow(group, entry)),
+        ...invalidEntries.map((entry) => renderInvalidCopyRow(group, entry)),
+        ...availableEntries.map((entry) =>
+            renderDownloadAvailabilityRow(group, entry)
+        ),
+    ];
 }
 
 function getSelectedDownloadedTitleIds(
@@ -766,20 +1001,8 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
 
     const availability = document.createElement('div');
 
-    const localEntries = group.entries
-        .filter((entry) => {
-            const validation =
-                detailOptions?.titleValidations?.get(entry.titleId) ?? null;
-            return !isTitleValidationUnavailable(validation);
-        })
-        .sort((a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind));
-    const invalidEntries = group.entries
-        .filter((entry) => {
-            const validation =
-                detailOptions?.titleValidations?.get(entry.titleId) ?? null;
-            return isTitleValidationUnavailable(validation);
-        })
-        .sort((a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind));
+    const { localEntries, invalidEntries, availableEntries } =
+        getDetailEntries(group);
 
     if (group.wudEntries.length > 0) {
         const wud = detailOptions?.renderWud(
@@ -971,28 +1194,6 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
 
         availability.append(renderDetailSection('Invalid'), invalidContent);
     }
-
-    const availableEntries = group.availableEntries
-        .filter((entry) => {
-            const invalid = invalidEntries.some(
-                (candidate) =>
-                    candidate.kind === entry.kind &&
-                    candidate.titleId.toLowerCase() ===
-                        entry.titleId.toLowerCase()
-            );
-            if (invalid) {
-                return false;
-            }
-
-            const usable = hasUsableLocalEntry(
-                group,
-                entry.kind,
-                detailOptions?.titleValidations ?? null
-            );
-
-            return !usable;
-        })
-        .sort((a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind));
 
     if (availableEntries.length > 0) {
         const availableList = document.createElement('div');
