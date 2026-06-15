@@ -7,6 +7,7 @@ import { type StorageCopyItem, type StorageDeleteItem } from './storage.js';
 import { type LibraryConvertItem } from './socket.js';
 import { type TitleGroup, type TitleKinds } from './titles.js';
 import { HttpError } from './download.js';
+import { isObject } from './shared.js';
 
 export type ApiErrorResponse = {
     error: string;
@@ -97,9 +98,26 @@ export async function requestJson<T>(
     init?: RequestInit
 ): Promise<T> {
     const response = await fetch(url, init);
+    const text = await response.text();
+
     if (!response.ok) {
-        throw new HttpError(url, response.status);
+        let details: string | null = null;
+        try {
+            const body = JSON.parse(text) as unknown;
+            if (isObject(body)) {
+                details =
+                    typeof body.message === 'string'
+                        ? body.message
+                        : typeof body.error === 'string'
+                          ? body.error
+                          : null;
+            }
+        } catch {
+            details = text.trim() || null;
+        }
+
+        throw new HttpError(url, response.status, details);
     }
 
-    return (await response.json()) as T;
+    return JSON.parse(text) as T;
 }

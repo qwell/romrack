@@ -29,7 +29,7 @@ export const SOCKET_EVENT = {
     downloadQueueChanged: 'download.queueChanged',
     storageCopyChanged: 'storage.copyChanged',
     storageDeleteChanged: 'storage.delete.changed',
-    libraryVerifyStatus: 'library.verifyStatus',
+    libraryVerifyChanged: 'library.verifyChanged',
     libraryConvertChanged: 'library.convertChanged',
     titleValidateChanged: 'title.validate.changed',
 } as const;
@@ -80,7 +80,7 @@ export const STORAGE_DELETE_SOCKET_EVENT = {
 } as const;
 
 export const LIBRARY_VERIFY_SOCKET_EVENT = {
-    status: SOCKET_EVENT.libraryVerifyStatus,
+    changed: SOCKET_EVENT.libraryVerifyChanged,
 } as const;
 
 export const LIBRARY_CONVERT_SOCKET_EVENT = {
@@ -187,7 +187,7 @@ export type AppConnectedEvent = {
     downloads: DownloadQueueItem[];
     storageCopies: StorageCopyItem[];
     storageDeletes: StorageDeleteItem[];
-    libraryVerifyStatus?: LibraryVerifyStatusEvent | null;
+    libraryVerifyEvent?: LibraryVerifyEvent | null;
     libraryConversions: LibraryConvertItem[];
 };
 
@@ -206,18 +206,8 @@ export type StorageDeleteSocketEvent = {
     items: StorageDeleteItem[];
 };
 
-export type LibraryVerifyStatus =
-    | 'started'
-    | 'verifying'
-    | 'verified'
-    | 'complete'
-    | 'failed'
-    | 'cancelled';
-
-export type LibraryVerifyStatusEvent = {
-    type: typeof SOCKET_EVENT.libraryVerifyStatus;
-    state: ActionState;
-    status: LibraryVerifyStatus;
+type LibraryVerifyEventBase = {
+    type: typeof SOCKET_EVENT.libraryVerifyChanged;
     titleId?: string;
     name?: string;
     kind?: TitleKinds;
@@ -230,6 +220,24 @@ export type LibraryVerifyStatusEvent = {
     failed?: number;
     error?: string | null;
 };
+
+export type LibraryVerifyEvent =
+    | (LibraryVerifyEventBase & {
+          state: 'in-progress';
+          reset?: boolean;
+      })
+    | (LibraryVerifyEventBase & {
+          state: 'complete';
+          total: number;
+          failed: number;
+      })
+    | (LibraryVerifyEventBase & {
+          state: 'failed';
+          error: string | null;
+      })
+    | (LibraryVerifyEventBase & {
+          state: 'cancelled';
+      });
 
 export type LibraryConvertItem = {
     id: string;
@@ -261,7 +269,7 @@ export type LibraryConvertSocketEvent = {
 export type TitleValidationCopyResult = {
     sourcePath: string;
     titleId: string | null;
-    titleKind: string | null;
+    titleKind: TitleKinds | null;
     titleVersion: number | null;
     status: 'ok' | 'failed';
     failedCount: number;
@@ -282,7 +290,7 @@ export type SocketEvent =
     | DownloadSocketEvent
     | StorageCopySocketEvent
     | StorageDeleteSocketEvent
-    | LibraryVerifyStatusEvent
+    | LibraryVerifyEvent
     | LibraryConvertSocketEvent
     | TitleValidationSocketEvent;
 

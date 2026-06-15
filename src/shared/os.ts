@@ -90,11 +90,3 @@ export async function findReadablePath(
     const inspected = await inspectWslPath(targetPath);
     return inspected.path;
 }
-
-export const runtimeOs = {
-    getRuntimeOs,
-    listFat32Volumes,
-    findReadablePath,
-    resolveReadablePath,
-    resolveFat32Destination,
-};

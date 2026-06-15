@@ -1,9 +1,5 @@
-import { DOWNLOAD_SOCKET_COMMAND } from './socket.js';
 import { TitleKinds } from './titles.js';
 import { type ActionState } from './action.js';
-
-export type DownloadActionBarCommand =
-    (typeof DOWNLOAD_SOCKET_COMMAND)[keyof typeof DOWNLOAD_SOCKET_COMMAND];
 
 export type DownloadQueueItem = {
     id: string;
@@ -36,10 +32,16 @@ export function isHttpErrorStatus(error: unknown, status: number): boolean {
 
 export class HttpError extends Error {
     status: number;
+    details: string | null;
 
-    constructor(url: string, status: number) {
-        super(`download failed for ${url}: HTTP ${status.toString()}`);
+    constructor(url: string, status: number, details: string | null = null) {
+        super(
+            details
+                ? `${details}: HTTP ${status.toString()} (${url})`
+                : `Request failed for ${url}: HTTP ${status.toString()}`
+        );
         this.name = 'HttpError';
         this.status = status;
+        this.details = details;
     }
 }

@@ -82,14 +82,6 @@ export async function getImmediatePathSizeBytes(
     return sizes.reduce((total, size) => total + size, 0);
 }
 
-export async function getPathSizeBytes(targetPath: string): Promise<number> {
-    return (await getPathStats(targetPath)).sizeBytes;
-}
-
-export async function getPathFileCount(targetPath: string): Promise<number> {
-    return (await getPathStats(targetPath)).fileCount;
-}
-
 export async function getPathStats(targetPath: string): Promise<PathStats> {
     const info = await lstat(targetPath);
 
@@ -111,16 +103,7 @@ export async function getPathStats(targetPath: string): Promise<PathStats> {
     const stats = await mapConcurrent(
         entries,
         DIRECTORY_SIZE_CONCURRENCY,
-        async (entry) => {
-            try {
-                return await getPathStats(path.join(targetPath, entry.name));
-            } catch {
-                return {
-                    sizeBytes: 0,
-                    fileCount: 0,
-                };
-            }
-        }
+        async (entry) => getPathStats(path.join(targetPath, entry.name))
     );
 
     return stats.reduce(
@@ -167,16 +150,8 @@ async function collectPathFileSizes(
     const sizes = await mapConcurrent(
         entries,
         DIRECTORY_SIZE_CONCURRENCY,
-        async (entry) => {
-            try {
-                return await collectPathFileSizes(
-                    rootPath,
-                    path.join(targetPath, entry.name)
-                );
-            } catch {
-                return [];
-            }
-        }
+        async (entry) =>
+            collectPathFileSizes(rootPath, path.join(targetPath, entry.name))
     );
 
     return sizes.flat();

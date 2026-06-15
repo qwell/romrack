@@ -2,7 +2,7 @@ import { type StorageFat32ListResponse } from '../shared/api.js';
 import { type DownloadQueueItem } from '../shared/download.js';
 import {
     type LibraryConvertItem,
-    type LibraryVerifyStatusEvent,
+    type LibraryVerifyEvent,
     type TitleValidationSocketEvent,
 } from '../shared/socket.js';
 import {
@@ -61,7 +61,7 @@ type UiOptions = {
     downloads: DownloadQueueItem[];
     storageCopies: StorageCopyItem[];
     storageDeletes: StorageDeleteItem[];
-    libraryVerifications: LibraryVerifyStatusEvent[];
+    libraryVerifications: LibraryVerifyEvent[];
     libraryConversions: LibraryConvertItem[];
     titleValidations: Map<string, TitleValidationSocketEvent>;
     onRefreshLibrary: () => void | Promise<void>;

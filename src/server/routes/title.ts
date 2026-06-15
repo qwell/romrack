@@ -11,7 +11,7 @@ import { requireTitleIdQuery } from '../request.js';
 import { findWiiUTitleSourcePaths } from '../wiiu.js';
 import { classifyTitleId } from '../../shared/titles.js';
 import { type TitleResponse } from '../../shared/api.js';
-import { getConfig } from '../../shared/config.js';
+import { getConfig } from './config.js';
 import { isHttpErrorStatus } from '../../shared/download.js';
 import logger from '../../shared/logger.js';
 import { resolveReadablePath } from '../../shared/os.js';

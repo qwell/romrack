@@ -10,7 +10,7 @@ import {
     type LibraryConvertItem,
     type SocketEvent,
     type TitleValidationSocketEvent,
-    type LibraryVerifyStatusEvent,
+    type LibraryVerifyEvent,
     APP_SOCKET_EVENT,
     DOWNLOAD_SOCKET_EVENT,
     LIBRARY_CONVERT_SOCKET_EVENT,
@@ -24,7 +24,7 @@ import {
     type StorageCopyItem,
     type StorageDeleteItem,
 } from '../shared/storage.js';
-import { type TitleGroup, TitleKinds } from '../shared/titles.js';
+import { type TitleGroup } from '../shared/titles.js';
 import { type DownloadQueueItem } from '../shared/download.js';
 import { formatSize } from '../shared/shared.js';
 import { type Fat32Volume, type RuntimeOs } from '../shared/os.js';
@@ -64,7 +64,7 @@ declare const __APP_VERSION__: string;
 const SOCKET_RECONNECT_MS = 2000;
 
 let fat32ListPromise: Promise<StorageFat32ListResponse> | null = null;
-const libraryVerifications: LibraryVerifyStatusEvent[] = [];
+const libraryVerifications: LibraryVerifyEvent[] = [];
 const libraryConversions: LibraryConvertItem[] = [];
 let verifyingLibrary = false;
 let libraryLoading = false;
@@ -271,9 +271,9 @@ async function verifyLibraryContent(): Promise<void> {
     verifyingLibrary = true;
     setTitlesStatus({ verifying: true });
     syncLibraryVerifyActions(libraryVerifications, {
-        type: LIBRARY_VERIFY_SOCKET_EVENT.status,
+        type: LIBRARY_VERIFY_SOCKET_EVENT.changed,
         state: 'in-progress',
-        status: 'started',
+        reset: true,
     });
     refreshActionBar();
 
@@ -293,9 +293,8 @@ async function verifyLibraryContent(): Promise<void> {
     } catch (error) {
         console.error(error);
         syncLibraryVerifyActions(libraryVerifications, {
-            type: LIBRARY_VERIFY_SOCKET_EVENT.status,
+            type: LIBRARY_VERIFY_SOCKET_EVENT.changed,
             state: 'failed',
-            status: 'failed',
             error: error instanceof Error ? error.message : String(error),
         });
         refreshActionBar();
@@ -370,7 +369,7 @@ function handleTitleValidation(event: TitleValidationSocketEvent): void {
                 (title) =>
                     title.titleId.toLowerCase() === event.titleId.toLowerCase()
             );
-        const kind = copy?.titleKind as TitleKinds | undefined;
+        const kind = copy?.titleKind;
         if (kind) {
             group.entries.push({
                 titleId: event.titleId,
@@ -423,8 +422,8 @@ function handleAppEvent(event: SocketEvent): void {
             reconcileRemovedTitles(
                 syncStorageDeletes(storageDeletes, event.storageDeletes)
             );
-            if (event.libraryVerifyStatus) {
-                handleAppEvent(event.libraryVerifyStatus);
+            if (event.libraryVerifyEvent) {
+                handleAppEvent(event.libraryVerifyEvent);
             }
             syncLibraryConversions(event.libraryConversions);
             refreshActionsAndSelectedSidebar();
@@ -455,11 +454,8 @@ function handleAppEvent(event: SocketEvent): void {
             refreshActionsAndSelectedSidebar();
             return;
 
-        case LIBRARY_VERIFY_SOCKET_EVENT.status:
-            verifyingLibrary =
-                event.status === 'started' ||
-                event.status === 'verifying' ||
-                event.status === 'verified';
+        case LIBRARY_VERIFY_SOCKET_EVENT.changed:
+            verifyingLibrary = event.state === 'in-progress';
             setTitlesStatus({ verifying: verifyingLibrary });
             syncLibraryVerifyActions(libraryVerifications, event);
             refreshActionBar();

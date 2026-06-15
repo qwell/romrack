@@ -116,7 +116,7 @@ function mergeVolumes(
     };
 }
 
-export async function listMountedFat32Volumes(): Promise<Fat32Volume[]> {
+export async function listFat32Volumes(): Promise<Fat32Volume[]> {
     const [linuxVolumes, windowsVolumes, wslMounts] = await Promise.all([
         linux.listFat32Volumes(),
         windows.listFat32Volumes(),
@@ -214,8 +214,6 @@ export async function inspectWslPath(
         fileSystem: mount.fileSystem,
     };
 }
-
-export const listFat32Volumes = listMountedFat32Volumes;
 
 export const wsl2: OsOperations = {
     listFat32Volumes,

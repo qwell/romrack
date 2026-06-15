@@ -158,7 +158,7 @@ async function getMountSize(path: string): Promise<{
     }
 }
 
-export async function listMountedFat32Volumes(): Promise<Fat32Volume[]> {
+export async function listFat32Volumes(): Promise<Fat32Volume[]> {
     const mounts = (await listMounts()).filter(
         (mount) => mount.fileSystem === 'vfat'
     );
@@ -177,8 +177,6 @@ export async function listMountedFat32Volumes(): Promise<Fat32Volume[]> {
 
     return volumes;
 }
-
-export const listFat32Volumes = listMountedFat32Volumes;
 
 export const linux: OsOperations = {
     listFat32Volumes,

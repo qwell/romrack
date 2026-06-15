@@ -26,6 +26,7 @@ import {
 import {
     toArray,
     mapConcurrent,
+    formatLogError,
     formatSize,
     formatTitleDisplay,
 } from '../shared/shared.js';
@@ -427,7 +428,17 @@ async function scanTitleEntries(
         await mapConcurrent(
             directories,
             LIBRARY_SCAN_CONCURRENCY,
-            async (dirname) => readTitleEntry(root, dirname, titleDatabase)
+            async (dirname) => {
+                try {
+                    return await readTitleEntry(root, dirname, titleDatabase);
+                } catch (error) {
+                    logger.warn(
+                        'wiiu',
+                        `Failed to scan title ${path.join(root, dirname)}: ${formatLogError(error)}`
+                    );
+                    return null;
+                }
+            }
         )
     ).filter((entry): entry is LocalTitleEntry => entry !== null);
 
@@ -776,7 +787,6 @@ export async function findFirstReadableWiiURoot(
 
 type LibraryVerifyProgress =
     | {
-          status: 'verifying';
           titleId: string;
           name: string;
           kind: TitleKinds;
@@ -785,9 +795,9 @@ type LibraryVerifyProgress =
           currentFileSizeBytes?: number | null;
           current: number;
           total: number;
+          result?: undefined;
       }
     | {
-          status: 'verified';
           titleId: string;
           name: string;
           kind: TitleKinds;
@@ -841,7 +851,6 @@ export async function verifyWiiUTitles(
         const sizeText = formatSize(sizeBytes);
 
         onProgress?.({
-            status: 'verifying',
             titleId,
             name: titleName,
             kind: titleKind,
@@ -863,7 +872,6 @@ export async function verifyWiiUTitles(
             dirPath,
             (progress) => {
                 onProgress?.({
-                    status: 'verifying',
                     titleId,
                     name: titleName,
                     kind: titleKind,
@@ -894,7 +902,6 @@ export async function verifyWiiUTitles(
         );
 
         onProgress?.({
-            status: 'verified',
             titleId,
             name: titleName,
             kind: titleKind,

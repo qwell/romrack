@@ -18,7 +18,7 @@ import {
     type LibraryResponse,
     type LibraryVerifyResponse,
 } from '../../shared/api.js';
-import { getConfig } from '../../shared/config.js';
+import { getConfig } from './config.js';
 import logger from '../../shared/logger.js';
 import { isTerminalActionState } from '../../shared/action.js';
 import { formatLogError } from '../../shared/shared.js';
@@ -30,7 +30,7 @@ import {
     type LibraryConvertSocketCommand,
     type LibraryConvertItem,
     type LibraryVerifySocketCommand,
-    type LibraryVerifyStatusEvent,
+    type LibraryVerifyEvent,
 } from '../../shared/socket.js';
 import {
     classifyTitleId,
@@ -38,10 +38,10 @@ import {
     TitleKinds,
 } from '../../shared/titles.js';
 
-let latestLibraryVerifyStatus: LibraryVerifyStatusEvent | null = null;
+let latestLibraryVerifyEvent: LibraryVerifyEvent | null = null;
 let activeLibraryVerifyAbortController: AbortController | null = null;
-let libraryVerifyStatusTimer: ReturnType<typeof setTimeout> | null = null;
-let pendingLibraryVerifyStatus: LibraryVerifyStatusEvent | null = null;
+let libraryVerifyEventTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingLibraryVerifyEvent: LibraryVerifyEvent | null = null;
 let libraryConversions: LibraryConvertItem[] = [];
 let activeLibraryConvertId: string | null = null;
 let activeLibraryConvertAbortController: AbortController | null = null;
@@ -72,48 +72,48 @@ export function getLibraryCacheEntry(
     };
 }
 
-export function getLatestLibraryVerifyStatus(): LibraryVerifyStatusEvent | null {
-    return latestLibraryVerifyStatus;
+export function getLatestLibraryVerifyEvent(): LibraryVerifyEvent | null {
+    return latestLibraryVerifyEvent;
 }
 
 export function getLibraryConversions(): LibraryConvertItem[] {
     return libraryConversions;
 }
 
-function broadcastLibraryVerifyStatus(event: LibraryVerifyStatusEvent): void {
-    clearScheduledLibraryVerifyStatus();
-    latestLibraryVerifyStatus = event;
+function broadcastLibraryVerifyEvent(event: LibraryVerifyEvent): void {
+    clearScheduledLibraryVerifyEvent();
+    latestLibraryVerifyEvent = event;
     broadcastAppSocketEvent(event);
 }
 
-function scheduleLibraryVerifyStatus(event: LibraryVerifyStatusEvent): void {
-    pendingLibraryVerifyStatus = event;
+function scheduleLibraryVerifyEvent(event: LibraryVerifyEvent): void {
+    pendingLibraryVerifyEvent = event;
 
-    if (libraryVerifyStatusTimer !== null) {
+    if (libraryVerifyEventTimer !== null) {
         return;
     }
 
-    libraryVerifyStatusTimer = setTimeout(() => {
-        libraryVerifyStatusTimer = null;
+    libraryVerifyEventTimer = setTimeout(() => {
+        libraryVerifyEventTimer = null;
 
-        if (!pendingLibraryVerifyStatus) {
+        if (!pendingLibraryVerifyEvent) {
             return;
         }
 
-        const nextEvent = pendingLibraryVerifyStatus;
-        pendingLibraryVerifyStatus = null;
-        latestLibraryVerifyStatus = nextEvent;
+        const nextEvent = pendingLibraryVerifyEvent;
+        pendingLibraryVerifyEvent = null;
+        latestLibraryVerifyEvent = nextEvent;
         broadcastAppSocketEvent(nextEvent);
     }, 200);
 }
 
-function clearScheduledLibraryVerifyStatus(): void {
-    if (libraryVerifyStatusTimer !== null) {
-        clearTimeout(libraryVerifyStatusTimer);
-        libraryVerifyStatusTimer = null;
+function clearScheduledLibraryVerifyEvent(): void {
+    if (libraryVerifyEventTimer !== null) {
+        clearTimeout(libraryVerifyEventTimer);
+        libraryVerifyEventTimer = null;
     }
 
-    pendingLibraryVerifyStatus = null;
+    pendingLibraryVerifyEvent = null;
 }
 
 function broadcastLibraryConversions(): void {
@@ -165,28 +165,26 @@ export function createLibraryRouter(): Router {
         activeLibraryVerifyAbortController = abortController;
 
         try {
-            broadcastLibraryVerifyStatus({
-                type: LIBRARY_VERIFY_SOCKET_EVENT.status,
+            broadcastLibraryVerifyEvent({
+                type: LIBRARY_VERIFY_SOCKET_EVENT.changed,
                 state: 'in-progress',
-                status: 'started',
+                reset: true,
             });
 
             const titles = await verifyWiiUTitleRoots(
                 getConfig().wiiuRoots,
                 (progress) => {
-                    const event: LibraryVerifyStatusEvent = {
-                        type: LIBRARY_VERIFY_SOCKET_EVENT.status,
+                    const event: LibraryVerifyEvent = {
+                        type: LIBRARY_VERIFY_SOCKET_EVENT.changed,
                         state: 'in-progress',
                         ...progress,
                     };
 
-                    if (
-                        progress.status === 'verified' &&
-                        progress.result === 'failed'
-                    ) {
-                        broadcastLibraryVerifyStatus(event);
+                    if (progress.result === 'failed') {
+                        clearScheduledLibraryVerifyEvent();
+                        broadcastAppSocketEvent(event);
                     } else {
-                        scheduleLibraryVerifyStatus(event);
+                        scheduleLibraryVerifyEvent(event);
                     }
                 },
                 abortController.signal
@@ -196,10 +194,9 @@ export function createLibraryRouter(): Router {
             ).length;
 
             clearTitleScanCache();
-            broadcastLibraryVerifyStatus({
-                type: LIBRARY_VERIFY_SOCKET_EVENT.status,
+            broadcastLibraryVerifyEvent({
+                type: LIBRARY_VERIFY_SOCKET_EVENT.changed,
                 state: 'complete',
-                status: 'complete',
                 total: titles.length,
                 failed,
             });
@@ -213,10 +210,9 @@ export function createLibraryRouter(): Router {
             res.json(response);
         } catch (error) {
             if (abortController.signal.aborted) {
-                broadcastLibraryVerifyStatus({
-                    type: LIBRARY_VERIFY_SOCKET_EVENT.status,
+                broadcastLibraryVerifyEvent({
+                    type: LIBRARY_VERIFY_SOCKET_EVENT.changed,
                     state: 'cancelled',
-                    status: 'cancelled',
                 });
                 const response: LibraryVerifyResponse = {
                     status: 'cancelled',
@@ -230,10 +226,9 @@ export function createLibraryRouter(): Router {
 
             const message =
                 error instanceof Error ? error.message : String(error);
-            broadcastLibraryVerifyStatus({
-                type: LIBRARY_VERIFY_SOCKET_EVENT.status,
+            broadcastLibraryVerifyEvent({
+                type: LIBRARY_VERIFY_SOCKET_EVENT.changed,
                 state: 'failed',
-                status: 'failed',
                 error: message,
             });
 

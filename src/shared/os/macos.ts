@@ -67,7 +67,7 @@ function parseDf(stdout: string): Map<string, DfMount> {
     return mounts;
 }
 
-export async function listMountedFat32Volumes(): Promise<Fat32Volume[]> {
+export async function listFat32Volumes(): Promise<Fat32Volume[]> {
     const [{ stdout: mountStdout }, { stdout: dfStdout }] = await Promise.all([
         execFileAsync('mount'),
         execFileAsync('df', ['-kP']),
@@ -93,8 +93,6 @@ export async function listMountedFat32Volumes(): Promise<Fat32Volume[]> {
         });
 }
 
-export const listFat32Volumes = listMountedFat32Volumes;
-
 export const macos: OsOperations = {
-    listFat32Volumes: listFat32Volumes,
+    listFat32Volumes,
 };

@@ -1,6 +1,6 @@
 import { type DownloadQueueItem } from '../../shared/download.js';
 import { type TitleDownloadResponse } from '../../shared/api.js';
-import { getConfig } from '../../shared/config.js';
+import { getConfig } from './config.js';
 import logger from '../../shared/logger.js';
 import { formatLogError } from '../../shared/shared.js';
 import { isTerminalActionState } from '../../shared/action.js';

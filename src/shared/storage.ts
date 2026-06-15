@@ -1,4 +1,3 @@
-import { STORAGE_COPY_SOCKET_COMMAND } from './socket.js';
 import { type TitleKinds } from './titles.js';
 import { type ActionState } from './action.js';
 
@@ -21,15 +20,6 @@ export type StorageCopyItem = {
     currentFileName: string | null;
     error: string | null;
 };
-
-export type StorageActionBarCommand =
-    (typeof STORAGE_COPY_SOCKET_COMMAND)[keyof typeof STORAGE_COPY_SOCKET_COMMAND];
-
-export const STORAGE_ACTION_BAR_COMMAND_TYPES = [
-    STORAGE_COPY_SOCKET_COMMAND.cancel,
-    STORAGE_COPY_SOCKET_COMMAND.clear,
-    STORAGE_COPY_SOCKET_COMMAND.retry,
-] as const satisfies readonly StorageActionBarCommand[];
 
 export type StorageTransferQueueInput = {
     titleId: string;
@@ -62,11 +52,3 @@ export type StorageDeleteItem = {
 export type StorageDeleteQueueItem = StorageDeleteItem & {
     sourcePaths: string[];
 };
-
-export function isStorageActionBarCommand(
-    value: string | null
-): value is StorageActionBarCommand {
-    return STORAGE_ACTION_BAR_COMMAND_TYPES.includes(
-        value as StorageActionBarCommand
-    );
-}

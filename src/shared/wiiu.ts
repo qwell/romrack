@@ -1,7 +1,6 @@
 import path from 'path';
 import fs from 'fs';
 
-import { DEFAULT_ROM_DIR } from './config.js';
 import { resolveReadablePath } from './os.js';
 import { isWindowsPath } from './os/path.js';
 
@@ -14,7 +13,7 @@ type WiiURootInspection = {
 
 export function readWiiURoots(
     config: Record<string, unknown>,
-    options: { useDefaultIfEmpty?: boolean } = {}
+    options: { defaultRoot?: string } = {}
 ): string[] {
     const roots: string[] = [];
     const hasConfiguredRoots = 'wiiuRoots' in config;
@@ -40,10 +39,10 @@ export function readWiiURoots(
 
     if (
         roots.length === 0 &&
-        options.useDefaultIfEmpty &&
+        options.defaultRoot !== undefined &&
         !hasConfiguredRoots
     ) {
-        roots.push(DEFAULT_ROM_DIR);
+        roots.push(options.defaultRoot);
     }
 
     return [...new Set(roots)];

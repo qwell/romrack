@@ -66,7 +66,7 @@ export function parseWindowsDriveRoot(value: string | null): string | null {
     return match ? `${match[1].toUpperCase()}:\\` : null;
 }
 
-export async function listMountedFat32Volumes(): Promise<Fat32Volume[]> {
+export async function listFat32Volumes(): Promise<Fat32Volume[]> {
     const { stdout } = await execFileAsync('powershell.exe', [
         '-NoProfile',
         '-NonInteractive',
@@ -81,8 +81,6 @@ export async function listMountedFat32Volumes(): Promise<Fat32Volume[]> {
 
     return parseWindowsFat32Volumes(stdout);
 }
-
-export const listFat32Volumes = listMountedFat32Volumes;
 
 export const windows: OsOperations = {
     listFat32Volumes,

@@ -11,7 +11,7 @@ export function toArray<T>(value: T | readonly T[] | null | undefined): T[] {
 }
 
 export function isObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 export function formatSize(sizeBytes: number | null): string {
@@ -43,6 +43,7 @@ export async function mapConcurrent<T, U>(
 
     const results = new Array<U>(items.length);
     let cursor = 0;
+    let failure: { error: unknown } | null = null;
 
     const workerCount = Math.max(
         1,
@@ -50,13 +51,21 @@ export async function mapConcurrent<T, U>(
     );
 
     const workers = Array.from({ length: workerCount }, async () => {
-        while (cursor < items.length) {
+        while (cursor < items.length && failure === null) {
             const index = cursor++;
-            results[index] = await mapper(items[index], index);
+            try {
+                results[index] = await mapper(items[index], index);
+            } catch (error) {
+                failure ??= { error };
+            }
         }
     });
 
     await Promise.all(workers);
+    if (failure !== null) {
+        throw failure.error;
+    }
+
     return results;
 }
 

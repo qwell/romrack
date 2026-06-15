@@ -5,7 +5,7 @@ import path from 'node:path';
 
 import { getAppRoot } from './paths.js';
 import { createAppSocket } from './socket.js';
-import { getConfig } from '../shared/config.js';
+import { getConfig } from './routes/config.js';
 import logger from '../shared/logger.js';
 import { formatLogError } from '../shared/shared.js';
 import {
@@ -29,7 +29,7 @@ import {
     handleStorageDeleteSocketCommand,
     createLibraryRouter,
     getLibraryConversions,
-    getLatestLibraryVerifyStatus,
+    getLatestLibraryVerifyEvent,
     handleLibraryConvertSocketCommand,
     handleLibraryVerifySocketCommand,
     createTitleRouter,
@@ -116,7 +116,7 @@ createAppSocket({
         downloads: getDownloadQueue(),
         storageCopies: getStorageCopies(),
         storageDeletes: getStorageDeletes(),
-        libraryVerifyStatus: getLatestLibraryVerifyStatus(),
+        libraryVerifyEvent: getLatestLibraryVerifyEvent(),
         libraryConversions: getLibraryConversions(),
     }),
     onCommand: handleAppSocketCommand,

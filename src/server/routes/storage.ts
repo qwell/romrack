@@ -17,7 +17,7 @@ import {
     readWiiUTitleIdentity,
 } from '../wiiu.js';
 import { classifyTitleId } from '../../shared/titles.js';
-import { getConfig } from '../../shared/config.js';
+import { getConfig } from './config.js';
 import {
     getPathFileSizes,
     getPathStats,
