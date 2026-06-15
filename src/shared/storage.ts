@@ -1,7 +1,4 @@
-import {
-    STORAGE_COPY_SOCKET_COMMAND,
-    STORAGE_DELETE_SOCKET_COMMAND,
-} from './socket.js';
+import { STORAGE_COPY_SOCKET_COMMAND } from './socket.js';
 import { type TitleKinds } from './titles.js';
 import { type ActionState } from './action.js';
 
@@ -61,9 +58,6 @@ export type StorageDeleteItem = {
     totalCount: number | null;
     error: string | null;
 };
-
-export type StorageDeleteActionBarCommand =
-    (typeof STORAGE_DELETE_SOCKET_COMMAND)[keyof typeof STORAGE_DELETE_SOCKET_COMMAND];
 
 export type StorageDeleteQueueItem = StorageDeleteItem & {
     sourcePaths: string[];

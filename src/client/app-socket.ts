@@ -1,49 +1,10 @@
-import { type DownloadQueueItem } from '../shared/download.js';
-import {
-    type StorageCopyItem,
-    type StorageDeleteItem,
-} from '../shared/storage.js';
-import {
-    type SocketCommand,
-    type SocketEvent,
-    type TitleValidationSocketEvent,
-    type LibraryConvertSocketEvent,
-    type LibraryVerifyStatusEvent,
-    APP_SOCKET_EVENT,
-    DOWNLOAD_SOCKET_EVENT,
-    STORAGE_COPY_SOCKET_EVENT,
-    STORAGE_DELETE_SOCKET_EVENT,
-    LIBRARY_CONVERT_SOCKET_EVENT,
-    LIBRARY_VERIFY_SOCKET_EVENT,
-    TITLE_VALIDATE_SOCKET_EVENT,
-} from '../shared/socket.js';
-import { type TitleGroup } from '../shared/titles.js';
-import { syncDownloadQueue } from './download.js';
-import { removeTitlesFromLibrary } from './library.js';
-import { syncStorageCopies, syncStorageDeletes } from './storage.js';
+import { type SocketCommand, type SocketEvent } from '../shared/socket.js';
 
 type AppSocketOptions = {
     reconnectMs: number;
     onAvailable: () => void;
     onGone: () => void;
     onEvent: (event: SocketEvent) => void;
-};
-
-type AppEventOptions = {
-    downloads: DownloadQueueItem[];
-    storageCopies: StorageCopyItem[];
-    storageDeletes: StorageDeleteItem[];
-    haystacks: WeakMap<TitleGroup, string>;
-    getGroups: () => TitleGroup[];
-    onServerAvailable: () => void;
-    onGroupChanged: (group: TitleGroup) => void;
-    onActionsChanged?: () => void;
-    onVerificationStateChanged: (verifying: boolean) => void;
-    onLibraryConvertChanged?: (
-        items: LibraryConvertSocketEvent['items']
-    ) => void;
-    onLibraryVerifyChanged: (event: LibraryVerifyStatusEvent) => void;
-    onTitleValidationChanged: (event: TitleValidationSocketEvent) => void;
 };
 
 let appSocket: WebSocket | null = null;
@@ -116,104 +77,6 @@ export function connectAppSocket(options: AppSocketOptions): void {
         options.onGone();
         scheduleAppSocketReconnect();
     });
-}
-
-export function createAppEventHandler(
-    options: AppEventOptions
-): (event: SocketEvent) => void {
-    const reconcileRemovedTitles = (titleIds: string[]): void => {
-        removeTitlesFromLibrary(titleIds, {
-            groups: options.getGroups(),
-            haystacks: options.haystacks,
-            onGroupChanged: options.onGroupChanged,
-        });
-    };
-
-    const handle = (event: SocketEvent): void => {
-        switch (event.type) {
-            case APP_SOCKET_EVENT.connected:
-                options.onServerAvailable();
-
-                syncDownloadQueue(
-                    options.downloads,
-                    event.downloads,
-                    options.haystacks,
-                    options.getGroups(),
-                    options.onGroupChanged
-                );
-
-                reconcileRemovedTitles(
-                    syncStorageCopies(
-                        options.storageCopies,
-                        event.storageCopies
-                    )
-                );
-                reconcileRemovedTitles(
-                    syncStorageDeletes(
-                        options.storageDeletes,
-                        event.storageDeletes
-                    )
-                );
-
-                if (event.libraryVerifyStatus) {
-                    handle(event.libraryVerifyStatus);
-                }
-                options.onLibraryConvertChanged?.(event.libraryConversions);
-                options.onActionsChanged?.();
-                return;
-
-            case DOWNLOAD_SOCKET_EVENT.changed:
-                options.onServerAvailable();
-                syncDownloadQueue(
-                    options.downloads,
-                    event.items,
-                    options.haystacks,
-                    options.getGroups(),
-                    options.onGroupChanged
-                );
-                options.onActionsChanged?.();
-                return;
-
-            case STORAGE_COPY_SOCKET_EVENT.changed:
-                options.onServerAvailable();
-                reconcileRemovedTitles(
-                    syncStorageCopies(options.storageCopies, event.items)
-                );
-                options.onActionsChanged?.();
-                return;
-
-            case STORAGE_DELETE_SOCKET_EVENT.changed:
-                options.onServerAvailable();
-                reconcileRemovedTitles(
-                    syncStorageDeletes(options.storageDeletes, event.items)
-                );
-                options.onActionsChanged?.();
-                return;
-
-            case LIBRARY_VERIFY_SOCKET_EVENT.status: {
-                options.onServerAvailable();
-                options.onVerificationStateChanged(
-                    event.status !== 'complete' && event.status !== 'failed'
-                );
-
-                options.onLibraryVerifyChanged(event);
-                return;
-            }
-
-            case LIBRARY_CONVERT_SOCKET_EVENT.changed:
-                options.onServerAvailable();
-                options.onLibraryConvertChanged?.(event.items);
-                options.onActionsChanged?.();
-                return;
-
-            case TITLE_VALIDATE_SOCKET_EVENT.changed:
-                options.onServerAvailable();
-                options.onTitleValidationChanged(event);
-                return;
-        }
-    };
-
-    return handle;
 }
 
 export function getSocketUrl(): string {

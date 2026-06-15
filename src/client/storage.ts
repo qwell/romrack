@@ -5,10 +5,6 @@ import {
     formatActionStateIcon,
 } from '../shared/action.js';
 import {
-    requestJson,
-    type StorageDeleteQueuedResponse,
-} from '../shared/api.js';
-import {
     STORAGE_COPY_SOCKET_COMMAND,
     STORAGE_DELETE_SOCKET_COMMAND,
 } from '../shared/socket.js';
@@ -19,6 +15,7 @@ import {
 import { sendAppSocketCommand } from './app-socket.js';
 import { formatSize, formatTitleDisplay } from '../shared/shared.js';
 import { type TitleEntry } from '../shared/titles.js';
+import { queueStorageDelete } from './api.js';
 
 export function syncStorageCopies(
     copies: StorageCopyItem[],
@@ -213,13 +210,6 @@ export function syncStorageDeletes(
         .map((item) => item.titleId);
 }
 
-export function queueStorageDelete(
-    titleId: string
-): Promise<StorageDeleteQueuedResponse> {
-    const params = new URLSearchParams({ titleId });
-    return requestJson(`/api/storage/delete?${params}`);
-}
-
 export async function confirmAndQueueStorageDeletes(
     titleIds: string[],
     entries: TitleEntry[],
@@ -290,14 +280,6 @@ export function formatStorageDeleteState(item: StorageDeleteItem): string {
 
 export function formatStorageDeleteIcon(item: StorageDeleteItem): string {
     return formatActionStateIcon(item.state, '⌫');
-}
-
-export function formatStorageDeleteDetails(item: StorageDeleteItem): string {
-    if (item.error) {
-        return item.error;
-    }
-
-    return item.message ?? formatStorageDeleteState(item);
 }
 
 export function getStorageDeleteActionBarEntries(items: StorageDeleteItem[]) {

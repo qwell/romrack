@@ -1,3 +1,19 @@
+import { type LibraryVerifyTitle } from '../shared/api.js';
+import {
+    type LibraryConvertItem,
+    type LibraryVerifyStatusEvent,
+    type TitleValidationSocketEvent,
+    LIBRARY_CONVERT_SOCKET_COMMAND,
+    LIBRARY_VERIFY_SOCKET_COMMAND,
+} from '../shared/socket.js';
+import { type DownloadQueueItem } from '../shared/download.js';
+import {
+    formatActionFileCount,
+    formatActionProgress,
+    formatActionState,
+    formatActionStateIcon,
+} from '../shared/action.js';
+import { formatSize, formatTitleDisplay } from '../shared/shared.js';
 import {
     classifyTitleId,
     type AvailableTitleEntry,
@@ -7,25 +23,6 @@ import {
     type TitleGroup,
     TitleKinds,
 } from '../shared/titles.js';
-import { type LibraryVerifyTitle } from '../shared/api.js';
-import type {
-    LibraryVerifyStatusEvent,
-    LibraryConvertItem,
-    TitleValidationSocketEvent,
-} from '../shared/socket.js';
-import { formatTitleDisplay } from '../shared/shared.js';
-import { formatSize } from '../shared/shared.js';
-import {
-    formatActionFileCount,
-    formatActionProgress,
-    formatActionState,
-    formatActionStateIcon,
-} from '../shared/action.js';
-import {
-    LIBRARY_VERIFY_SOCKET_COMMAND,
-    LIBRARY_CONVERT_SOCKET_COMMAND,
-} from '../shared/socket.js';
-import { type DownloadQueueItem } from '../shared/download.js';
 import { sendAppSocketCommand } from './app-socket.js';
 
 export type SlotBadgeState =
@@ -35,7 +32,13 @@ export type SlotBadgeState =
     | 'unavailable'
     | 'unknown';
 
-export function isValidationFailed(
+type RemoveTitlesFromLibraryOptions = {
+    groups: TitleGroup[];
+    haystacks: WeakMap<TitleGroup, string>;
+    onGroupChanged: (group: TitleGroup) => void;
+};
+
+export function isTitleValidationUnavailable(
     event: TitleValidationSocketEvent | null
 ): boolean {
     return (
@@ -106,16 +109,6 @@ export function mergeFailedVerificationsIntoAvailable(
     return changedGroups;
 }
 
-type RemoveTitlesFromLibraryOptions = {
-    groups: TitleGroup[];
-    haystacks: WeakMap<TitleGroup, string>;
-    onGroupChanged: (group: TitleGroup) => void;
-};
-
-export type LibraryActionBarCommand =
-    | (typeof LIBRARY_VERIFY_SOCKET_COMMAND)[keyof typeof LIBRARY_VERIFY_SOCKET_COMMAND]
-    | (typeof LIBRARY_CONVERT_SOCKET_COMMAND)[keyof typeof LIBRARY_CONVERT_SOCKET_COMMAND];
-
 export function getEntry(
     group: TitleGroup,
     kinds: TitleKinds | readonly TitleKinds[]
@@ -135,7 +128,7 @@ function isChildExpected(group: TitleGroup, childKind: ChildKind): boolean {
     return group.expectedChildren.includes(childKind);
 }
 
-export function isAvailableEntryKind(
+function isAvailableEntryKind(
     kind: TitleKinds
 ): kind is AvailableTitleEntry['kind'] {
     return (
@@ -312,9 +305,7 @@ export function removeTitlesFromLibrary(
     }
 }
 
-export function formatLibraryVerifyProgress(
-    item: LibraryVerifyStatusEvent
-): string {
+function formatLibraryVerifyProgress(item: LibraryVerifyStatusEvent): string {
     if (item.status === 'complete') {
         return '100%';
     }
@@ -332,9 +323,7 @@ export function formatLibraryVerifyProgress(
     return '-';
 }
 
-export function formatLibraryVerifyFileCount(
-    item: LibraryVerifyStatusEvent
-): string {
+function formatLibraryVerifyFileCount(item: LibraryVerifyStatusEvent): string {
     if (item.current !== undefined && item.total !== undefined) {
         const current =
             item.status === 'verifying'
@@ -346,24 +335,18 @@ export function formatLibraryVerifyFileCount(
     return '';
 }
 
-export function formatLibraryVerifyIcon(
-    item: LibraryVerifyStatusEvent
-): string {
+function formatLibraryVerifyIcon(item: LibraryVerifyStatusEvent): string {
     return formatActionStateIcon(item.state);
 }
 
-export function formatLibraryVerifyState(
-    item: LibraryVerifyStatusEvent
-): string {
+function formatLibraryVerifyState(item: LibraryVerifyStatusEvent): string {
     return formatActionState(item.state, {
         'in-progress': 'Verifying',
         complete: 'Verified',
     });
 }
 
-export function formatLibraryVerifyTitle(
-    item: LibraryVerifyStatusEvent
-): string {
+function formatLibraryVerifyTitle(item: LibraryVerifyStatusEvent): string {
     if (
         (item.status === 'verifying' || item.status === 'verified') &&
         item.kind &&
@@ -380,17 +363,13 @@ export function formatLibraryVerifyTitle(
     return '';
 }
 
-export function formatLibraryVerifySize(
-    item: LibraryVerifyStatusEvent
-): string {
+function formatLibraryVerifySize(item: LibraryVerifyStatusEvent): string {
     return item.status === 'verifying'
         ? formatSize(item.currentFileSizeBytes ?? null)
         : '';
 }
 
-export function formatLibraryVerifyDetails(
-    item: LibraryVerifyStatusEvent
-): string {
+function formatLibraryVerifyDetails(item: LibraryVerifyStatusEvent): string {
     const state = item.state;
     if (state === 'in-progress') {
         return item.currentFileName
@@ -409,25 +388,21 @@ export function formatLibraryVerifyDetails(
     return '';
 }
 
-export function getLibraryVerifyFailureKey(
-    item: LibraryVerifyStatusEvent
-): string {
+function getLibraryVerifyFailureKey(item: LibraryVerifyStatusEvent): string {
     return item.titleId ?? item.name ?? 'unknown';
 }
 
-export function getLibraryVerifyId(item: LibraryVerifyStatusEvent): string {
+function getLibraryVerifyId(item: LibraryVerifyStatusEvent): string {
     return isLibraryVerifyFailure(item)
         ? getLibraryVerifyFailureKey(item)
         : 'main';
 }
 
-export function isLibraryVerifyFailure(
-    item: LibraryVerifyStatusEvent
-): boolean {
+function isLibraryVerifyFailure(item: LibraryVerifyStatusEvent): boolean {
     return item.status === 'verified' && item.result === 'failed';
 }
 
-export function formatLibraryConvertProgress(item: LibraryConvertItem): string {
+function formatLibraryConvertProgress(item: LibraryConvertItem): string {
     const progress =
         item.current !== null && item.total
             ? (item.current / item.total) * 100
@@ -435,9 +410,7 @@ export function formatLibraryConvertProgress(item: LibraryConvertItem): string {
     return formatActionProgress(item.state, progress);
 }
 
-export function formatLibraryConvertFileCount(
-    item: LibraryConvertItem
-): string {
+function formatLibraryConvertFileCount(item: LibraryConvertItem): string {
     return formatActionFileCount(
         item.current,
         item.total,
@@ -445,22 +418,22 @@ export function formatLibraryConvertFileCount(
     );
 }
 
-export function formatLibraryConvertIcon(item: LibraryConvertItem): string {
+function formatLibraryConvertIcon(item: LibraryConvertItem): string {
     return formatActionStateIcon(item.state);
 }
 
-export function formatLibraryConvertState(item: LibraryConvertItem): string {
+function formatLibraryConvertState(item: LibraryConvertItem): string {
     return formatActionState(item.state, {
         'in-progress': 'Converting',
         complete: 'Converted',
     });
 }
 
-export function formatLibraryConvertTitle(item: LibraryConvertItem): string {
+function formatLibraryConvertTitle(item: LibraryConvertItem): string {
     return formatTitleDisplay(item.name, item.titleId, item.kind, null);
 }
 
-export function formatLibraryConvertDetails(item: LibraryConvertItem): string {
+function formatLibraryConvertDetails(item: LibraryConvertItem): string {
     return (
         item.error ??
         item.currentFileName ??

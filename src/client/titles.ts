@@ -124,7 +124,7 @@ export function compareTitleGroups(a: TitleGroup, b: TitleGroup): number {
     );
 }
 
-export function filterVisibleTitleGroups(groups: TitleGroup[]): TitleGroup[] {
+function filterVisibleTitleGroups(groups: TitleGroup[]): TitleGroup[] {
     return groups.filter(
         (group) =>
             showAllTitles ||
@@ -133,7 +133,7 @@ export function filterVisibleTitleGroups(groups: TitleGroup[]): TitleGroup[] {
     );
 }
 
-export function observeTitleIcon(image: HTMLImageElement, src: string): void {
+function observeTitleIcon(image: HTMLImageElement, src: string): void {
     if (iconObserver) {
         iconObserver.observe(image);
     } else {
@@ -342,64 +342,38 @@ function renderGroup(
     return root;
 }
 
-export function markSlotBadgeComplete(family: string, kind: TitleKinds): void {
-    for (const badge of document.querySelectorAll<HTMLElement>(
-        '.title-slot-badge'
-    )) {
-        if (badge.dataset.family !== family || badge.dataset.kind !== kind) {
-            continue;
-        }
-        setSlotBadgeState(badge, 'complete');
-        const marker = badge.querySelector<HTMLElement>(
-            '.title-slot-badge-download'
-        );
-        if (marker) {
-            marker.textContent = '';
-            marker.hidden = true;
-        }
-        badge.dataset.downloadState = '';
-    }
-}
+export function refreshRenderedTitleGroup(group: TitleGroup): void {
+    updateTitlesControls();
+    updateTitleActionButtons();
 
-function setSlotBadgeState(badge: HTMLElement, state: SlotBadgeState): void {
-    badge.classList.remove(
-        'title-slot-badge-complete',
-        'title-slot-badge-incomplete',
-        'title-slot-badge-na',
-        'title-slot-badge-unavailable',
-        'title-slot-badge-unknown'
-    );
-    badge.classList.add(`title-slot-badge-${state}`);
-}
-
-export function updateRenderedTitleGroup(group: TitleGroup): void {
-    const element = document.querySelector<HTMLElement>(
-        `.title-group[data-family="${CSS.escape(group.family)}"]`
-    );
-    if (!element) {
+    if (!titlesGrid || !titlesSidebar) {
         return;
     }
-    element.classList.remove(
-        'title-group-complete',
-        'title-group-incomplete',
-        'title-group-missing',
-        'title-group-unavailable',
-        'title-group-unknown'
-    );
-    element.classList.add(`title-group-${group.status}`);
 
-    for (const [kind, state] of [
-        [TitleKinds.Base, getBaseBadgeState(group)],
-        [TitleKinds.Update, getChildBadgeState(group, TitleKinds.Update)],
-        [TitleKinds.DLC, getChildBadgeState(group, TitleKinds.DLC)],
-    ] as const) {
-        const badge = element.querySelector<HTMLElement>(
-            `.title-slot-badge[data-kind="${CSS.escape(kind)}"]`
-        );
-        if (badge) {
-            setSlotBadgeState(badge, state);
-        }
+    const element = titlesGrid.querySelector<HTMLElement>(
+        `.title-group[data-family="${CSS.escape(group.family)}"]`
+    );
+    if (!isGroupVisible(group)) {
+        element?.remove();
+        return;
     }
+
+    const replacement = renderGroup(
+        group,
+        (selected) => options?.toggleDetailSidebar(titlesSidebar!, selected),
+        options?.getSelectedDetailFamily() ?? null
+    );
+    if (!replacement) {
+        element?.remove();
+        return;
+    }
+
+    if (element) {
+        element.replaceWith(replacement);
+        return;
+    }
+
+    renderGroups(currentGroups, titlesGrid, titlesSidebar);
 }
 
 function resetIconObserver(): void {
@@ -489,53 +463,50 @@ function normalizeControlState(groups: TitleGroup[]): void {
         : 'all';
 }
 
+function isGroupVisible(group: TitleGroup): boolean {
+    if (
+        !showAllTitles &&
+        group.entries.length === 0 &&
+        group.wudEntries.length === 0
+    ) {
+        return false;
+    }
+    if (controlState.status !== 'all' && group.status !== controlState.status) {
+        return false;
+    }
+    if (controlState.region !== 'all' && group.region !== controlState.region) {
+        return false;
+    }
+
+    const platform = group.productCode
+        ? getVirtualConsolePlatform(group.productCode)
+        : null;
+    if (controlState.vc === 'vc' && !platform) {
+        return false;
+    }
+    if (controlState.vc === 'non-vc' && platform) {
+        return false;
+    }
+    if (
+        controlState.vc !== 'all' &&
+        controlState.vc !== 'vc' &&
+        controlState.vc !== 'non-vc' &&
+        controlState.vc !== platform?.toString()
+    ) {
+        return false;
+    }
+
+    const search = normalizeSearch(controlState.search.trim());
+    return !search || getSearchHaystack(group).includes(search);
+}
+
 function renderGroups(
     groups: TitleGroup[],
     grid: HTMLDivElement,
     sidebar: HTMLElement
 ): void {
     currentGroups = groups;
-    const search = normalizeSearch(controlState.search.trim());
-    const filtered = groups.filter((group) => {
-        if (
-            !showAllTitles &&
-            group.entries.length === 0 &&
-            group.wudEntries.length === 0
-        ) {
-            return false;
-        }
-        if (
-            controlState.status !== 'all' &&
-            group.status !== controlState.status
-        ) {
-            return false;
-        }
-        if (
-            controlState.region !== 'all' &&
-            group.region !== controlState.region
-        ) {
-            return false;
-        }
-
-        const platform = group.productCode
-            ? getVirtualConsolePlatform(group.productCode)
-            : null;
-        if (controlState.vc === 'vc' && !platform) {
-            return false;
-        }
-        if (controlState.vc === 'non-vc' && platform) {
-            return false;
-        }
-        if (
-            controlState.vc !== 'all' &&
-            controlState.vc !== 'vc' &&
-            controlState.vc !== 'non-vc' &&
-            controlState.vc !== platform?.toString()
-        ) {
-            return false;
-        }
-        return !search || getSearchHaystack(group).includes(search);
-    });
+    const filtered = groups.filter(isGroupVisible);
 
     grid.replaceChildren();
     resetIconObserver();

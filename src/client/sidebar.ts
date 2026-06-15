@@ -30,7 +30,9 @@ type SidebarOptions = {
         destination: string
     ) => Promise<unknown>;
     requestTitleValidation: (titleId: string, name: string) => void;
-    isValidationFailed: (event: TitleValidationSocketEvent | null) => boolean;
+    isTitleValidationUnavailable: (
+        event: TitleValidationSocketEvent | null
+    ) => boolean;
     renderWud: (
         group: TitleGroup,
         conversionBusy: boolean
@@ -223,8 +225,10 @@ function formatInput(details: TitleDetails): string {
     return parts.join('; ') || '-';
 }
 
-function isValidationFailed(event: TitleValidationSocketEvent | null): boolean {
-    return options?.isValidationFailed(event) ?? false;
+function isTitleValidationUnavailable(
+    event: TitleValidationSocketEvent | null
+): boolean {
+    return options?.isTitleValidationUnavailable(event) ?? false;
 }
 
 function hasUsableLocalEntry(
@@ -245,7 +249,7 @@ function hasUsableLocalEntry(
             return false;
         }
 
-        return !isValidationFailed(validation);
+        return !isTitleValidationUnavailable(validation);
     });
 }
 
@@ -766,14 +770,14 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
         .filter((entry) => {
             const validation =
                 detailOptions?.titleValidations?.get(entry.titleId) ?? null;
-            return !isValidationFailed(validation);
+            return !isTitleValidationUnavailable(validation);
         })
         .sort((a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind));
     const invalidEntries = group.entries
         .filter((entry) => {
             const validation =
                 detailOptions?.titleValidations?.get(entry.titleId) ?? null;
-            return isValidationFailed(validation);
+            return isTitleValidationUnavailable(validation);
         })
         .sort((a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind));
 

@@ -24,8 +24,8 @@ import {
     getLibraryConvertActionBarEntries,
     getLibraryVerifyActionBarEntries,
     handleLibraryActionBarCommand,
-    isValidationFailed,
     renderLibrarySidebarWud,
+    isTitleValidationUnavailable,
 } from './library.js';
 import {
     closeSettingsSidebar,
@@ -54,7 +54,7 @@ import {
     getCurrentTitleGroups,
     mountTitles,
     setupTitles,
-    updateRenderedTitleGroup,
+    refreshRenderedTitleGroup,
 } from './titles.js';
 
 type UiOptions = {
@@ -196,7 +196,7 @@ function setupSidebars(options: UiOptions): void {
         confirmAndQueueStorageDeletes,
         queueStorageCopy: options.queueStorageCopy,
         requestTitleValidation: options.requestTitleValidation,
-        isValidationFailed,
+        isTitleValidationUnavailable,
         renderWud: (group, conversionBusy) =>
             renderLibrarySidebarWud(
                 group,
@@ -271,7 +271,7 @@ export function setupUi(options: UiOptions): void {
 }
 
 export function refreshTitleGroupUi(group: TitleGroup): void {
-    updateRenderedTitleGroup(group);
+    refreshRenderedTitleGroup(group);
     refreshOpenDetailSidebarForGroup(group);
 }
 

@@ -6,6 +6,7 @@ import {
     type LibraryConvertQueuedResponse,
     type LibraryVerifyResponse,
     type StorageFat32ListResponse,
+    type StorageDeleteQueuedResponse,
     type StorageTransferQueuedResponse,
 } from '../shared/api.js';
 import { type AppConfigUpdate } from '../shared/config.js';
@@ -38,6 +39,13 @@ export function queueStorageCopy(
         dest: destination,
     });
     return requestJson(`/api/storage/copy?${params}`);
+}
+
+export function queueStorageDelete(
+    titleId: string
+): Promise<StorageDeleteQueuedResponse> {
+    const params = new URLSearchParams({ titleId });
+    return requestJson(`/api/storage/delete?${params}`);
 }
 
 export function getConfig(): Promise<ConfigResponse> {

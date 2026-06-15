@@ -8,9 +8,16 @@ import {
 import { type StorageFat32ListResponse } from '../shared/api.js';
 import {
     type LibraryConvertItem,
+    type SocketEvent,
     type TitleValidationSocketEvent,
     type LibraryVerifyStatusEvent,
+    APP_SOCKET_EVENT,
+    DOWNLOAD_SOCKET_EVENT,
+    LIBRARY_CONVERT_SOCKET_EVENT,
     LIBRARY_VERIFY_SOCKET_EVENT,
+    STORAGE_COPY_SOCKET_EVENT,
+    STORAGE_DELETE_SOCKET_EVENT,
+    TITLE_VALIDATE_SOCKET_EVENT,
     TITLE_VALIDATE_SOCKET_COMMAND,
 } from '../shared/socket.js';
 import {
@@ -25,16 +32,15 @@ import { isWindowsPath } from '../shared/os/path.js';
 import {
     addAvailableEntry,
     createAvailableEntry,
-    isValidationFailed,
+    isTitleValidationUnavailable,
     mergeFailedVerificationsIntoAvailable,
+    removeTitlesFromLibrary,
     syncLibraryVerifyActions,
     syncGroupStatusFromSlots,
 } from './library.js';
-import {
-    connectAppSocket,
-    createAppEventHandler,
-    sendAppSocketCommand,
-} from './app-socket.js';
+import { connectAppSocket, sendAppSocketCommand } from './app-socket.js';
+import { syncDownloadQueue } from './download.js';
+import { syncStorageCopies, syncStorageDeletes } from './storage.js';
 import logger from '../shared/logger.js';
 import {
     compareTitleGroups,
@@ -44,7 +50,6 @@ import {
     renderTitlesError,
     setTitlesStatus,
     titleSearchHaystacks,
-    updateRenderedTitleGroup,
 } from './titles.js';
 import {
     refreshActionBar,
@@ -217,12 +222,6 @@ async function populateFat32DeviceSelect(
     }
 }
 
-export function getPathDisplayName(value: string): string {
-    const trimmed = value.replace(/[\\/]+$/, '');
-    const name = trimmed.split(/[\\/]/).pop() || trimmed;
-    return name.replace(/(?:\s+\[[^\]]+\])+$/g, '').trim() || name;
-}
-
 async function loadLibrary(): Promise<void> {
     const requestId = ++activeLibraryRequestId;
 
@@ -329,100 +328,159 @@ async function loadInitialData(): Promise<void> {
     await Promise.all([getFat32Devices(), refreshLibrary()]);
 }
 
+function reconcileRemovedTitles(titleIds: string[]): void {
+    removeTitlesFromLibrary(titleIds, {
+        groups: getCurrentTitleGroups(),
+        haystacks: titleSearchHaystacks,
+        onGroupChanged: refreshTitleGroupUi,
+    });
+}
+
+function syncLibraryConversions(items: LibraryConvertItem[]): void {
+    const previousItems = new Map(
+        libraryConversions.map((item) => [item.id, item])
+    );
+    libraryConversions.splice(0, libraryConversions.length, ...items);
+    refreshActionBar();
+    reconcileCompletedLibraryConversions(previousItems, items);
+}
+
+function handleTitleValidation(event: TitleValidationSocketEvent): void {
+    titleValidations.set(event.titleId, event);
+
+    const group = getCurrentTitleGroups().find(
+        (candidate) => candidate.family === event.titleId.slice(8)
+    );
+    if (!group) {
+        return;
+    }
+
+    if (
+        event.status === 'complete' &&
+        event.copies.length > 0 &&
+        !group.entries.some(
+            (entry) =>
+                entry.titleId.toLowerCase() === event.titleId.toLowerCase()
+        )
+    ) {
+        const copy = event.copies[0];
+        const wudTitle = group.wudEntries
+            .flatMap((entry) => entry.titles)
+            .find(
+                (title) =>
+                    title.titleId.toLowerCase() === event.titleId.toLowerCase()
+            );
+        const kind = copy?.titleKind as TitleKinds | undefined;
+        if (kind) {
+            group.entries.push({
+                titleId: event.titleId,
+                name: group.name,
+                region: group.region,
+                iconUrl: group.iconUrl,
+                version: copy?.titleVersion ?? wudTitle?.version ?? 0,
+                kind,
+                sizeBytes: 0,
+                copyCount: event.copies.length,
+            });
+            invalidateTitleSearch(group);
+            syncGroupStatusFromSlots(group);
+            refreshTitleGroupUi(group);
+        }
+    }
+
+    if (isTitleValidationUnavailable(event)) {
+        const entry = group.entries.find(
+            (candidate) =>
+                candidate.titleId.toLowerCase() === event.titleId.toLowerCase()
+        );
+
+        if (entry) {
+            const availableEntry = createAvailableEntry(entry);
+            if (availableEntry) {
+                addAvailableEntry(group, availableEntry);
+            }
+        }
+    }
+
+    refreshDetailSidebarForGroup(group);
+}
+
+function handleAppEvent(event: SocketEvent): void {
+    hideServerGoneModal();
+
+    switch (event.type) {
+        case APP_SOCKET_EVENT.connected:
+            syncDownloadQueue(
+                downloadQueue,
+                event.downloads,
+                titleSearchHaystacks,
+                getCurrentTitleGroups(),
+                refreshTitleGroupUi
+            );
+            reconcileRemovedTitles(
+                syncStorageCopies(storageCopies, event.storageCopies)
+            );
+            reconcileRemovedTitles(
+                syncStorageDeletes(storageDeletes, event.storageDeletes)
+            );
+            if (event.libraryVerifyStatus) {
+                handleAppEvent(event.libraryVerifyStatus);
+            }
+            syncLibraryConversions(event.libraryConversions);
+            refreshActionsAndSelectedSidebar();
+            return;
+
+        case DOWNLOAD_SOCKET_EVENT.changed:
+            syncDownloadQueue(
+                downloadQueue,
+                event.items,
+                titleSearchHaystacks,
+                getCurrentTitleGroups(),
+                refreshTitleGroupUi
+            );
+            refreshActionsAndSelectedSidebar();
+            return;
+
+        case STORAGE_COPY_SOCKET_EVENT.changed:
+            reconcileRemovedTitles(
+                syncStorageCopies(storageCopies, event.items)
+            );
+            refreshActionsAndSelectedSidebar();
+            return;
+
+        case STORAGE_DELETE_SOCKET_EVENT.changed:
+            reconcileRemovedTitles(
+                syncStorageDeletes(storageDeletes, event.items)
+            );
+            refreshActionsAndSelectedSidebar();
+            return;
+
+        case LIBRARY_VERIFY_SOCKET_EVENT.status:
+            verifyingLibrary =
+                event.status === 'started' ||
+                event.status === 'verifying' ||
+                event.status === 'verified';
+            setTitlesStatus({ verifying: verifyingLibrary });
+            syncLibraryVerifyActions(libraryVerifications, event);
+            refreshActionBar();
+            return;
+
+        case LIBRARY_CONVERT_SOCKET_EVENT.changed:
+            syncLibraryConversions(event.items);
+            refreshActionsAndSelectedSidebar();
+            return;
+
+        case TITLE_VALIDATE_SOCKET_EVENT.changed:
+            handleTitleValidation(event);
+            return;
+    }
+}
+
 connectAppSocket({
     reconnectMs: SOCKET_RECONNECT_MS,
     onAvailable: hideServerGoneModal,
     onGone: showServerGoneModal,
-    onEvent: createAppEventHandler({
-        downloads: downloadQueue,
-        storageCopies,
-        storageDeletes: storageDeletes,
-        haystacks: titleSearchHaystacks,
-        getGroups: getCurrentTitleGroups,
-        onServerAvailable: hideServerGoneModal,
-        onGroupChanged: refreshTitleGroupUi,
-        onVerificationStateChanged(verifying) {
-            verifyingLibrary = verifying;
-            setTitlesStatus({ verifying });
-        },
-        onLibraryVerifyChanged(event) {
-            syncLibraryVerifyActions(libraryVerifications, event);
-            refreshActionBar();
-        },
-        onLibraryConvertChanged(items) {
-            const previousItems = new Map(
-                libraryConversions.map((item) => [item.id, item])
-            );
-            libraryConversions.splice(0, libraryConversions.length, ...items);
-            refreshActionBar();
-            reconcileCompletedLibraryConversions(previousItems, items);
-        },
-        onActionsChanged() {
-            refreshActionsAndSelectedSidebar();
-        },
-        onTitleValidationChanged(event) {
-            titleValidations.set(event.titleId, event);
-
-            const group = getCurrentTitleGroups().find(
-                (candidate) => candidate.family === event.titleId.slice(8)
-            );
-
-            if (group) {
-                if (
-                    event.status === 'complete' &&
-                    event.copies.length > 0 &&
-                    !group.entries.some(
-                        (entry) =>
-                            entry.titleId.toLowerCase() ===
-                            event.titleId.toLowerCase()
-                    )
-                ) {
-                    const copy = event.copies[0];
-                    const wudTitle = group.wudEntries
-                        .flatMap((entry) => entry.titles)
-                        .find(
-                            (title) =>
-                                title.titleId.toLowerCase() ===
-                                event.titleId.toLowerCase()
-                        );
-                    const kind = copy?.titleKind as TitleKinds | undefined;
-                    if (kind) {
-                        group.entries.push({
-                            titleId: event.titleId,
-                            name: group.name,
-                            region: group.region,
-                            iconUrl: group.iconUrl,
-                            version:
-                                copy?.titleVersion ?? wudTitle?.version ?? 0,
-                            kind,
-                            sizeBytes: 0,
-                            copyCount: event.copies.length,
-                        });
-                        invalidateTitleSearch(group);
-                        syncGroupStatusFromSlots(group);
-                        updateRenderedTitleGroup(group);
-                    }
-                }
-
-                if (isValidationFailed(event)) {
-                    const entry = group.entries.find(
-                        (candidate) =>
-                            candidate.titleId.toLowerCase() ===
-                            event.titleId.toLowerCase()
-                    );
-
-                    if (entry) {
-                        const availableEntry = createAvailableEntry(entry);
-                        if (availableEntry) {
-                            addAvailableEntry(group, availableEntry);
-                        }
-                    }
-                }
-
-                refreshDetailSidebarForGroup(group);
-            }
-        },
-    }),
+    onEvent: handleAppEvent,
 });
 
 logger.log('client', 'Client initialized');
