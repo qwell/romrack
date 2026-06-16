@@ -18,7 +18,7 @@ import {
     getLibraryCacheEntry,
     readWiiUTitleIdentity,
 } from '../wiiu.js';
-import { classifyTitleId, normalizeTitleId } from '../../shared/titles.js';
+import { classifyTitleId } from '../../shared/titles.js';
 import { getConfig } from './config.js';
 import {
     getPathFileSizes,
@@ -40,7 +40,6 @@ import {
     formatTitleDisplay,
 } from '../../shared/shared.js';
 import {
-    type ApiErrorResponse,
     type StorageDeleteQueuedResponse,
     type StorageFat32ListResponse,
     type StorageTransferQueuedResponse,
@@ -168,7 +167,7 @@ function queueStorageTransfer(
     const requestedDestination = input.requestedDestination;
     const move = input.move;
     const copyId = randomUUID();
-    const titleId = normalizeTitleId(input.titleId);
+    const titleId = input.titleId;
     const operation = move ? 'move' : 'copy';
     const transferKey = getStorageTransferKey({
         titleId,
@@ -278,11 +277,7 @@ function getStorageTransferKey({
     requestedDestination: string | null;
     operation: StorageCopyItem['operation'];
 }): string {
-    return [
-        operation,
-        normalizeTitleId(titleId),
-        requestedDestination?.trim() ?? '',
-    ].join('\0');
+    return [operation, titleId, requestedDestination?.trim() ?? ''].join('\0');
 }
 
 type StreamCopyProgress = {
@@ -1103,22 +1098,12 @@ const activeStorageDeleteMutations = new Set<string>();
 
 function queueStorageDelete(
     titleId: string
-): RouteResult<StorageDeleteQueuedResponse | ApiErrorResponse> {
-    const normalizedTitleId = normalizeTitleId(titleId);
-    if (!normalizedTitleId) {
-        return {
-            status: 400,
-            body: {
-                error: 'titleId query parameter must be 16 hexadecimal characters',
-            },
-        };
-    }
-
+): RouteResult<StorageDeleteQueuedResponse> {
     const existingItem =
         storageDeleteQueue.find(
             (item) =>
                 (item.state === 'queued' || item.state === 'in-progress') &&
-                item.titleId === normalizedTitleId
+                item.titleId === titleId
         ) ?? null;
 
     if (existingItem) {
@@ -1133,15 +1118,15 @@ function queueStorageDelete(
     }
 
     const storageDeleteId = randomUUID();
-    const storageDeleteTitleKind = classifyTitleId(normalizedTitleId).kind;
-    const storageDeleteCached = getLibraryCacheEntry(normalizedTitleId);
-    const cachedSourcePaths = getCachedWiiUTitleSourcePaths(normalizedTitleId);
+    const storageDeleteTitleKind = classifyTitleId(titleId).kind;
+    const storageDeleteCached = getLibraryCacheEntry(titleId);
+    const cachedSourcePaths = getCachedWiiUTitleSourcePaths(titleId);
     const storageDeleteItem: StorageDeleteItem = {
         id: storageDeleteId,
-        titleId: normalizedTitleId,
+        titleId,
         titleName: formatTitleDisplay(
             storageDeleteCached?.name ?? null,
-            normalizedTitleId,
+            titleId,
             storageDeleteTitleKind,
             null
         ),

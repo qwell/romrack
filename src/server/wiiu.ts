@@ -17,6 +17,7 @@ import {
     PARENT_KINDS,
     CHILD_KINDS,
     classifyTitleId,
+    getTitleFamily,
     replaceTitleKind,
     normalizeTitleId,
     normalizeTitleName,
@@ -55,8 +56,7 @@ export function setLibraryCacheGroups(groups: TitleGroup[]): void {
 export function getLibraryCacheEntry(
     titleId: string
 ): { name: string; version: number | null; kind: TitleKinds | null } | null {
-    const normalized = normalizeTitleId(titleId);
-    const family = normalized.slice(8);
+    const family = getTitleFamily(titleId);
     const group = libraryGroups.find(
         (candidate) => candidate.family === family
     );
@@ -65,9 +65,8 @@ export function getLibraryCacheEntry(
     }
 
     const entry =
-        group.entries.find(
-            (candidate) => normalizeTitleId(candidate.titleId) === normalized
-        ) ?? null;
+        group.entries.find((candidate) => candidate.titleId === titleId) ??
+        null;
     return {
         name: group.name,
         version: entry?.version ?? null,
@@ -113,12 +112,11 @@ const availableOnCdnByTitleId = new Map<string, boolean>();
 const titleScanCache = new Map<string, LocalTitleEntry[]>();
 
 export function getCachedWiiUTitleSourcePaths(titleId: string): string[] {
-    const normalizedTitleId = normalizeTitleId(titleId);
     return [
         ...new Set(
             [...titleScanCache.values()]
                 .flat()
-                .filter((entry) => entry.titleId === normalizedTitleId)
+                .filter((entry) => entry.titleId === titleId)
                 .map((entry) => entry.sourcePath)
         ),
     ];
@@ -192,7 +190,7 @@ function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
             );
         }
 
-        const { family } = classifyTitleId(titleId);
+        const family = getTitleFamily(titleId);
 
         return {
             titleId,
@@ -329,7 +327,7 @@ function getAvailableEntries(
 }
 
 function getTitleAvailableOnCdn(titleId: string): boolean {
-    return availableOnCdnByTitleId.get(normalizeTitleId(titleId)) ?? true;
+    return availableOnCdnByTitleId.get(titleId) ?? true;
 }
 
 function parseGameTdbDetails(game: GameTdbGame): TitleDetails {
@@ -411,7 +409,7 @@ async function readTitleDatabase(): Promise<Map<string, TitleDatabaseEntry>> {
     for (const entry of titleEntries) {
         if (entry.availableOnCdn !== undefined) {
             availableOnCdnByTitleId.set(
-                normalizeTitleId(entry.titleId),
+                entry.titleId,
                 entry.availableOnCdn === true
             );
         }
@@ -761,9 +759,7 @@ export async function scanWiiUTitleRoots(
 
     try {
         for (const entry of await scanWudTitleEntries(roots)) {
-            const family = classifyTitleId(
-                entry.titles[0]?.titleId ?? ''
-            ).family;
+            const family = getTitleFamily(entry.titles[0]?.titleId ?? '');
             let group = groups.find((candidate) => candidate.family === family);
             if (!group) {
                 group = createEmptyGroup(family);
@@ -785,7 +781,6 @@ export async function findWiiUTitleSourcePaths(
     roots: string[],
     titleId: string
 ): Promise<string[]> {
-    const normalizedTitleId = normalizeTitleId(titleId);
     const sourcePaths: string[] = [];
     const titleDatabase = await readTitleDatabase();
 
@@ -797,7 +792,7 @@ export async function findWiiUTitleSourcePaths(
 
             sourcePaths.push(
                 ...entries
-                    .filter((entry) => entry.titleId === normalizedTitleId)
+                    .filter((entry) => entry.titleId === titleId)
                     .map((entry) => entry.sourcePath)
             );
         } catch {

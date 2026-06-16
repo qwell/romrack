@@ -29,7 +29,6 @@ type ActionBarOptions = {
 };
 
 let actionBarRoot: HTMLElement | null = null;
-let actionBarSignature = '';
 let actionBarOptions: ActionBarOptions | null = null;
 let actionBarOrderCounter = 0;
 const actionBarItemOrder = new Map<string, number>();
@@ -77,6 +76,62 @@ function renderActionBarDetails(entry: ActionBarItem): HTMLDivElement {
     return cell;
 }
 
+function updateActionBarDetails(
+    cell: HTMLDivElement,
+    entry: ActionBarItem
+): void {
+    cell.title = entry.details.title ?? '';
+
+    let text = cell.querySelector<HTMLSpanElement>('.action-bar-control-text');
+    if (entry.details.text === undefined) {
+        text?.remove();
+    } else {
+        if (!text) {
+            text = document.createElement('span');
+            text.className = 'action-bar-control-text';
+            cell.prepend(text);
+        }
+        text.title = entry.details.text;
+        text.textContent = entry.details.text;
+    }
+
+    const existingButtons = new Map(
+        [
+            ...cell.querySelectorAll<HTMLButtonElement>('button[data-action]'),
+        ].map((button) => [button.dataset.action ?? '', button])
+    );
+    const activeButtons = new Set<HTMLButtonElement>();
+    let previousButton: HTMLButtonElement | null = null;
+    for (const detailsButton of entry.details.buttons) {
+        const button =
+            existingButtons.get(detailsButton.command) ??
+            createActionButton(
+                detailsButton.text,
+                detailsButton.command,
+                entry.id,
+                detailsButton.disabled
+            );
+        button.textContent = detailsButton.text;
+        button.dataset.itemId = entry.id;
+        button.disabled = detailsButton.disabled ?? false;
+        activeButtons.add(button);
+        const expectedButton: ChildNode | null = previousButton
+            ? previousButton.nextSibling
+            : text
+              ? text.nextSibling
+              : cell.firstChild;
+        if (button !== expectedButton) {
+            cell.insertBefore(button, expectedButton);
+        }
+        previousButton = button;
+    }
+    for (const button of existingButtons.values()) {
+        if (!activeButtons.has(button)) {
+            button.remove();
+        }
+    }
+}
+
 function getOrderedEntries(entries: ActionBarItem[]): ActionBarItem[] {
     const activeKeys = new Set(entries.map((entry) => entry.key));
     for (const key of actionBarItemOrder.keys()) {
@@ -117,6 +172,40 @@ function renderEntry(entry: ActionBarItem): HTMLDivElement {
     return row;
 }
 
+function updateEntry(row: HTMLDivElement, entry: ActionBarItem): void {
+    row.className = `action-bar-row action-bar-row-${entry.state}`;
+    row.dataset.itemState = entry.state;
+    row.dataset.actionBarKey = entry.key;
+
+    const existingCells = [
+        ...row.querySelectorAll<HTMLDivElement>(
+            ':scope > div:not(.action-bar-details-cell)'
+        ),
+    ];
+    for (const [index, cell] of entry.cells.entries()) {
+        const element = existingCells[index] ?? document.createElement('div');
+        element.className = cell.className;
+        element.textContent = cell.text;
+        element.title = cell.title ?? '';
+        if (!element.parentElement) {
+            row.append(element);
+        }
+    }
+    for (const element of existingCells.slice(entry.cells.length)) {
+        element.remove();
+    }
+
+    let details = row.querySelector<HTMLDivElement>(
+        ':scope > .action-bar-details-cell'
+    );
+    if (!details) {
+        details = renderActionBarDetails(entry);
+        row.append(details);
+        return;
+    }
+    updateActionBarDetails(details, entry);
+}
+
 function renderSummary(entries: ActionBarItem[]): HTMLElement {
     const summary = document.createElement('div');
     summary.className = 'action-bar-summary';
@@ -143,15 +232,79 @@ function renderSummary(entries: ActionBarItem[]): HTMLElement {
     return summary;
 }
 
-function rebuildActionBar(entries: ActionBarItem[]): void {
+function updateActionBarSummary(
+    summary: HTMLElement,
+    entries: ActionBarItem[]
+): void {
+    const count = (state: ActionState): number =>
+        entries.filter((entry) => entry.state === state).length;
+    const counts = summary.querySelector<HTMLElement>(
+        ':scope > div:not(.action-bar-summary-controls)'
+    );
+    if (counts) {
+        counts.textContent = `Actions: ${count('in-progress')} active, ${count('queued')} queued, ${count('failed')} failed, ${count('complete') + count('cancelled')} finished`;
+    }
+
+    const clearAll = summary.querySelector<HTMLButtonElement>(
+        'button[data-action-bar-clear-all]'
+    );
+    if (clearAll) {
+        clearAll.disabled = !entries.some(
+            (entry) => entry.clearCommand && isTerminalActionState(entry.state)
+        );
+    }
+}
+
+function syncActionBar(entries: ActionBarItem[]): void {
     if (!actionBarRoot) {
         return;
     }
 
-    const details = document.createElement('div');
-    details.className = 'action-bar-details';
-    details.append(...entries.map(renderEntry));
-    actionBarRoot.replaceChildren(renderSummary(entries), details);
+    let summary = actionBarRoot.querySelector<HTMLElement>(
+        ':scope > .action-bar-summary'
+    );
+    if (!summary) {
+        summary = renderSummary(entries);
+        actionBarRoot.append(summary);
+    } else {
+        updateActionBarSummary(summary, entries);
+    }
+
+    let details = actionBarRoot.querySelector<HTMLDivElement>(
+        ':scope > .action-bar-details'
+    );
+    if (!details) {
+        details = document.createElement('div');
+        details.className = 'action-bar-details';
+        actionBarRoot.append(details);
+    }
+
+    const existingRows = new Map(
+        [
+            ...details.querySelectorAll<HTMLDivElement>(
+                ':scope > .action-bar-row'
+            ),
+        ].map((row) => [row.dataset.actionBarKey ?? '', row])
+    );
+    const activeRows = new Set<HTMLDivElement>();
+    let previousRow: HTMLDivElement | null = null;
+    for (const entry of entries) {
+        const row = existingRows.get(entry.key) ?? renderEntry(entry);
+        updateEntry(row, entry);
+        activeRows.add(row);
+        const expectedRow: ChildNode | null = previousRow
+            ? previousRow.nextSibling
+            : details.firstChild;
+        if (row !== expectedRow) {
+            details.insertBefore(row, expectedRow);
+        }
+        previousRow = row;
+    }
+    for (const row of existingRows.values()) {
+        if (!activeRows.has(row)) {
+            row.remove();
+        }
+    }
 }
 
 export function updateActionBar(): void {
@@ -162,20 +315,7 @@ export function updateActionBar(): void {
     const entries = getOrderedEntries(actionBarOptions.getItems());
     actionBarRoot.hidden = entries.length === 0;
 
-    const signature = JSON.stringify(
-        entries.map((entry) => [
-            entry.key,
-            entry.state,
-            entry.cells,
-            entry.details,
-        ])
-    );
-    if (signature === actionBarSignature) {
-        return;
-    }
-
-    actionBarSignature = signature;
-    rebuildActionBar(entries);
+    syncActionBar(entries);
 }
 
 function buildActionBar(): HTMLElement {

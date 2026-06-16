@@ -34,14 +34,14 @@ import {
     CERT_TITLE_FILE,
     createGeneratedCert,
     formatInstallDirectoryKind,
-    normalizeDownloadableTitleId,
+    getDownloadableTitle,
     readCommonKey,
     readTikFromBuffer,
 } from './title.js';
 import {
     classifyTitleId,
     DOWNLOADABLE_KINDS,
-    normalizeTitleId,
+    getTitleFamily,
     normalizeTitleName,
     type WudTitleEntry,
 } from '../shared/titles.js';
@@ -184,7 +184,7 @@ export async function scanWudTitleEntries(
 
                 for (const partition of partitions) {
                     const titleId = getTitleIdHex(partition.tmd.header.titleId);
-                    const family = titleId.slice(8);
+                    const family = getTitleFamily(titleId);
                     const titles = titlesByFamily.get(family) ?? [];
                     titles.push({
                         titleId,
@@ -224,11 +224,8 @@ export async function convertWudImagesInRoots(
     } = {}
 ): Promise<LibraryWudConvertResult> {
     const imagePaths = await findWudImagePaths(roots);
-    const requestedTitleId = normalizeTitleId(titleId);
-    if (requestedTitleId.length !== 16) {
-        throw new Error(`Invalid titleId: ${titleId}`);
-    }
-    const requestedFamily = requestedTitleId.slice(8);
+    const requestedTitleId = titleId;
+    const requestedFamily = getTitleFamily(requestedTitleId);
     const commonKey = await readCommonKey();
     const converted: ConvertedWudImage[] = [];
     logger.log(
@@ -551,7 +548,8 @@ async function readWudGamePartitionChild(
             !DOWNLOADABLE_KINDS.includes(
                 titleKind as (typeof DOWNLOADABLE_KINDS)[number]
             ) ||
-            (requestedFamily !== null && titleId.slice(8) !== requestedFamily)
+            (requestedFamily !== null &&
+                getTitleFamily(titleId) !== requestedFamily)
         ) {
             return null;
         }
@@ -760,7 +758,7 @@ async function convertWudGamePartition({
     signal?: AbortSignal;
 }): Promise<GeneratedTitleInstallFiles> {
     const titleId = getTitleIdHex(partition.tmd.header.titleId);
-    const { kind } = normalizeDownloadableTitleId(titleId);
+    const { kind } = getDownloadableTitle(titleId);
     const metaXml = await extractMetaXmlFromPartition(image, partition);
     const meta = metaXml ? readMetaXml(metaXml) : null;
     const name = normalizeTitleName(meta?.name ?? titleId);

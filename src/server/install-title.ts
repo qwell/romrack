@@ -28,7 +28,7 @@ import {
     InstalledTitleValidation,
     InstalledTitleVerification,
     InstalledTitleVerificationProgress,
-    normalizeDownloadableTitleId,
+    getDownloadableTitle,
     readCommonKey,
     readMetaXml,
     resolveTitleKey,
@@ -71,13 +71,13 @@ export async function generateTitleInstallFiles(
     } = {}
 ): Promise<GeneratedTitleInstallFiles> {
     const baseUrl = NUS_BASE_URL;
-    const { titleId: normalizedTitleId, kind } =
-        normalizeDownloadableTitleId(titleId);
+    const { titleId: downloadableTitleId, kind } =
+        getDownloadableTitle(titleId);
     const commonKey = await readCommonKey();
     throwIfAborted(options.signal);
     const tmdBytes = await downloadTmd(
         baseUrl,
-        normalizedTitleId,
+        downloadableTitleId,
         options.signal
     );
     throwIfAborted(options.signal);
@@ -86,7 +86,7 @@ export async function generateTitleInstallFiles(
     if (!tmd) {
         throw new TitleMetadataError(
             'parse_tmd',
-            `Failed to parse TMD for ${normalizedTitleId}`
+            `Failed to parse TMD for ${downloadableTitleId}`
         );
     }
 
@@ -94,20 +94,20 @@ export async function generateTitleInstallFiles(
     if (!fstContent) {
         throw new TitleMetadataError(
             'missing_fst_content',
-            `TMD has no first content entry for ${normalizedTitleId}`
+            `TMD has no first content entry for ${downloadableTitleId}`
         );
     }
 
     const encryptedFst = await downloadContent(
         baseUrl,
-        normalizedTitleId,
+        downloadableTitleId,
         fstContent.id,
         options.signal
     );
     throwIfAborted(options.signal);
     const ticketBytes = await downloadTicket(
         baseUrl,
-        normalizedTitleId,
+        downloadableTitleId,
         options.signal
     ).catch((error: unknown) => {
         if (isHttpErrorStatus(error, 404)) {
@@ -123,7 +123,7 @@ export async function generateTitleInstallFiles(
         resolveTitleKey({
             commonKey,
             encryptedFst,
-            normalizedTitleId,
+            normalizedTitleId: downloadableTitleId,
             ticket,
             tmd,
         });
@@ -135,7 +135,7 @@ export async function generateTitleInstallFiles(
     ) {
         throw new TitleMetadataError(
             'resolve_title_key',
-            `Failed to produce an encrypted title key for ${normalizedTitleId}`
+            `Failed to produce an encrypted title key for ${downloadableTitleId}`
         );
     }
 
@@ -144,14 +144,14 @@ export async function generateTitleInstallFiles(
         tmd,
         titleKey,
         baseUrl,
-        normalizedTitleId,
+        downloadableTitleId,
         options.signal
     );
     const meta = metaXml ? readMetaXml(metaXml) : null;
     const directoryKind = formatInstallDirectoryKind(kind);
     const outputDir = path.join(
         romRoot,
-        `${safeDirectoryName(meta?.name ?? normalizedTitleId)} [${directoryKind}] [${normalizedTitleId}]`
+        `${safeDirectoryName(meta?.name ?? downloadableTitleId)} [${directoryKind}] [${downloadableTitleId}]`
     );
     const tmdFile = path.join(outputDir, TMD_TITLE_FILE);
     const certFile = path.join(outputDir, CERT_TITLE_FILE);
@@ -262,23 +262,15 @@ export async function generateTitleInstallFiles(
             }
 
             reportProgress(h3Name, h3SizeBytes);
-            download.h3Available = await downloadContentH3ToFile(
+            await downloadContentH3ToFile(
                 baseUrl,
-                normalizedTitleId,
+                downloadableTitleId,
                 download.content.id,
                 h3File,
                 options.signal
-            )
-                .then(() => true)
-                .catch((error: unknown) => {
-                    if (isHttpErrorStatus(error, 404)) {
-                        return false;
-                    }
-                    throw error;
-                });
-            if (download.h3Available) {
-                reportProgress(h3Name, h3SizeBytes, true);
-            }
+            );
+            download.h3Available = true;
+            reportProgress(h3Name, h3SizeBytes, true);
         }
     );
 
@@ -292,7 +284,7 @@ export async function generateTitleInstallFiles(
             reportProgress(download.files.appName, download.appSizeBytes);
             await downloadContentToFile(
                 baseUrl,
-                normalizedTitleId,
+                downloadableTitleId,
                 download.content.id,
                 download.files.appFile,
                 options.signal
@@ -311,16 +303,16 @@ export async function generateTitleInstallFiles(
         }
     }
 
-    const name = normalizeTitleName(meta?.name ?? normalizedTitleId);
+    const name = normalizeTitleName(meta?.name ?? downloadableTitleId);
     const sizeBytes = await getImmediatePathSizeBytes(outputDir);
 
     logger.log(
         'metadata',
-        `finished downloading: [${normalizedTitleId}] ${name} ${kind}`
+        `finished downloading: [${downloadableTitleId}] ${name} ${kind}`
     );
 
     return {
-        titleId: normalizedTitleId,
+        titleId: downloadableTitleId,
         kind,
         name,
         titleVersion: tmd.header.titleVersion,

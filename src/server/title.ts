@@ -55,7 +55,6 @@ import {
 import { getUserAppRoot } from './paths.js';
 import {
     classifyTitleId,
-    normalizeTitleId,
     replaceTitleKind,
     TitleKinds,
 } from '../shared/titles.js';
@@ -948,25 +947,19 @@ async function getChildTitleMetadata(
     };
 }
 
-export function normalizeDownloadableTitleId(
-    titleId: string
-): DownloadableTitle {
-    const normalizedTitleId = normalizeTitleId(titleId);
-
-    if (normalizedTitleId.length !== 16) {
+export function getDownloadableTitle(titleId: string): DownloadableTitle {
+    if (titleId.length !== 16) {
         throw new Error(`Invalid titleId: ${titleId}`);
     }
 
-    const { kind } = classifyTitleId(normalizedTitleId);
+    const { kind } = classifyTitleId(titleId);
     if (
         kind !== TitleKinds.Base &&
         kind !== TitleKinds.Update &&
         kind !== TitleKinds.DLC
     ) {
-        throw new Error(
-            `Unsupported downloadable title kind: ${normalizedTitleId}`
-        );
+        throw new Error(`Unsupported downloadable title kind: ${titleId}`);
     }
 
-    return { titleId: normalizedTitleId, kind };
+    return { titleId, kind };
 }

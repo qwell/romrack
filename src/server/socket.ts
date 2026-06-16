@@ -12,7 +12,11 @@ import {
     TITLE_VALIDATE_SOCKET_COMMAND,
 } from '../shared/socket.js';
 import { type DownloadQueueItemDetails } from '../shared/download.js';
-import { TitleKinds } from '../shared/titles.js';
+import {
+    getTitleFamily,
+    normalizeTitleId,
+    TitleKinds,
+} from '../shared/titles.js';
 import logger from '../shared/logger.js';
 
 type AppSocketOptions = {
@@ -137,11 +141,23 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
     if (isSocketCommand(command, DOWNLOAD_SOCKET_COMMAND.queue)) {
         const items = (command as { items?: unknown }).items;
 
-        if (!Array.isArray(items) || !items.every(isDownloadQueueItemDetails)) {
+        if (!Array.isArray(items)) {
             return null;
         }
 
-        return command;
+        const parsedItems: DownloadQueueItemDetails[] = [];
+        for (const item of items) {
+            const parsedItem = parseDownloadQueueItemDetails(item);
+            if (!parsedItem) {
+                return null;
+            }
+            parsedItems.push(parsedItem);
+        }
+
+        return {
+            ...command,
+            items: parsedItems,
+        };
     } else if (isSocketCommand(command, DOWNLOAD_SOCKET_COMMAND)) {
         if (!hasId()) {
             return null;
@@ -166,16 +182,16 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
     } else if (isSocketCommand(command, TITLE_VALIDATE_SOCKET_COMMAND.queue)) {
         const titleId = (command as { titleId?: unknown }).titleId;
         const name = (command as { name?: unknown }).name;
+        const normalizedTitleId = normalizeTitleId(titleId);
 
-        if (
-            typeof titleId !== 'string' ||
-            !/^[0-9a-f]{16}$/i.test(titleId) ||
-            typeof name !== 'string'
-        ) {
+        if (!normalizedTitleId || typeof name !== 'string') {
             return null;
         }
 
-        return command;
+        return {
+            ...command,
+            titleId: normalizedTitleId,
+        };
     }
 
     return null;
@@ -199,27 +215,38 @@ function formatSocketCommandArgs(command: SocketCommand): string {
     );
 }
 
-function isDownloadQueueItemDetails(
+function parseDownloadQueueItemDetails(
     value: unknown
-): value is DownloadQueueItemDetails {
+): DownloadQueueItemDetails | null {
     if (!value || typeof value !== 'object') {
-        return false;
+        return null;
     }
 
     const item = value as Record<string, unknown>;
+    const titleId = normalizeTitleId(item.titleId);
 
-    return (
-        typeof item.id === 'string' &&
-        item.id.length > 0 &&
-        typeof item.titleId === 'string' &&
-        /^[0-9a-f]{16}$/i.test(item.titleId) &&
-        typeof item.family === 'string' &&
-        item.family.toLowerCase() === item.titleId.toLowerCase().slice(8) &&
-        typeof item.groupName === 'string' &&
-        typeof item.label === 'string' &&
-        typeof item.kind === 'string' &&
-        Object.values(TitleKinds).includes(item.kind as TitleKinds) &&
-        (typeof item.sizeText === 'string' || item.sizeText === null) &&
-        (typeof item.totalBytes === 'number' || item.totalBytes === null)
-    );
+    if (
+        typeof item.id !== 'string' ||
+        item.id.length === 0 ||
+        !titleId ||
+        typeof item.groupName !== 'string' ||
+        typeof item.label !== 'string' ||
+        typeof item.kind !== 'string' ||
+        !Object.values(TitleKinds).includes(item.kind as TitleKinds) ||
+        (typeof item.sizeText !== 'string' && item.sizeText !== null) ||
+        (typeof item.totalBytes !== 'number' && item.totalBytes !== null)
+    ) {
+        return null;
+    }
+
+    return {
+        id: item.id,
+        family: getTitleFamily(titleId),
+        groupName: item.groupName,
+        kind: item.kind as TitleKinds,
+        label: item.label,
+        titleId,
+        sizeText: item.sizeText,
+        totalBytes: item.totalBytes,
+    };
 }

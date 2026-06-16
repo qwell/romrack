@@ -18,6 +18,7 @@ import {
 import { formatSize, formatTitleDisplay } from '../shared/shared.js';
 import {
     classifyTitleId,
+    getTitleFamily,
     type AvailableTitleEntry,
     type ChildKind,
     PARENT_KINDS,
@@ -86,10 +87,8 @@ export function mergeFailedVerificationsIntoAvailable(
             continue;
         }
 
-        const family = classifyTitleId(entry.titleId).family;
-        const group = groups.find(
-            (candidate) => candidate.family.toLowerCase() === family
-        );
+        const family = getTitleFamily(entry.titleId);
+        const group = groups.find((candidate) => candidate.family === family);
         if (!group) {
             continue;
         }
@@ -97,7 +96,7 @@ export function mergeFailedVerificationsIntoAvailable(
         const entryIndex = group.entries.findIndex(
             (candidate) =>
                 candidate.kind === entry.kind &&
-                candidate.titleId.toLowerCase() === entry.titleId
+                candidate.titleId === entry.titleId
         );
         if (entryIndex !== -1) {
             group.entries.splice(entryIndex, 1);
@@ -149,7 +148,7 @@ export function createAvailableEntry(
 
     return {
         kind: entry.kind,
-        titleId: entry.titleId.toLowerCase(),
+        titleId: entry.titleId,
         versions: entry.version > 0 ? [entry.version] : [],
         availableOnCdn: true,
     };
@@ -161,8 +160,7 @@ export function addAvailableEntry(
 ): boolean {
     const hasAvailableEntry = group.availableEntries.some(
         (candidate) =>
-            candidate.kind === entry.kind &&
-            candidate.titleId.toLowerCase() === entry.titleId.toLowerCase()
+            candidate.kind === entry.kind && candidate.titleId === entry.titleId
     );
 
     if (hasAvailableEntry) {
@@ -512,15 +510,14 @@ export function getLibraryVerifyActionBarEntries(
         const id = getLibraryVerifyId(item);
         let downloadDisabled = false;
         if (isLibraryVerifyFailure(item)) {
-            const family = item.titleId.toLowerCase().slice(8);
+            const family = getTitleFamily(item.titleId);
             downloadDisabled = downloads.some(
                 (candidate) =>
                     candidate.state !== 'complete' &&
                     candidate.state !== 'cancelled' &&
                     candidate.family === family &&
                     candidate.kind === item.kind &&
-                    candidate.titleId.toLowerCase() ===
-                        item.titleId.toLowerCase()
+                    candidate.titleId === item.titleId
             );
         }
 
@@ -721,7 +718,7 @@ export function handleLibraryActionBarCommand(
             const queued = queueVerificationDownloads([
                 {
                     id: crypto.randomUUID(),
-                    family: item.titleId.toLowerCase().slice(8),
+                    family: getTitleFamily(item.titleId),
                     groupName: item.name ?? item.titleId,
                     kind: item.kind,
                     label: item.kind,

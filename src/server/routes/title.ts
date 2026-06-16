@@ -112,18 +112,17 @@ export function handleTitleValidationSocketCommand(
 }
 
 async function validateTitleCopies(titleId: string): Promise<void> {
-    const normalizedTitleId = titleId.toLowerCase();
-    if (activeTitleValidations.has(normalizedTitleId)) {
+    if (activeTitleValidations.has(titleId)) {
         return;
     }
 
-    const cached = titleValidationResults.get(normalizedTitleId);
+    const cached = titleValidationResults.get(titleId);
     if (cached) {
         broadcastAppSocketEvent(cached);
         return;
     }
 
-    await runTitleCopyValidation(normalizedTitleId, null);
+    await runTitleCopyValidation(titleId, null);
 }
 
 async function runTitleCopyValidation(
@@ -156,8 +155,7 @@ async function runTitleCopyValidation(
                 readableSourcePath,
                 abortController.signal
             );
-            const verifiedTitleId =
-                validation.titleId?.toLowerCase() ?? normalizedTitleId;
+            const verifiedTitleId = validation.titleId ?? normalizedTitleId;
             copies.push({
                 sourcePath: readableSourcePath,
                 titleId: validation.titleId,
@@ -208,19 +206,16 @@ export function revalidateTitleCopies(
     titles: Array<{ titleId: string; sourcePaths: string[] }>
 ): void {
     for (const title of titles) {
-        const normalizedTitleId = title.titleId.toLowerCase();
-        activeTitleValidations.get(normalizedTitleId)?.abort();
-        titleValidationResults.delete(normalizedTitleId);
-        void runTitleCopyValidation(normalizedTitleId, [
+        activeTitleValidations.get(title.titleId)?.abort();
+        titleValidationResults.delete(title.titleId);
+        void runTitleCopyValidation(title.titleId, [
             ...new Set(title.sourcePaths),
         ]);
     }
 }
 
 export function markTitleCopiesValidating(titleIds: string[]): void {
-    for (const titleId of new Set(
-        titleIds.map((value) => value.toLowerCase())
-    )) {
+    for (const titleId of new Set(titleIds)) {
         activeTitleValidations.get(titleId)?.abort();
         titleValidationResults.delete(titleId);
         broadcastAppSocketEvent({

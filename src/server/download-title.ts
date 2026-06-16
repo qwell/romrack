@@ -6,7 +6,6 @@ import { pipeline } from 'node:stream/promises';
 
 import logger from '../shared/logger.js';
 import { formatContentId } from './nus/content.js';
-import { normalizeTitleId } from '../shared/titles.js';
 import { HttpError } from '../shared/download.js';
 
 export const NUS_BASE_URL = 'http://ccs.cdn.wup.shop.nintendo.net/ccs/download';
@@ -120,13 +119,8 @@ function buildDownloadUrl(
     titleId: string,
     suffix: string
 ): string {
-    const normalizedTitleId = normalizeTitleId(titleId);
-    if (normalizedTitleId.length !== 16) {
-        throw new Error(`Invalid titleId: ${titleId}`);
-    }
-
     return new URL(
-        `${normalizedTitleId}/${suffix}`,
+        `${titleId}/${suffix}`,
         ensureTrailingSlash(baseUrl)
     ).toString();
 }

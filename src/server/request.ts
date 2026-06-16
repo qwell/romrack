@@ -1,5 +1,6 @@
 import { type Request, type Response } from 'express';
 import { type ApiErrorResponse } from '../shared/api.js';
+import { normalizeTitleId } from '../shared/titles.js';
 
 type TitleIdQueryResult =
     | {
@@ -40,7 +41,8 @@ export function getTitleIdQuery(req: Request): TitleIdQueryResult {
         };
     }
 
-    if (!/^[0-9a-f]{16}$/i.test(titleId)) {
+    const normalizedTitleId = normalizeTitleId(titleId);
+    if (!normalizedTitleId) {
         return {
             ok: false,
             error: 'titleId query parameter must be 16 hexadecimal characters',
@@ -49,7 +51,7 @@ export function getTitleIdQuery(req: Request): TitleIdQueryResult {
 
     return {
         ok: true,
-        titleId: titleId.toLowerCase(),
+        titleId: normalizedTitleId,
     };
 }
 

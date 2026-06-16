@@ -9,7 +9,11 @@ import {
     type StorageCopyItem,
     type StorageDeleteItem,
 } from '../shared/storage.js';
-import { type TitleGroup, TitleKinds } from '../shared/titles.js';
+import {
+    getTitleFamily,
+    type TitleGroup,
+    TitleKinds,
+} from '../shared/titles.js';
 import { mountActionBar, updateActionBar } from './actionbar.js';
 import {
     collectSelectedDownloads,
@@ -89,12 +93,19 @@ function getBusyKinds(options: UiOptions, group: TitleGroup): Set<TitleKinds> {
         }
     }
     for (const item of options.libraryConversions) {
-        if (item.titleId.slice(8) === group.family && running(item.state)) {
+        if (
+            getTitleFamily(item.titleId) === group.family &&
+            running(item.state)
+        ) {
             busyKinds.add(item.kind);
         }
     }
     for (const item of [...options.storageDeletes, ...options.storageCopies]) {
-        if (item.titleId?.slice(8) !== group.family || !running(item.state)) {
+        if (
+            !item.titleId ||
+            getTitleFamily(item.titleId) !== group.family ||
+            !running(item.state)
+        ) {
             continue;
         }
         const kind =

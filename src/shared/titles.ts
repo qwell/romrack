@@ -34,14 +34,12 @@ export function classifyTitleId(titleId: string): {
     family: string;
     kind: TitleKinds;
 } {
-    const normalized = titleId?.toLowerCase() ?? '';
-
-    if (normalized.length !== 16) {
-        return { family: normalized, kind: TitleKinds.Unknown };
+    if (titleId.length !== 16) {
+        return { family: titleId, kind: TitleKinds.Unknown };
     }
 
-    const prefix = normalized.slice(0, 8);
-    const family = normalized.slice(8);
+    const prefix = titleId.slice(0, 8);
+    const family = getTitleFamily(titleId);
 
     return {
         family,
@@ -50,14 +48,17 @@ export function classifyTitleId(titleId: string): {
 }
 
 export function replaceTitleKind(titleId: string, kind: TitleKinds): string {
-    const normalized = titleId.toLowerCase();
     const prefix = TITLE_PREFIX_BY_KIND[kind];
 
-    if (normalized.length !== 16 || !prefix) {
+    if (titleId.length !== 16 || !prefix) {
         throw new Error(`Cannot replace title kind: ${titleId} ${kind}`);
     }
 
-    return `${prefix}${normalized.slice(8)}`;
+    return `${prefix}${getTitleFamily(titleId)}`;
+}
+
+export function getTitleFamily(titleId: string): string {
+    return titleId.slice(8);
 }
 
 export enum VirtualConsolePlatform {
@@ -226,8 +227,9 @@ export function normalizeTitleName(name?: string): string {
     return name?.replace(/\\n/g, ' ').replace(/\s+/g, ' ').trim() ?? 'Unknown';
 }
 
-export function normalizeTitleId(titleId?: string): string {
-    const titleIdNormalized = titleId?.toLowerCase() ?? '';
+export function normalizeTitleId(titleId: unknown): string {
+    const titleIdNormalized =
+        typeof titleId === 'string' ? titleId.toLowerCase() : '';
     const titleIdPattern = /^[0-9a-f]{16}$/;
 
     return titleIdPattern.test(titleIdNormalized) ? titleIdNormalized : '';

@@ -361,7 +361,7 @@ function getSidebarCheckboxKey(checkbox: HTMLInputElement): string | null {
         return null;
     }
 
-    return `${content.className}:${titleId.toLowerCase()}`;
+    return `${content.className}:${titleId}`;
 }
 
 function formatCount(value: number, singular: string, plural: string): string {
@@ -452,7 +452,7 @@ function renderDownloadAvailabilityRow(
     if (downloadProgress !== null) {
         const row = document.createElement('div');
         row.className = 'sidebar-download-row sidebar-storage-copy-row';
-        row.dataset.sidebarItem = `available:${entry.titleId.toLowerCase()}`;
+        row.dataset.sidebarItem = `available:${entry.titleId}`;
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -478,7 +478,7 @@ function renderDownloadAvailabilityRow(
 
     const row = document.createElement('label');
     row.className = 'sidebar-download-row';
-    row.dataset.sidebarItem = `available:${entry.titleId.toLowerCase()}`;
+    row.dataset.sidebarItem = `available:${entry.titleId}`;
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
@@ -606,7 +606,7 @@ function renderLocalCopyRow(
 ): HTMLElement {
     const row = document.createElement('label');
     row.className = 'sidebar-download-row sidebar-storage-copy-row';
-    row.dataset.sidebarItem = `${downloadData ? 'invalid' : 'downloaded'}:${entry.titleId.toLowerCase()}`;
+    row.dataset.sidebarItem = `${downloadData ? 'invalid' : 'downloaded'}:${entry.titleId}`;
 
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
@@ -698,8 +698,7 @@ function getDetailEntries(group: TitleGroup): {
             const invalid = invalidEntries.some(
                 (candidate) =>
                     candidate.kind === entry.kind &&
-                    candidate.titleId.toLowerCase() ===
-                        entry.titleId.toLowerCase()
+                    candidate.titleId === entry.titleId
             );
             if (invalid) {
                 return false;

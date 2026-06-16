@@ -24,7 +24,7 @@ import {
     type StorageCopyItem,
     type StorageDeleteItem,
 } from '../shared/storage.js';
-import { type TitleGroup } from '../shared/titles.js';
+import { getTitleFamily, type TitleGroup } from '../shared/titles.js';
 import { type DownloadQueueItem } from '../shared/download.js';
 import { formatSize } from '../shared/shared.js';
 import { type Fat32Volume, type RuntimeOs } from '../shared/os/types.js';
@@ -88,7 +88,7 @@ function reconcileCompletedLibraryConversions(
         }
 
         const group = getCurrentTitleGroups().find(
-            (candidate) => candidate.family === item.titleId.slice(8)
+            (candidate) => candidate.family === getTitleFamily(item.titleId)
         );
         if (!group) {
             continue;
@@ -96,9 +96,7 @@ function reconcileCompletedLibraryConversions(
 
         for (const converted of item.convertedTitles) {
             const existing = group.entries.find(
-                (entry) =>
-                    entry.titleId.toLowerCase() ===
-                    converted.titleId.toLowerCase()
+                (entry) => entry.titleId === converted.titleId
             );
             if (existing) {
                 existing.name = converted.name;
@@ -115,9 +113,7 @@ function reconcileCompletedLibraryConversions(
             }
 
             group.availableEntries = group.availableEntries.filter(
-                (entry) =>
-                    entry.titleId.toLowerCase() !==
-                    converted.titleId.toLowerCase()
+                (entry) => entry.titleId !== converted.titleId
             );
             titleValidations.delete(converted.titleId);
         }
@@ -156,13 +152,20 @@ function formatFat32VolumeOption(
     return `${label}${volume.source}${size}`;
 }
 
-function getFat32Devices(): Promise<StorageFat32ListResponse> {
-    fat32ListPromise ??= listFat32Volumes().catch((error) => {
-        fat32ListPromise = null;
-        throw error;
-    });
+async function getFat32Devices(): Promise<StorageFat32ListResponse> {
+    if (fat32ListPromise) {
+        return fat32ListPromise;
+    }
 
-    return fat32ListPromise;
+    const request = listFat32Volumes();
+    fat32ListPromise = request;
+    try {
+        return await request;
+    } finally {
+        if (fat32ListPromise === request) {
+            fat32ListPromise = null;
+        }
+    }
 }
 
 async function populateFat32DeviceSelect(
@@ -347,7 +350,7 @@ function handleTitleValidation(event: TitleValidationSocketEvent): void {
     titleValidations.set(event.titleId, event);
 
     const group = getCurrentTitleGroups().find(
-        (candidate) => candidate.family === event.titleId.slice(8)
+        (candidate) => candidate.family === getTitleFamily(event.titleId)
     );
     if (!group) {
         return;
@@ -356,18 +359,12 @@ function handleTitleValidation(event: TitleValidationSocketEvent): void {
     if (
         event.status === 'complete' &&
         event.copies.length > 0 &&
-        !group.entries.some(
-            (entry) =>
-                entry.titleId.toLowerCase() === event.titleId.toLowerCase()
-        )
+        !group.entries.some((entry) => entry.titleId === event.titleId)
     ) {
         const copy = event.copies[0];
         const wudTitle = group.wudEntries
             .flatMap((entry) => entry.titles)
-            .find(
-                (title) =>
-                    title.titleId.toLowerCase() === event.titleId.toLowerCase()
-            );
+            .find((title) => title.titleId === event.titleId);
         const kind = copy?.titleKind;
         if (kind) {
             group.entries.push({
@@ -388,8 +385,7 @@ function handleTitleValidation(event: TitleValidationSocketEvent): void {
 
     if (isTitleValidationUnavailable(event)) {
         const entry = group.entries.find(
-            (candidate) =>
-                candidate.titleId.toLowerCase() === event.titleId.toLowerCase()
+            (candidate) => candidate.titleId === event.titleId
         );
 
         if (entry) {
