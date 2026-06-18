@@ -2,6 +2,7 @@ export type Subsystems =
     | 'server'
     | 'client'
     | 'metadata'
+    | 'wii'
     | 'wiiu'
     | 'wud'
     | 'download';
@@ -25,6 +26,7 @@ export const SubsystemColors: Record<Subsystems, string> = {
     server: green,
     client: cyan,
     metadata: magenta,
+    wii: cyan,
     wiiu: blue,
     wud: magenta,
     download: yellow,

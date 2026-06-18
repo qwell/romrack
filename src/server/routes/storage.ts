@@ -3,7 +3,7 @@ import { mkdir, realpath, rm, stat, statfs, unlink } from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { pipeline } from 'stream/promises';
-import { Router, type Request } from 'express';
+import { Router, type Request, type Response } from 'express';
 
 import {
     getStringQuery,
@@ -11,14 +11,18 @@ import {
     sendServerError,
 } from '../request.js';
 import { broadcastAppSocketEvent } from '../socket.js';
+import { findWiiTitleSourcePaths, readWiiTitleIdentity } from '../wii.js';
+import { findWiiUTitleSourcePaths, readWiiUTitleIdentity } from '../wiiu.js';
 import {
     clearTitleScanCache,
-    findWiiUTitleSourcePaths,
-    getCachedWiiUTitleSourcePaths,
+    getCachedTitleSourcePaths,
     getLibraryCacheEntry,
-    readWiiUTitleIdentity,
-} from '../wiiu.js';
-import { classifyTitleId } from '../../shared/titles.js';
+} from '../library.js';
+import {
+    classifyTitleId,
+    normalizeTitleId,
+    normalizeWiiTitleId,
+} from '../../shared/titles.js';
 import { getConfig } from './config.js';
 import {
     getPathFileSizes,
@@ -66,6 +70,30 @@ type RouteResult<TBody> = {
     status: number;
     body: TBody;
 };
+
+function requireStorageDeleteTitleIdQuery(
+    req: Request,
+    res: Response
+): string | null {
+    const titleId = getStringQuery(req, 'titleId');
+    if (!titleId) {
+        res.status(400).json({
+            error: 'Missing titleId query parameter',
+        });
+        return null;
+    }
+
+    const normalizedTitleId =
+        normalizeTitleId(titleId) || normalizeWiiTitleId(titleId);
+    if (!normalizedTitleId) {
+        res.status(400).json({
+            error: 'titleId query parameter must be a Wii U title ID or Wii disc ID',
+        });
+        return null;
+    }
+
+    return normalizedTitleId;
+}
 
 export function createStorageRouter(): Router {
     const router = Router();
@@ -115,7 +143,7 @@ export function createStorageRouter(): Router {
     });
 
     router.get('/delete', (req, res) => {
-        const titleId = requireTitleIdQuery(req, res);
+        const titleId = requireStorageDeleteTitleIdQuery(req, res);
         if (titleId === null) {
             return;
         }
@@ -203,7 +231,7 @@ function queueStorageTransfer(
     const cached = getLibraryCacheEntry(titleId);
     const titleKind = classifyTitleId(titleId).kind;
     const sourceName = cached
-        ? formatTitleDisplay(cached.name, titleId, titleKind, null)
+        ? formatTitleDisplay(cached.name, titleId, titleKind, cached.version)
         : formatTitleDisplay(null, titleId, titleKind);
 
     const copyItem: StorageCopyItem = {
@@ -627,7 +655,7 @@ async function processStorageCopyQueue(): Promise<void> {
                   copyCached?.name ?? null,
                   nextItem.titleId,
                   nextItem.titleKind,
-                  null
+                  nextItem.titleVersion
               )
             : getStorageCopySourceName(readableSourcePath);
 
@@ -1118,9 +1146,10 @@ function queueStorageDelete(
     }
 
     const storageDeleteId = randomUUID();
-    const storageDeleteTitleKind = classifyTitleId(titleId).kind;
     const storageDeleteCached = getLibraryCacheEntry(titleId);
-    const cachedSourcePaths = getCachedWiiUTitleSourcePaths(titleId);
+    const storageDeleteTitleKind =
+        storageDeleteCached?.kind ?? classifyTitleId(titleId).kind;
+    const cachedSourcePaths = getCachedTitleSourcePaths(titleId);
     const storageDeleteItem: StorageDeleteItem = {
         id: storageDeleteId,
         titleId,
@@ -1128,7 +1157,7 @@ function queueStorageDelete(
             storageDeleteCached?.name ?? null,
             titleId,
             storageDeleteTitleKind,
-            null
+            storageDeleteCached?.version ?? null
         ),
         titleVersion: storageDeleteCached?.version ?? null,
         titleKind: storageDeleteTitleKind,
@@ -1206,10 +1235,17 @@ async function processStorageDelete(
 
     try {
         if (nextItem.sourcePaths.length === 0) {
-            const sourcePaths = await findWiiUTitleSourcePaths(
-                getConfig().wiiuRoots,
-                nextItem.titleId
-            );
+            const config = getConfig();
+            const sourcePaths =
+                normalizeWiiTitleId(nextItem.titleId) !== ''
+                    ? await findWiiTitleSourcePaths(
+                          config.wiiRoots,
+                          nextItem.titleId
+                      )
+                    : await findWiiUTitleSourcePaths(
+                          config.wiiuRoots,
+                          nextItem.titleId
+                      );
 
             if (sourcePaths.length === 0) {
                 throw new Error(`No local title found for ${nextItem.titleId}`);
@@ -1220,20 +1256,23 @@ async function processStorageDelete(
                 throw new Error(`No local title found for ${nextItem.titleId}`);
             }
 
-            const titleIdentity = await readWiiUTitleIdentity(
-                nextItem.sourcePaths[0]
-            );
+            const titleIdentity =
+                normalizeWiiTitleId(nextItem.titleId) !== ''
+                    ? await readWiiTitleIdentity(nextItem.sourcePaths[0])
+                    : await readWiiUTitleIdentity(nextItem.sourcePaths[0]);
 
             nextItem.totalCount = nextItem.sourcePaths.length;
 
-            nextItem.titleKind = titleIdentity?.kind ?? null;
-            nextItem.titleVersion = titleIdentity?.version ?? null;
             const storageDeleteCached = getLibraryCacheEntry(nextItem.titleId);
+            nextItem.titleKind =
+                titleIdentity?.kind ?? storageDeleteCached?.kind ?? null;
+            nextItem.titleVersion =
+                titleIdentity?.version ?? storageDeleteCached?.version ?? null;
             nextItem.titleName = formatTitleDisplay(
                 storageDeleteCached?.name ?? null,
                 nextItem.titleId,
                 nextItem.titleKind,
-                null
+                nextItem.titleVersion
             );
 
             nextItem.message = 'Deleting...';
@@ -1476,8 +1515,9 @@ export function handleStorageDeleteSocketCommand(
 export async function getSafeStorageDeletePaths(
     sourcePaths: string[]
 ): Promise<string[]> {
+    const config = getConfig();
     const rootPaths = await Promise.all(
-        getConfig().wiiuRoots.map(async (root) => {
+        [...config.wiiuRoots, ...config.wiiRoots].map(async (root) => {
             const readableRoot = await resolveReadablePath(root);
             return realpath(readableRoot);
         })
@@ -1494,13 +1534,13 @@ export async function getSafeStorageDeletePaths(
 
         if (!containingRoot) {
             throw new Error(
-                `Refusing to delete path outside configured Wii U roots: ${sourcePath}`
+                `Refusing to delete path outside configured roots: ${sourcePath}`
             );
         }
 
         if (containingRoot === realSourcePath) {
             throw new Error(
-                `Refusing to delete configured Wii U root: ${sourcePath}`
+                `Refusing to delete configured root: ${sourcePath}`
             );
         }
 

@@ -4,36 +4,38 @@ import fs from 'fs';
 import { resolveReadablePath } from './os.js';
 import { isWindowsPath } from './os/path.js';
 
-type WiiURootInspection = {
+type LibraryRootInspection = {
     normalizedRoot: string;
     exists: boolean;
     isDirectory: boolean;
     readable: boolean;
 };
 
-export function readWiiURoots(
+function readConfiguredRoots(
     config: Record<string, unknown>,
+    key: string,
     options: { defaultRoot?: string } = {}
 ): string[] {
     const roots: string[] = [];
-    const hasConfiguredRoots = 'wiiuRoots' in config;
+    const hasConfiguredRoots = key in config;
+    const configuredRoots = config[key];
 
-    if (Array.isArray(config.wiiuRoots)) {
-        for (const root of config.wiiuRoots) {
+    if (Array.isArray(configuredRoots)) {
+        for (const root of configuredRoots) {
             if (typeof root !== 'string') {
                 continue;
             }
 
             const trimmedRoot = root.trim();
             if (trimmedRoot.length > 0) {
-                roots.push(normalizeWiiURoot(trimmedRoot));
+                roots.push(normalizeLibraryRoot(trimmedRoot));
             }
         }
-    } else if (typeof config.wiiuRoots === 'string') {
-        const trimmedRoot = config.wiiuRoots.trim();
+    } else if (typeof configuredRoots === 'string') {
+        const trimmedRoot = configuredRoots.trim();
 
         if (trimmedRoot.length > 0) {
-            roots.push(normalizeWiiURoot(trimmedRoot));
+            roots.push(normalizeLibraryRoot(trimmedRoot));
         }
     }
 
@@ -48,7 +50,21 @@ export function readWiiURoots(
     return [...new Set(roots)];
 }
 
-function normalizeWiiURoot(root: string): string {
+export function readWiiURoots(
+    config: Record<string, unknown>,
+    options: { defaultRoot?: string } = {}
+): string[] {
+    return readConfiguredRoots(config, 'wiiuRoots', options);
+}
+
+export function readWiiRoots(
+    config: Record<string, unknown>,
+    options: { defaultRoot?: string } = {}
+): string[] {
+    return readConfiguredRoots(config, 'wiiRoots', options);
+}
+
+function normalizeLibraryRoot(root: string): string {
     if (process.platform !== 'win32' && isWindowsPath(root)) {
         return root.trim();
     }
@@ -62,8 +78,10 @@ function normalizeWiiURoot(root: string): string {
     }
 }
 
-async function inspectWiiURoot(root: string): Promise<WiiURootInspection> {
-    const normalizedRoot = normalizeWiiURoot(root);
+async function inspectLibraryRoot(
+    root: string
+): Promise<LibraryRootInspection> {
+    const normalizedRoot = normalizeLibraryRoot(root);
     const readableRoot = await resolveReadablePath(normalizedRoot);
 
     try {
@@ -112,7 +130,7 @@ async function inspectWiiURoot(root: string): Promise<WiiURootInspection> {
     }
 }
 
-export async function validateWiiURoot(root: string): Promise<{
+export async function validateLibraryRoot(root: string): Promise<{
     exists: boolean;
     isDirectory: boolean;
     readable: boolean;
@@ -129,7 +147,7 @@ export async function validateWiiURoot(root: string): Promise<{
         };
     }
 
-    const inspection = await inspectWiiURoot(normalizedRoot);
+    const inspection = await inspectLibraryRoot(normalizedRoot);
 
     if (!inspection.exists) {
         return {

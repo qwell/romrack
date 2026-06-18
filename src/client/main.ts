@@ -105,6 +105,7 @@ function reconcileCompletedLibraryConversions(
                 existing.sizeBytes = converted.sizeBytes;
             } else {
                 group.entries.push({
+                    platform: group.platform,
                     ...converted,
                     region: group.region,
                     iconUrl: group.iconUrl,
@@ -118,7 +119,7 @@ function reconcileCompletedLibraryConversions(
             titleValidations.delete(converted.titleId);
         }
 
-        group.entries.sort((a, b) => b.version - a.version);
+        group.entries.sort((a, b) => (b.version ?? 0) - (a.version ?? 0));
         invalidateTitleSearch(group);
         syncGroupStatusFromSlots(group);
         refreshTitleGroupUi(group);
@@ -224,7 +225,9 @@ async function populateFat32DeviceSelect(
     }
 }
 
-async function loadLibrary(): Promise<void> {
+async function loadLibrary(
+    options: { clearScanCache?: boolean } = {}
+): Promise<void> {
     const requestId = ++activeLibraryRequestId;
 
     libraryLoading = true;
@@ -232,14 +235,14 @@ async function loadLibrary(): Promise<void> {
     resetUiDetailSidebars();
 
     try {
-        const data = await getLibrary();
+        const data = await getLibrary(options);
 
         if (requestId !== activeLibraryRequestId) {
             return;
         }
 
         for (const group of data.groups) {
-            group.entries.sort((a, b) => b.version - a.version);
+            group.entries.sort((a, b) => (b.version ?? 0) - (a.version ?? 0));
             syncGroupStatusFromSlots(group);
         }
 
@@ -306,8 +309,10 @@ async function verifyLibraryContent(): Promise<void> {
     }
 }
 
-async function refreshLibrary(): Promise<void> {
-    await loadLibrary();
+async function refreshLibrary(
+    options: { clearScanCache?: boolean } = {}
+): Promise<void> {
+    await loadLibrary(options);
 }
 
 function setupVersion(): void {
@@ -368,6 +373,7 @@ function handleTitleValidation(event: TitleValidationSocketEvent): void {
         const kind = copy?.titleKind;
         if (kind) {
             group.entries.push({
+                platform: group.platform,
                 titleId: event.titleId,
                 name: group.name,
                 region: group.region,

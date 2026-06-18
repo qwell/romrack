@@ -2,6 +2,7 @@ export type AppConfig = {
     host: string;
     port: number;
     openBrowser: boolean;
+    wiiRoots: string[];
     wiiuRoots: string[];
 };
 

@@ -40,12 +40,50 @@ export type LibraryVerifyTitle = {
     verification: unknown[];
 };
 
+export type LibraryVerifyProgress =
+    | {
+          titleId: string;
+          name: string;
+          kind: TitleKinds;
+          version: number | null;
+          currentFileName?: string | null;
+          currentFileSizeBytes?: number | null;
+          current: number;
+          total: number;
+          result?: undefined;
+      }
+    | {
+          titleId: string;
+          name: string;
+          kind: TitleKinds;
+          version: number | null;
+          result: 'ok' | 'failed';
+          error: string | null;
+          current: number;
+          total: number;
+      };
+
 export type LibraryVerifyResponse = {
     status: 'ok' | 'failed' | 'cancelled';
     total: number;
     failed: number;
     titles: LibraryVerifyTitle[];
 };
+
+export function sortLibraryTitleVerifications(
+    verifications: LibraryVerifyTitle[]
+): LibraryVerifyTitle[] {
+    return verifications.sort((a, b) => {
+        const nameComparison = a.name.localeCompare(b.name);
+        if (nameComparison !== 0) {
+            return nameComparison;
+        }
+
+        return (a.directory ?? a.titleId ?? '').localeCompare(
+            b.directory ?? b.titleId ?? ''
+        );
+    });
+}
 
 export type LibraryConvertQueuedResponse = {
     conversionId: string;

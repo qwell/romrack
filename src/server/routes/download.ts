@@ -12,7 +12,8 @@ import {
 import { broadcastAppSocketEvent } from '../socket.js';
 import { TitleDownloadProgress } from '../title.js';
 import { generateTitleInstallFiles } from '../install-title.js';
-import { clearTitleScanCache, findFirstReadableWiiURoot } from '../wiiu.js';
+import { clearTitleScanCache } from '../library.js';
+import { findFirstReadableWiiURoot } from '../wiiu.js';
 import { markTitleCopiesValidating, revalidateTitleCopies } from './title.js';
 
 let downloadQueue: DownloadQueueItem[] = [];

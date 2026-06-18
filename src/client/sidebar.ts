@@ -639,13 +639,16 @@ function renderLocalCopyRow(
 
     const slot = document.createElement('span');
     slot.className = 'sidebar-download-slot';
-    slot.textContent = downloadData?.label ?? `${entry.kind} v${entry.version}`;
+    slot.textContent = downloadData?.label ?? formatTitleEntrySlot(entry);
 
     const titleId = document.createElement('span');
     titleId.className = 'sidebar-download-id';
     titleId.textContent = entry.titleId;
 
-    const validation = options?.titleValidations.get(entry.titleId) ?? null;
+    const validation =
+        group.platform === 'wii'
+            ? null
+            : (options?.titleValidations.get(entry.titleId) ?? null);
     const validationStatus = renderTitleValidationStatus(validation);
 
     const size = document.createElement('span');
@@ -669,7 +672,7 @@ function renderInvalidCopyRow(
 ): HTMLElement {
     return renderLocalCopyRow(group, entry, {
         group,
-        label: `${entry.kind} v${entry.version}`,
+        label: formatTitleEntrySlot(entry),
     });
 }
 
@@ -964,6 +967,58 @@ function renderInvalidActions(
     return actions;
 }
 
+function renderDeleteOnlyActions(
+    list: HTMLElement,
+    entries: TitleEntry[],
+    label: string
+): HTMLElement {
+    const actions = document.createElement('div');
+    actions.className = 'sidebar-download-actions sidebar-storage-copy-actions';
+
+    const spacer = document.createElement('div');
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'sidebar-button';
+    deleteButton.type = 'button';
+
+    const updateButton = (): void => {
+        const checkedCount = list.querySelectorAll(
+            '.sidebar-storage-copy-checkbox:checked'
+        ).length;
+        deleteButton.textContent =
+            checkedCount === 0 ? 'Delete all' : 'Delete selected';
+        deleteButton.disabled = entries.length === 0;
+    };
+
+    updateButton();
+    list.addEventListener('change', updateButton);
+
+    deleteButton.addEventListener('click', () => {
+        void (async () => {
+            const hasSelection =
+                list.querySelectorAll('.sidebar-storage-copy-checkbox:checked')
+                    .length > 0;
+            const titleIds = getSelectedDownloadedTitleIds(list, hasSelection);
+
+            await options?.confirmAndQueueStorageDeletes(
+                titleIds,
+                entries,
+                deleteButton,
+                label
+            );
+            updateButton();
+        })();
+    });
+
+    actions.append(spacer, deleteButton);
+    return actions;
+}
+
+function formatTitleEntrySlot(entry: TitleEntry): string {
+    return entry.version === null
+        ? entry.kind
+        : `${entry.kind} v${entry.version}`;
+}
+
 function formatVersions(versions: number[]): string {
     return versions.length > 0
         ? versions.map((version) => `v${version}`).join(', ')
@@ -1024,155 +1079,175 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
             localList.append(renderDownloadedCopyRow(group, entry));
         }
 
-        const actions = document.createElement('div');
-        actions.className =
-            'sidebar-download-actions sidebar-storage-copy-actions';
-
-        const destinationSelect = document.createElement('select');
-        destinationSelect.className = 'sidebar-storage-copy-destination';
-        destinationSelect.disabled = true;
-        const loadingOption = document.createElement('option');
-        loadingOption.textContent = 'Loading FAT32 devices...';
-        destinationSelect.append(loadingOption);
-
-        const copyButton = document.createElement('button');
-        copyButton.className = 'sidebar-button';
-        copyButton.type = 'button';
-        copyButton.disabled = true;
-
-        const deleteButton = document.createElement('button');
-        deleteButton.className = 'sidebar-button';
-        deleteButton.type = 'button';
-        const busyKinds = getBusyKinds(group);
-
-        let fat32Response: StorageFat32ListResponse | null = null;
-
-        const updateDownloadedButtons = (): void => {
-            const selectedVolume = getSelectedFat32Volume(
-                fat32Response,
-                destinationSelect
-            );
-            updateStorageCopyAvailability(
+        if (group.platform === 'wii') {
+            const downloadedContent = document.createElement('div');
+            downloadedContent.className =
+                'sidebar-download-content sidebar-storage-copy-content';
+            downloadedContent.append(
                 localList,
-                localEntries,
-                selectedVolume
+                renderDeleteOnlyActions(localList, localEntries, 'disc image')
             );
-            const checkedCount = localList.querySelectorAll(
-                '.sidebar-storage-copy-checkbox:checked'
-            ).length;
-            const hasCopyDestination =
-                !destinationSelect.disabled && destinationSelect.value !== '';
-            const selectedSizeBytes = getStorageCopySelectionSizeBytes(
-                localList,
-                localEntries,
-                checkedCount > 0
+
+            availability.append(
+                renderDetailSection('Disc Images'),
+                downloadedContent
             );
-            const freeBytes = selectedVolume?.freeBytes;
-            const hasEnoughFreeSpace =
-                freeBytes === null ||
-                freeBytes === undefined ||
-                selectedSizeBytes <= freeBytes;
+        } else {
+            const actions = document.createElement('div');
+            actions.className =
+                'sidebar-download-actions sidebar-storage-copy-actions';
 
-            copyButton.textContent = !hasEnoughFreeSpace
-                ? 'Free space exceeded'
-                : checkedCount === 0
-                  ? 'Copy all to SD'
-                  : 'Copy selected to SD';
-            deleteButton.textContent =
-                checkedCount === 0 ? 'Delete all' : 'Delete selected';
-            copyButton.disabled =
-                localEntries.length === 0 ||
-                !hasCopyDestination ||
-                !hasEnoughFreeSpace ||
-                (checkedCount === 0 &&
-                    hasBusyEntryKind(busyKinds, localEntries));
-            deleteButton.disabled =
-                localEntries.length === 0 ||
-                (checkedCount === 0 &&
-                    hasBusyEntryKind(busyKinds, localEntries));
-            copyButton.title =
-                hasCopyDestination && !hasEnoughFreeSpace && selectedVolume
-                    ? `Not enough free space: ${formatSize(selectedSizeBytes)} selected, ${formatSize(freeBytes ?? null)} available`
-                    : '';
-        };
+            const destinationSelect = document.createElement('select');
+            destinationSelect.className = 'sidebar-storage-copy-destination';
+            destinationSelect.disabled = true;
+            const loadingOption = document.createElement('option');
+            loadingOption.textContent = 'Loading FAT32 devices...';
+            destinationSelect.append(loadingOption);
 
-        updateDownloadedButtons();
-        localList.addEventListener('change', updateDownloadedButtons);
-        destinationSelect.addEventListener('change', updateDownloadedButtons);
-        if (detailOptions) {
-            void detailOptions
-                .populateFat32DeviceSelect(destinationSelect, copyButton)
-                .then((response) => {
-                    fat32Response = response;
-                    updateDownloadedButtons();
-                });
-        }
+            const copyButton = document.createElement('button');
+            copyButton.className = 'sidebar-button';
+            copyButton.type = 'button';
+            copyButton.disabled = true;
 
-        const queueStorageCopy = detailOptions?.queueStorageCopy;
-        copyButton.addEventListener('click', () => {
-            void (async () => {
-                const hasSelection =
-                    localList.querySelectorAll(
-                        '.sidebar-storage-copy-checkbox:checked'
-                    ).length > 0;
-                const titleIds = getSelectedDownloadedTitleIds(
-                    localList,
-                    hasSelection
+            const deleteButton = document.createElement('button');
+            deleteButton.className = 'sidebar-button';
+            deleteButton.type = 'button';
+            const busyKinds = getBusyKinds(group);
+
+            let fat32Response: StorageFat32ListResponse | null = null;
+
+            const updateDownloadedButtons = (): void => {
+                const selectedVolume = getSelectedFat32Volume(
+                    fat32Response,
+                    destinationSelect
                 );
-                const destination = destinationSelect.value;
-
-                if (
-                    titleIds.length === 0 ||
-                    !destination ||
-                    !queueStorageCopy
-                ) {
-                    return;
-                }
-
-                copyButton.disabled = true;
-                try {
-                    await Promise.all(
-                        titleIds.map((titleId) =>
-                            queueStorageCopy(titleId, destination)
-                        )
-                    );
-                } finally {
-                    copyButton.disabled =
-                        localEntries.length === 0 || destinationSelect.disabled;
-                }
-            })();
-        });
-
-        deleteButton.addEventListener('click', () => {
-            void (async () => {
-                const hasSelection =
-                    localList.querySelectorAll(
-                        '.sidebar-storage-copy-checkbox:checked'
-                    ).length > 0;
-                const titleIds = getSelectedDownloadedTitleIds(
+                updateStorageCopyAvailability(
                     localList,
-                    hasSelection
-                );
-
-                await detailOptions?.confirmAndQueueStorageDeletes(
-                    titleIds,
                     localEntries,
-                    deleteButton
+                    selectedVolume
                 );
-            })();
-        });
+                const checkedCount = localList.querySelectorAll(
+                    '.sidebar-storage-copy-checkbox:checked'
+                ).length;
+                const hasCopyDestination =
+                    !destinationSelect.disabled &&
+                    destinationSelect.value !== '';
+                const selectedSizeBytes = getStorageCopySelectionSizeBytes(
+                    localList,
+                    localEntries,
+                    checkedCount > 0
+                );
+                const freeBytes = selectedVolume?.freeBytes;
+                const hasEnoughFreeSpace =
+                    freeBytes === null ||
+                    freeBytes === undefined ||
+                    selectedSizeBytes <= freeBytes;
 
-        actions.append(destinationSelect, copyButton, deleteButton);
+                copyButton.textContent = !hasEnoughFreeSpace
+                    ? 'Free space exceeded'
+                    : checkedCount === 0
+                      ? 'Copy all to SD'
+                      : 'Copy selected to SD';
+                deleteButton.textContent =
+                    checkedCount === 0 ? 'Delete all' : 'Delete selected';
+                copyButton.disabled =
+                    localEntries.length === 0 ||
+                    !hasCopyDestination ||
+                    !hasEnoughFreeSpace ||
+                    (checkedCount === 0 &&
+                        hasBusyEntryKind(busyKinds, localEntries));
+                deleteButton.disabled =
+                    localEntries.length === 0 ||
+                    (checkedCount === 0 &&
+                        hasBusyEntryKind(busyKinds, localEntries));
+                copyButton.title =
+                    hasCopyDestination && !hasEnoughFreeSpace && selectedVolume
+                        ? `Not enough free space: ${formatSize(selectedSizeBytes)} selected, ${formatSize(freeBytes ?? null)} available`
+                        : '';
+            };
 
-        const downloadedContent = document.createElement('div');
-        downloadedContent.className =
-            'sidebar-download-content sidebar-storage-copy-content';
-        downloadedContent.append(localList, actions);
+            updateDownloadedButtons();
+            localList.addEventListener('change', updateDownloadedButtons);
+            destinationSelect.addEventListener(
+                'change',
+                updateDownloadedButtons
+            );
+            if (detailOptions) {
+                void detailOptions
+                    .populateFat32DeviceSelect(destinationSelect, copyButton)
+                    .then((response) => {
+                        fat32Response = response;
+                        updateDownloadedButtons();
+                    });
+            }
 
-        availability.append(
-            renderDetailSection('Downloaded'),
-            downloadedContent
-        );
+            const queueStorageCopy = detailOptions?.queueStorageCopy;
+            copyButton.addEventListener('click', () => {
+                void (async () => {
+                    const hasSelection =
+                        localList.querySelectorAll(
+                            '.sidebar-storage-copy-checkbox:checked'
+                        ).length > 0;
+                    const titleIds = getSelectedDownloadedTitleIds(
+                        localList,
+                        hasSelection
+                    );
+                    const destination = destinationSelect.value;
+
+                    if (
+                        titleIds.length === 0 ||
+                        !destination ||
+                        !queueStorageCopy
+                    ) {
+                        return;
+                    }
+
+                    copyButton.disabled = true;
+                    try {
+                        await Promise.all(
+                            titleIds.map((titleId) =>
+                                queueStorageCopy(titleId, destination)
+                            )
+                        );
+                    } finally {
+                        copyButton.disabled =
+                            localEntries.length === 0 ||
+                            destinationSelect.disabled;
+                    }
+                })();
+            });
+
+            deleteButton.addEventListener('click', () => {
+                void (async () => {
+                    const hasSelection =
+                        localList.querySelectorAll(
+                            '.sidebar-storage-copy-checkbox:checked'
+                        ).length > 0;
+                    const titleIds = getSelectedDownloadedTitleIds(
+                        localList,
+                        hasSelection
+                    );
+
+                    await detailOptions?.confirmAndQueueStorageDeletes(
+                        titleIds,
+                        localEntries,
+                        deleteButton
+                    );
+                })();
+            });
+
+            actions.append(destinationSelect, copyButton, deleteButton);
+
+            const downloadedContent = document.createElement('div');
+            downloadedContent.className =
+                'sidebar-download-content sidebar-storage-copy-content';
+            downloadedContent.append(localList, actions);
+
+            availability.append(
+                renderDetailSection('Downloaded'),
+                downloadedContent
+            );
+        }
     }
 
     if (invalidEntries.length > 0) {
@@ -1224,6 +1299,10 @@ function requestTitleValidation(titleId: string, name: string): void {
 }
 
 export function requestTitleValidations(group: TitleGroup): void {
+    if (group.platform === 'wii') {
+        return;
+    }
+
     for (const entry of group.entries) {
         requestTitleValidation(entry.titleId, entry.name);
     }

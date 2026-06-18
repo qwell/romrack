@@ -26,7 +26,7 @@ type TitlesControlState = {
 };
 type TitlesOptions = {
     downloads: DownloadQueueItem[];
-    onRefresh: () => void | Promise<void>;
+    onRefresh: (options?: { clearScanCache?: boolean }) => void | Promise<void>;
     onVerify: () => void | Promise<void>;
     onOpenSettings: () => void;
     renderDownloadMarkers: () => void;
@@ -182,6 +182,13 @@ function formatRegion(region: string | null): {
 }
 
 function formatTooltip(group: TitleGroup): string {
+    if (group.platform === 'wii') {
+        const entry = getEntry(group, TitleKinds.Wii);
+        return `Disc image: ${
+            entry ? `${formatSize(entry.sizeBytes)} (${entry.titleId})` : '-'
+        }`;
+    }
+
     const parent = getEntry(group, PARENT_KINDS);
     const update = getEntry(group, TitleKinds.Update);
     const dlc = getEntry(group, TitleKinds.DLC);
@@ -226,6 +233,10 @@ function renderSlotBadge(
     badge.dataset.downloadState = downloadState ?? '';
     badge.append(text, marker);
     return badge;
+}
+
+function renderWiiBadge(group: TitleGroup): HTMLElement {
+    return renderSlotBadge(group, TitleKinds.Wii, getBaseBadgeState(group));
 }
 
 function renderVirtualConsoleBadge(group: TitleGroup): HTMLElement | null {
@@ -302,19 +313,23 @@ function renderGroup(
     if (wudBadge) {
         badgeList.append(wudBadge);
     }
-    badgeList.append(
-        renderSlotBadge(group, TitleKinds.Base, getBaseBadgeState(group)),
-        renderSlotBadge(
-            group,
-            TitleKinds.Update,
-            getChildBadgeState(group, TitleKinds.Update)
-        ),
-        renderSlotBadge(
-            group,
-            TitleKinds.DLC,
-            getChildBadgeState(group, TitleKinds.DLC)
-        )
-    );
+    if (group.platform === 'wii') {
+        badgeList.append(renderWiiBadge(group));
+    } else {
+        badgeList.append(
+            renderSlotBadge(group, TitleKinds.Base, getBaseBadgeState(group)),
+            renderSlotBadge(
+                group,
+                TitleKinds.Update,
+                getChildBadgeState(group, TitleKinds.Update)
+            ),
+            renderSlotBadge(
+                group,
+                TitleKinds.DLC,
+                getChildBadgeState(group, TitleKinds.DLC)
+            )
+        );
+    }
     badges.append(badgeList);
 
     if (group.region) {
@@ -727,7 +742,10 @@ function buildControls(
         showAllTitles = showAllInput?.checked ?? false;
         update();
     });
-    refreshButton.addEventListener('click', () => void options?.onRefresh());
+    refreshButton.addEventListener(
+        'click',
+        (event) => void options?.onRefresh({ clearScanCache: event.shiftKey })
+    );
     verifyButton.addEventListener('click', () => void options?.onVerify());
     settings.addEventListener('click', () => options?.onOpenSettings());
 
@@ -796,7 +814,9 @@ function updateRefreshButtonState(): void {
     if (!refreshButton || !icon) {
         return;
     }
-    refreshButton.title = loading ? 'Refreshing library' : 'Refresh library';
+    refreshButton.title = loading
+        ? 'Refreshing library'
+        : 'Refresh library (shift-click clears scan cache)';
     refreshButton.setAttribute('aria-label', refreshButton.title);
     refreshButton.setAttribute('aria-busy', String(loading));
     refreshButton.disabled = loading;

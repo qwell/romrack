@@ -36,7 +36,29 @@ Development from source requires [Node 24](https://nodejs.org/) and [Yarn](https
 
 ## Configuration
 
-`config.json` lives at `~/.wiiu-vault/config.json`. If it does not exist, WiiU Vault creates it with default values on startup. Set `wiiuRoots` to one or more Wii U title directories.
+`config.json` lives at `~/.wiiu-vault/config.json`. If it does not exist, WiiU Vault creates it with default values on startup.
+
+Available options:
+
+```json
+{
+    "host": "127.0.0.1",
+    "port": 3000,
+    "openBrowser": true,
+    "wiiRoots": [],
+    "wiiuRoots": []
+}
+```
+
+`host` sets the network host WiiU Vault binds to.
+
+`port` sets the port WiiU Vault listens on.
+
+`openBrowser` controls whether WiiU Vault opens your browser on startup using the configured host and port.
+
+`wiiRoots` is a list of Wii library directories.
+
+`wiiuRoots` is a list of Wii U title directories.
 
 For title metadata generation or title downloads, put `common.key` in `~/.wiiu-vault/common.key`. If no key is found, WiiU Vault will try to download one and save it there. The key may be raw 16-byte binary, hex text, or comma-separated byte literals.
 

@@ -1,4 +1,5 @@
 export enum TitleKinds {
+    Wii = 'Wii',
     vWii = 'vWii',
     Base = 'Base',
     Demo = 'Demo',
@@ -10,6 +11,9 @@ export enum TitleKinds {
     Update = 'Update',
     Unknown = 'Unknown',
 }
+
+const WII_U_TITLE_ID_PATTERN = /^[0-9a-f]{16}$/;
+const WII_TITLE_ID_PATTERN = /^[A-Z0-9]{6}$/;
 
 export const TITLE_PREFIX_BY_KIND: Partial<Record<TitleKinds, string>> = {
     [TitleKinds.vWii]: '00000007',
@@ -97,6 +101,7 @@ export type TitleGroupStatus =
     | 'missing'
     | 'unavailable'
     | 'unknown';
+export type TitlePlatform = 'wiiu' | 'wii';
 
 export type RawTitleDatabaseEntry = {
     titleId: string;
@@ -127,11 +132,12 @@ export type TitleDatabaseEntry = {
 };
 
 export type TitleEntry = {
+    platform: TitlePlatform;
     titleId: string;
     name: string;
     region: string | null;
     iconUrl: string | null;
-    version: number;
+    version: number | null;
     kind: TitleKinds;
 
     sizeBytes: number;
@@ -172,6 +178,7 @@ export type WudTitleEntry = {
 };
 
 export type TitleGroup = {
+    platform: TitlePlatform;
     name: string;
     region: string | null;
     iconUrl: string | null;
@@ -187,6 +194,74 @@ export type TitleGroup = {
     expectedChildren: ChildKind[];
     status: TitleGroupStatus;
 };
+
+export function createTitleGroup(
+    platform: TitlePlatform,
+    family: string
+): TitleGroup {
+    return {
+        platform,
+        family,
+        name: 'Unknown',
+        region: null,
+        productCode: null,
+        iconUrl: null,
+        details: null,
+        availableEntries: [],
+        wudEntries: [],
+        titleInDatabase: false,
+        expectedChildren: [],
+        status: 'unknown',
+
+        entries: [],
+    };
+}
+
+export function cloneTitleGroup(group: TitleGroup): TitleGroup {
+    return {
+        ...group,
+        availableEntries: [...group.availableEntries],
+        wudEntries: [...group.wudEntries],
+        expectedChildren: [...group.expectedChildren],
+        entries: [...group.entries],
+    };
+}
+
+function updateEntryWithNewerVersion(
+    target: TitleEntry,
+    source: TitleEntry
+): void {
+    if (source.version === null) {
+        return;
+    }
+
+    if (target.version !== null && source.version <= target.version) {
+        return;
+    }
+
+    target.version = source.version;
+    target.name = source.name;
+    target.region = source.region;
+    target.iconUrl = source.iconUrl;
+    target.sizeBytes = source.sizeBytes;
+}
+
+export function mergeTitleEntry(
+    entries: TitleEntry[],
+    entry: TitleEntry
+): void {
+    const existing = entries.find(
+        (candidate) => candidate.titleId === entry.titleId
+    );
+
+    if (!existing) {
+        entries.push({ ...entry });
+        return;
+    }
+
+    existing.copyCount += entry.copyCount;
+    updateEntryWithNewerVersion(existing, entry);
+}
 
 export function getVirtualConsolePlatform(
     productCode: string | null
@@ -230,7 +305,17 @@ export function normalizeTitleName(name?: string): string {
 export function normalizeTitleId(titleId: unknown): string {
     const titleIdNormalized =
         typeof titleId === 'string' ? titleId.toLowerCase() : '';
-    const titleIdPattern = /^[0-9a-f]{16}$/;
 
-    return titleIdPattern.test(titleIdNormalized) ? titleIdNormalized : '';
+    return WII_U_TITLE_ID_PATTERN.test(titleIdNormalized)
+        ? titleIdNormalized
+        : '';
+}
+
+export function normalizeWiiTitleId(titleId: unknown): string {
+    const titleIdNormalized =
+        typeof titleId === 'string' ? titleId.toUpperCase() : '';
+
+    return WII_TITLE_ID_PATTERN.test(titleIdNormalized)
+        ? titleIdNormalized
+        : '';
 }

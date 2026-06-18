@@ -15,6 +15,13 @@ export type PathFileSize = {
     sizeBytes: number;
 };
 
+export async function assertReadableDirectory(root: string): Promise<void> {
+    const info = await lstat(root);
+    if (!info.isDirectory()) {
+        throw new Error(`not a directory: ${root}`);
+    }
+}
+
 export async function readOptionalFile(
     filePath: string
 ): Promise<Buffer | null> {

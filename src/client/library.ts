@@ -64,6 +64,7 @@ function verificationToAvailableEntry(
     }
 
     return createAvailableEntry({
+        platform: 'wiiu',
         titleId: title.titleId,
         name: title.name,
         region: null,
@@ -149,7 +150,8 @@ export function createAvailableEntry(
     return {
         kind: entry.kind,
         titleId: entry.titleId,
-        versions: entry.version > 0 ? [entry.version] : [],
+        versions:
+            entry.version !== null && entry.version > 0 ? [entry.version] : [],
         availableOnCdn: true,
     };
 }
@@ -172,6 +174,10 @@ export function addAvailableEntry(
 }
 
 export function getBaseBadgeState(group: TitleGroup): SlotBadgeState {
+    if (group.platform === 'wii') {
+        return group.entries.length > 0 ? 'complete' : 'unknown';
+    }
+
     if (!group.titleInDatabase) {
         return 'unknown';
     }
@@ -192,6 +198,10 @@ export function getChildBadgeState(
     group: TitleGroup,
     childKind: ChildKind
 ): SlotBadgeState {
+    if (group.platform === 'wii') {
+        return 'na';
+    }
+
     if (!isChildExpected(group, childKind)) {
         return 'na';
     }
@@ -210,6 +220,11 @@ export function getChildBadgeState(
 }
 
 export function syncGroupStatusFromSlots(group: TitleGroup): void {
+    if (group.platform === 'wii') {
+        group.status = group.entries.length > 0 ? 'complete' : 'missing';
+        return;
+    }
+
     const baseState = getBaseBadgeState(group);
     const updateState = getChildBadgeState(group, TitleKinds.Update);
     const dlcState = getChildBadgeState(group, TitleKinds.DLC);
@@ -344,7 +359,12 @@ function formatLibraryVerifyState(item: LibraryVerifyEvent): string {
 
 function formatLibraryVerifyTitle(item: LibraryVerifyEvent): string {
     if (isLibraryVerifyTitleEvent(item)) {
-        return formatTitleDisplay(item.name, item.titleId, item.kind, null);
+        return formatTitleDisplay(
+            item.name,
+            item.titleId,
+            item.kind,
+            item.version
+        );
     }
 
     return '';
@@ -432,7 +452,7 @@ function formatLibraryConvertState(item: LibraryConvertItem): string {
 }
 
 function formatLibraryConvertTitle(item: LibraryConvertItem): string {
-    return formatTitleDisplay(item.name, item.titleId, item.kind, null);
+    return formatTitleDisplay(item.name, item.titleId, item.kind, item.version);
 }
 
 function formatLibraryConvertDetails(item: LibraryConvertItem): string {

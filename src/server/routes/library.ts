@@ -2,13 +2,13 @@ import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 
 import { broadcastAppSocketEvent } from '../socket.js';
+import { scanWiiUTitleRoots, verifyWiiUTitleRoots } from '../wiiu.js';
 import {
     clearTitleScanCache,
     getLibraryCacheEntry,
-    scanWiiUTitleRoots,
     setLibraryCacheGroups,
-    verifyWiiUTitleRoots,
-} from '../wiiu.js';
+} from '../library.js';
+import { scanWiiTitleRoots, verifyWiiTitleRoots } from '../wii.js';
 import { convertWudImagesInRoots } from '../wud.js';
 import { requireTitleIdQuery, sendServerError } from '../request.js';
 import {
@@ -17,6 +17,7 @@ import {
     revalidateTitleCopies,
 } from './title.js';
 import {
+    type LibraryVerifyProgress,
     type LibraryResponse,
     type LibraryVerifyResponse,
 } from '../../shared/api.js';
@@ -93,6 +94,22 @@ function clearScheduledLibraryVerifyEvent(): void {
     pendingLibraryVerifyEvent = null;
 }
 
+function handleLibraryVerifyProgress(progress: LibraryVerifyProgress): void {
+    const event: LibraryVerifyEvent = {
+        type: LIBRARY_VERIFY_SOCKET_EVENT.changed,
+        state: 'in-progress',
+        ...progress,
+    };
+
+    if (progress.result === 'failed') {
+        clearScheduledLibraryVerifyEvent();
+        libraryVerifyFailures.set(progress.titleId, event);
+        broadcastAppSocketEvent(event);
+    } else {
+        scheduleLibraryVerifyEvent(event);
+    }
+}
+
 function broadcastLibraryConversions(): void {
     broadcastAppSocketEvent({
         type: LIBRARY_CONVERT_SOCKET_EVENT.changed,
@@ -104,6 +121,11 @@ export function createLibraryRouter(): Router {
     const router = Router();
 
     router.get('/', async (req, res) => {
+        if (req.query.clearScanCache === '1') {
+            clearTitleScanCache();
+            logger.log('server', 'library scan cache cleared');
+        }
+
         try {
             abortAndClearTitleValidations();
         } catch (error) {
@@ -113,7 +135,14 @@ export function createLibraryRouter(): Router {
             );
         }
         try {
-            const groups = await scanWiiUTitleRoots(getConfig().wiiuRoots);
+            const config = getConfig();
+            const [wiiuGroups, wiiGroups] = await Promise.all([
+                scanWiiUTitleRoots(config.wiiuRoots),
+                scanWiiTitleRoots(config.wiiRoots),
+            ]);
+            const groups = [...wiiuGroups, ...wiiGroups].sort((a, b) =>
+                a.name.localeCompare(b.name)
+            );
 
             setLibraryCacheGroups(groups);
 
@@ -121,6 +150,10 @@ export function createLibraryRouter(): Router {
                 groups,
             };
             res.json(response);
+            logger.log(
+                'server',
+                `library scan complete: ${groups.length} title group(s)`
+            );
         } catch (error) {
             logger.warn(
                 'server',
@@ -149,25 +182,19 @@ export function createLibraryRouter(): Router {
             });
             libraryVerifyFailures.clear();
 
-            const titles = await verifyWiiUTitleRoots(
-                getConfig().wiiuRoots,
-                (progress) => {
-                    const event: LibraryVerifyEvent = {
-                        type: LIBRARY_VERIFY_SOCKET_EVENT.changed,
-                        state: 'in-progress',
-                        ...progress,
-                    };
-
-                    if (progress.result === 'failed') {
-                        clearScheduledLibraryVerifyEvent();
-                        libraryVerifyFailures.set(progress.titleId, event);
-                        broadcastAppSocketEvent(event);
-                    } else {
-                        scheduleLibraryVerifyEvent(event);
-                    }
-                },
-                abortController.signal
-            );
+            const config = getConfig();
+            const titles = [
+                ...(await verifyWiiTitleRoots(
+                    config.wiiRoots,
+                    handleLibraryVerifyProgress,
+                    abortController.signal
+                )),
+                ...(await verifyWiiUTitleRoots(
+                    config.wiiuRoots,
+                    handleLibraryVerifyProgress,
+                    abortController.signal
+                )),
+            ];
             const failed = titles.filter(
                 (title) => title.status !== 'ok'
             ).length;
@@ -286,7 +313,7 @@ export function handleLibraryConvertSocketCommand(
             if (!item || item.state !== 'failed') {
                 return;
             }
-            Object.assign(item, {
+            const update: Partial<LibraryConvertItem> = {
                 state: 'queued',
                 currentFileName: null,
                 current: null,
@@ -295,7 +322,8 @@ export function handleLibraryConvertSocketCommand(
                 converted: null,
                 convertedTitles: null,
                 error: null,
-            } satisfies Partial<LibraryConvertItem>);
+            };
+            Object.assign(item, update);
             broadcastLibraryConversions();
             void processLibraryConvertQueue();
             return;

@@ -11,8 +11,15 @@ import {
 } from '../shared/api.js';
 import { type AppConfigUpdate } from '../shared/config.js';
 
-export function getLibrary(): Promise<LibraryResponse> {
-    return requestJson('/api/library');
+export function getLibrary(
+    options: { clearScanCache?: boolean } = {}
+): Promise<LibraryResponse> {
+    const params = new URLSearchParams();
+    if (options.clearScanCache) {
+        params.set('clearScanCache', '1');
+    }
+
+    return requestJson(`/api/library${params.size > 0 ? `?${params}` : ''}`);
 }
 
 export function verifyLibrary(): Promise<LibraryVerifyResponse> {

@@ -1,4 +1,4 @@
-import { TitleKinds } from './titles.js';
+import { type TitleKinds } from './titles.js';
 
 export function toArray<T>(value: T | readonly T[] | null | undefined): T[] {
     if (value == null) {
@@ -99,7 +99,7 @@ export function formatTitleDisplay(
 ): string {
     const label = name ?? titleId;
     const versionText = version === null ? '' : ` v${version}`;
-    const kindText = kind ? ` [${kind}]` : '';
+    const kindText = kind && kind !== 'Wii' ? ` [${kind}]` : '';
     const titleIdText = name === null ? '' : ` ${titleId}`;
     return `${label}${versionText}${kindText}${titleIdText}`;
 }

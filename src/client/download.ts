@@ -319,6 +319,7 @@ function markDownloadComplete(
 
     if (!alreadyDownloaded) {
         group.entries.push({
+            platform: group.platform,
             titleId: item.titleId,
             version: installedVersion,
             name: installedTitleName,
@@ -336,7 +337,10 @@ function markDownloadComplete(
         );
 
         if (existingEntry) {
-            if (installedVersion < existingEntry.version) {
+            if (
+                existingEntry.version !== null &&
+                installedVersion < existingEntry.version
+            ) {
                 syncGroupStatusFromSlots(group);
                 onGroupChanged(group);
                 return;

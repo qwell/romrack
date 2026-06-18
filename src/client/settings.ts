@@ -16,6 +16,8 @@ let settingsLoading = false;
 let settingsSaving = false;
 let settingsCheckingRoot = false;
 
+type RootConfigKey = 'wiiRoots' | 'wiiuRoots';
+
 export function isSettingsOpen(): boolean {
     return document.body.hasAttribute('data-settings-open');
 }
@@ -29,13 +31,18 @@ function updateSettingsStatus(
     renderSettingsSidebar();
 }
 
-function buildSettingsRootRow(value: string): HTMLDivElement {
+function buildSettingsRootRow(
+    value: string,
+    configKey: RootConfigKey
+): HTMLDivElement {
     const row = document.createElement('div');
     row.className = 'settings-root-row';
+    row.dataset.rootConfig = configKey;
 
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'settings-input settings-root-input';
+    input.dataset.rootConfig = configKey;
     input.value = value;
 
     const checkButton = document.createElement('button');
@@ -73,7 +80,7 @@ function buildSettingsRootRow(value: string): HTMLDivElement {
     const removeButton = document.createElement('button');
     removeButton.type = 'button';
     removeButton.className = 'settings-icon-button';
-    removeButton.setAttribute('aria-label', 'Remove Wii U root');
+    removeButton.setAttribute('aria-label', 'Remove root');
     removeButton.innerHTML = '<i class="fa-solid fa-minus"></i>';
     removeButton.addEventListener('click', () => row.remove());
 
@@ -94,14 +101,18 @@ function readSettingsForm(sidebar: HTMLElement): AppConfig {
     const rootInputs = sidebar.querySelectorAll<HTMLInputElement>(
         '.settings-root-input'
     );
+    const roots = (configKey: RootConfigKey): string[] =>
+        [...rootInputs]
+            .filter((input) => input.dataset.rootConfig === configKey)
+            .map((input) => input.value.trim())
+            .filter((value) => value.length > 0);
 
     return {
         host: hostInput?.value.trim() ?? '',
         port: Number(portInput?.value ?? 0),
         openBrowser: openBrowserInput?.checked ?? false,
-        wiiuRoots: [...rootInputs]
-            .map((input) => input.value.trim())
-            .filter((value) => value.length > 0),
+        wiiRoots: roots('wiiRoots'),
+        wiiuRoots: roots('wiiuRoots'),
     };
 }
 
@@ -130,8 +141,14 @@ async function saveSettingsConfig(sidebar: HTMLElement): Promise<void> {
     }
 
     const nextConfig = readSettingsForm(sidebar);
-    const previousRoots = JSON.stringify(settingsConfig?.wiiuRoots ?? []);
-    const nextRoots = JSON.stringify(nextConfig.wiiuRoots);
+    const previousRoots = JSON.stringify({
+        wiiRoots: settingsConfig?.wiiRoots ?? [],
+        wiiuRoots: settingsConfig?.wiiuRoots ?? [],
+    });
+    const nextRoots = JSON.stringify({
+        wiiRoots: nextConfig.wiiRoots,
+        wiiuRoots: nextConfig.wiiuRoots,
+    });
 
     settingsSaving = true;
     updateSettingsStatus('Saving settings...');
@@ -229,28 +246,37 @@ function buildSettingsServerSection(config: AppConfig): HTMLElement {
     return serverSection;
 }
 
-function buildSettingsRootsSection(config: AppConfig): HTMLElement {
+function buildSettingsRootsSection({
+    title,
+    help,
+    roots,
+    configKey,
+}: {
+    title: string;
+    help: string;
+    roots: string[];
+    configKey: RootConfigKey;
+}): HTMLElement {
     const rootsSection = document.createElement('section');
     rootsSection.className = 'settings-section';
 
     const rootsTitle = document.createElement('h3');
     rootsTitle.className = 'settings-section-title';
-    rootsTitle.textContent = 'Wii U Roots';
+    rootsTitle.textContent = title;
 
     const rootsHelp = document.createElement('div');
     rootsHelp.className = 'settings-help';
-    rootsHelp.textContent =
-        'Add one or more ROM roots. Check verifies that a path exists and is readable.';
+    rootsHelp.textContent = help;
 
     const rootsList = document.createElement('div');
     rootsList.className = 'settings-roots';
 
-    for (const root of config.wiiuRoots) {
-        rootsList.append(buildSettingsRootRow(root));
+    for (const root of roots) {
+        rootsList.append(buildSettingsRootRow(root, configKey));
     }
 
-    if (config.wiiuRoots.length === 0) {
-        rootsList.append(buildSettingsRootRow(''));
+    if (roots.length === 0) {
+        rootsList.append(buildSettingsRootRow('', configKey));
     }
 
     const addRootButton = document.createElement('button');
@@ -259,7 +285,7 @@ function buildSettingsRootsSection(config: AppConfig): HTMLElement {
     addRootButton.textContent = 'Add root';
     addRootButton.disabled = settingsCheckingRoot;
     addRootButton.addEventListener('click', () => {
-        rootsList.append(buildSettingsRootRow(''));
+        rootsList.append(buildSettingsRootRow('', configKey));
     });
 
     rootsSection.append(rootsTitle, rootsHelp, rootsList, addRootButton);
@@ -345,7 +371,18 @@ export function renderSettingsSidebar(preserveDraft = true): void {
     if (settingsConfig) {
         form.append(
             buildSettingsServerSection(settingsConfig),
-            buildSettingsRootsSection(settingsConfig),
+            buildSettingsRootsSection({
+                title: 'Wii U Roots',
+                help: 'Add one or more Wii U installable title roots. Check verifies that a path exists and is readable.',
+                roots: settingsConfig.wiiuRoots,
+                configKey: 'wiiuRoots',
+            }),
+            buildSettingsRootsSection({
+                title: 'Wii Roots',
+                help: 'Add one or more Wii library roots. These are saved for upcoming Wii library support.',
+                roots: settingsConfig.wiiRoots,
+                configKey: 'wiiRoots',
+            }),
             buildSettingsFooter(sidebar)
         );
     }
