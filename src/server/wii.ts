@@ -33,7 +33,7 @@ import {
     readDiscHeaderText,
     readIsoDiscHeader,
     readWbfsDiscHeader,
-} from './nus/disc.js';
+} from './formats/disc.js';
 import {
     findFirstReadableTitleRoot,
     findTitleSourcePathsInRoots,

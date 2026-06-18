@@ -55,7 +55,7 @@ import {
     sortLibraryTitleVerifications,
 } from '../shared/api.js';
 import { resolveReadablePath } from '../shared/os.js';
-import { TMD_TITLE_FILE } from './nus/tmd.js';
+import { TMD_TITLE_FILE } from './formats/tmd.js';
 import { scanWudTitleEntries } from './wud.js';
 
 type GameTdbLocale = {

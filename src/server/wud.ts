@@ -13,21 +13,21 @@ import {
     getContentInstallFiles,
     getEncryptedContentFileSize,
     isHashedContent,
-} from './nus/content.js';
+} from './formats/content.js';
 import {
     findFstEntry,
     getRootDirectoryChildren,
     looksLikeFst,
     readFstContentInfos,
     parseTitleFstEntries,
-} from './nus/fst.js';
-import { findXmlStartByte, readMetaXml } from './nus/meta.js';
+} from './formats/fst.js';
+import { findXmlStartByte, readMetaXml } from './formats/meta.js';
 import {
     getTitleIdHex,
     readTmdFromBuffer,
     TMD_TITLE_FILE,
     type Tmd,
-} from './nus/tmd.js';
+} from './formats/tmd.js';
 import {
     type GeneratedTitleInstallFiles,
     TIK_TITLE_FILE,

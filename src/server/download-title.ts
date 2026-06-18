@@ -5,7 +5,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 import logger from '../shared/logger.js';
-import { formatContentId } from './nus/content.js';
+import { formatContentId } from './formats/content.js';
 import { HttpError } from '../shared/download.js';
 
 export const NUS_BASE_URL = 'http://ccs.cdn.wup.shop.nintendo.net/ccs/download';

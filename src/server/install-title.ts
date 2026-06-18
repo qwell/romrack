@@ -15,7 +15,7 @@ import {
     getEncryptedContentFileSize,
     isHashedContent,
     verifyContentInstallFiles,
-} from './nus/content.js';
+} from './formats/content.js';
 import {
     CERT_TITLE_FILE,
     ContentInstallFiles,
@@ -45,7 +45,7 @@ import {
 import { mapConcurrent } from '../shared/shared.js';
 import { mkdir, stat, writeFile } from 'fs/promises';
 import { normalizeTitleName } from '../shared/titles.js';
-import { getTitleIdHex, TMD_TITLE_FILE } from './nus/tmd.js';
+import { getTitleIdHex, TMD_TITLE_FILE } from './formats/tmd.js';
 import { getImmediatePathSizeBytes } from '../shared/file.js';
 import logger from '../shared/logger.js';
 import { isHttpErrorStatus } from '../shared/download.js';

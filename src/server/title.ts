@@ -30,18 +30,18 @@ import {
     isHashedContent,
     type ContentInstallFiles,
     type ContentTreeVerification,
-} from './nus/content.js';
+} from './formats/content.js';
 import {
     looksLikeFst,
     parseTitleFstEntries,
     type TitleFstEntry,
-} from './nus/fst.js';
+} from './formats/fst.js';
 import {
     findXmlStartByte,
     readMetaXml,
     readMetaXmlJson,
     type NUSTitleInformation,
-} from './nus/meta.js';
+} from './formats/meta.js';
 import {
     getTitleIdHex,
     getTitleIdNumber,
@@ -51,7 +51,7 @@ import {
     TMD_TITLE_FILE,
     type Tmd,
     type TmdContent,
-} from './nus/tmd.js';
+} from './formats/tmd.js';
 import { getUserAppRoot } from './paths.js';
 import {
     classifyTitleId,
