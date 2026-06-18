@@ -12,7 +12,7 @@ import {
     cloneTitleGroup,
     createTitleGroup,
     mergeTitleEntry,
-    normalizeWiiTitleId,
+    normalizeWiiTitle,
     TitleDatabaseEntry,
     TitleKinds,
     type TitleGroup,
@@ -72,7 +72,6 @@ type DiscHeaderInfo = {
     titleId: string | null;
     name: string | null;
     region: string | null;
-    discNumber: number | null;
     version: number | null;
 };
 
@@ -544,13 +543,13 @@ function parseDiscHeader(buffer: Buffer): DiscHeaderInfo | null {
     const publisherId = WII_PUBLISHER_ID_PATTERN.test(headerPublisherId)
         ? headerPublisherId
         : null;
-    const titleId =
+    const normalizedTitle =
         gameId && publisherId
-            ? normalizeWiiTitleId(`${gameId}${publisherId}`)
+            ? normalizeWiiTitle(`${gameId}${publisherId}`)
             : null;
+    const titleId = normalizedTitle?.titleId ?? null;
     const region = getDiscRegion(gameId);
 
-    const discNumber = buffer[WII_DISC_NUMBER_OFFSET];
     const version = buffer[WII_DISC_VERSION_OFFSET];
 
     const name = readDiscHeaderText(
@@ -564,7 +563,6 @@ function parseDiscHeader(buffer: Buffer): DiscHeaderInfo | null {
         titleId,
         name,
         region,
-        discNumber,
         version,
     };
 }

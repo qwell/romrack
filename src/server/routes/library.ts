@@ -10,7 +10,7 @@ import {
 } from '../library.js';
 import { scanWiiTitleRoots, verifyWiiTitleRoots } from '../wii.js';
 import { convertWudImagesInRoots } from '../wud.js';
-import { requireTitleIdQuery, sendServerError } from '../request.js';
+import { requireWiiUTitleIdQuery, sendServerError } from '../request.js';
 import {
     abortAndClearTitleValidations,
     markTitleCopiesValidating,
@@ -35,7 +35,7 @@ import {
     type LibraryVerifySocketCommand,
     type LibraryVerifyEvent,
 } from '../../shared/socket.js';
-import { classifyTitleId } from '../../shared/titles.js';
+import { normalizeTitle, TitleKinds } from '../../shared/titles.js';
 
 let latestLibraryVerifyEvent: LibraryVerifyEvent | null = null;
 const libraryVerifyFailures = new Map<string, LibraryVerifyEvent>();
@@ -253,7 +253,7 @@ export function createLibraryRouter(): Router {
     });
 
     router.get('/convert', (req, res) => {
-        const titleId = requireTitleIdQuery(req, res);
+        const titleId = requireWiiUTitleIdQuery(req, res);
         if (titleId === null) {
             return;
         }
@@ -263,7 +263,7 @@ export function createLibraryRouter(): Router {
             id: randomUUID(),
             titleId,
             name: cached?.name ?? null,
-            kind: classifyTitleId(titleId).kind,
+            kind: normalizeTitle(titleId)?.kind ?? TitleKinds.Unknown,
             version: cached?.version ?? null,
             state: 'queued',
             currentFileName: null,

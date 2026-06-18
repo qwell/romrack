@@ -5,12 +5,11 @@ import {
     getDlcMetadata,
     getUpdateMetadata,
 } from '../title.js';
-import { sendServerError } from '../request.js';
+import { requireWiiUTitleIdQuery, sendServerError } from '../request.js';
 import { broadcastAppSocketEvent } from '../socket.js';
-import { requireTitleIdQuery } from '../request.js';
 import { findWiiUTitleSourcePaths } from '../wiiu.js';
-import { classifyTitleId } from '../../shared/titles.js';
-import { type TitleResponse } from '../../shared/api.js';
+import { normalizeTitle, TitleKinds } from '../../shared/titles.js';
+import { type TitleLookupWiiUResponse } from '../../shared/api.js';
 import { getConfig } from './config.js';
 import { isHttpErrorStatus } from '../../shared/download.js';
 import logger from '../../shared/logger.js';
@@ -32,11 +31,11 @@ export function getTitleValidationResults(): TitleValidationSocketEvent[] {
     return [...titleValidationResults.values()];
 }
 
-export function createTitleRouter(): Router {
+export function createTitleLookupWiiURouter(): Router {
     const router = Router();
 
     router.get('/', async (req, res) => {
-        const titleId = requireTitleIdQuery(req, res);
+        const titleId = requireWiiUTitleIdQuery(req, res);
         if (!titleId) {
             return;
         }
@@ -55,7 +54,7 @@ export function createTitleRouter(): Router {
                 return;
             }
 
-            const response: TitleResponse = {
+            const response: TitleLookupWiiUResponse = {
                 titleId: metadata?.titleId ?? titleId,
                 name: metadata?.name ?? null,
                 region: metadata?.region ?? null,
@@ -159,7 +158,8 @@ async function runTitleCopyValidation(
             copies.push({
                 sourcePath: readableSourcePath,
                 titleId: validation.titleId,
-                titleKind: classifyTitleId(verifiedTitleId).kind,
+                titleKind:
+                    normalizeTitle(verifiedTitleId)?.kind ?? TitleKinds.Unknown,
                 titleVersion: validation.titleVersion,
                 status: validation.status,
                 failedCount: validation.failedFileCount,

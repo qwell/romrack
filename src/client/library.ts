@@ -17,8 +17,8 @@ import {
 } from '../shared/action.js';
 import { formatSize, formatTitleDisplay } from '../shared/shared.js';
 import {
-    classifyTitleId,
     getTitleFamily,
+    normalizeTitle,
     type AvailableTitleEntry,
     type ChildKind,
     PARENT_KINDS,
@@ -478,7 +478,7 @@ export function renderLibrarySidebarWud(
     content.className = 'sidebar-download-content sidebar-wud-content';
     const titles = group.wudEntries.flatMap((entry) => entry.titles);
     const baseTitle = titles.find(
-        (title) => classifyTitleId(title.titleId).kind === TitleKinds.Base
+        (title) => normalizeTitle(title.titleId)?.kind === TitleKinds.Base
     );
     const conversionTitle = baseTitle ?? titles[0];
 
@@ -509,7 +509,7 @@ export function renderLibrarySidebarWud(
         const space = document.createElement('span');
         const slot = document.createElement('span');
         slot.className = 'sidebar-download-slot';
-        slot.textContent = `${classifyTitleId(title.titleId).kind} v${title.version}`;
+        slot.textContent = `${normalizeTitle(title.titleId)?.kind ?? TitleKinds.Unknown} v${title.version}`;
         const id = document.createElement('span');
         id.className = 'sidebar-download-id';
         id.textContent = title.titleId;

@@ -8,7 +8,7 @@ import { XMLParser } from 'fast-xml-parser';
 
 import { normalizeRegion } from '../src/shared/regions.js';
 import {
-    normalizeTitleId,
+    normalizeWiiUTitle,
     normalizeTitleName,
     RawTitleDatabaseEntry,
 } from '../src/shared/titles.js';
@@ -21,7 +21,7 @@ type Icon = {
     iconUrl: string;
 };
 
-type TitleAllResponse = {
+type TitleLookupWiiUResponse = {
     titleId?: string;
     name?: string;
     region?: string | null;
@@ -69,7 +69,7 @@ const ranges = [
     '000500001fbf1000:000500001fbf1000',
 ];
 
-const titleUrl = 'http://localhost:3000/api/title?titleId=%s';
+const titleUrl = 'http://localhost:3000/api/title-lookup-wiiu?titleId=%s';
 const samuraiContentsUrl =
     'https://samurai.wup.shop.nintendo.net/samurai/ws/US/contents/?shop_id=2&limit=10000';
 const wiiUTdbZipUrl = 'https://www.gametdb.com/wiiutdb.zip';
@@ -124,9 +124,9 @@ function titleIdSet(entries: unknown[]): Set<string> {
 
     for (const entry of entries) {
         if (stringFieldRecord(entry, ['titleId'])) {
-            const titleId = normalizeTitleId(entry.titleId);
-            if (titleId !== '') {
-                titleIds.add(titleId);
+            const title = normalizeWiiUTitle(entry.titleId);
+            if (title) {
+                titleIds.add(title.titleId);
             }
         }
     }
@@ -248,9 +248,10 @@ function generateTitleIds(excluded: Set<string>): string[] {
         const end = BigInt(`0x${endHex}`);
 
         while (current <= end) {
-            const titleId = normalizeTitleId(
+            const title = normalizeWiiUTitle(
                 current.toString(16).padStart(16, '0')
             );
+            const titleId = title?.titleId ?? '';
 
             if (!excluded.has(titleId)) {
                 titleIds.push(titleId);
@@ -290,7 +291,7 @@ function logTitleResult(
     console.log(lines.join('\n'));
 }
 
-function hasBaseMetadata(metadata: TitleAllResponse | null): boolean {
+function hasBaseMetadata(metadata: TitleLookupWiiUResponse | null): boolean {
     return (
         metadata !== null &&
         metadata.titleId !== undefined &&
@@ -303,10 +304,10 @@ async function processTitle(
     index: number,
     fallbackTitle?: RawTitleDatabaseEntry
 ): Promise<RawTitleDatabaseEntry | null> {
-    let metadata: TitleAllResponse | null;
+    let metadata: TitleLookupWiiUResponse | null;
 
     try {
-        metadata = await requestJson<TitleAllResponse>(
+        metadata = await requestJson<TitleLookupWiiUResponse>(
             formatUrl(titleUrl, titleId)
         );
     } catch (error) {
@@ -343,7 +344,7 @@ async function processTitle(
     }
 
     const title: RawTitleDatabaseEntry = {
-        titleId: normalizeTitleId(titleId),
+        titleId,
         name: normalizeTitleName(metadata.name),
         region: normalizeRegion(metadata.region, metadata.productCode),
         productCode: metadata.productCode ?? null,
@@ -394,10 +395,11 @@ async function loadTitledbTitles(): Promise<RawTitleDatabaseEntry[]> {
     const rows = parseCsvRows(await fs.readFile(titledbFile, 'utf8'));
     return rows
         .map((row): RawTitleDatabaseEntry | null => {
-            const titleId = normalizeTitleId(row['Title ID']);
-            if (titleId === '') {
+            const title = normalizeWiiUTitle(row['Title ID']);
+            if (!title) {
                 return null;
             }
+            const { titleId } = title;
 
             return {
                 titleId,
@@ -449,7 +451,8 @@ async function loadSamuraiIcons(): Promise<Icon[] | null> {
         const icons: Icon[] = [];
 
         for (const { title } of contentEntries) {
-            const titleId = normalizeTitleId(title?.['@id'] ?? '');
+            const titleId =
+                normalizeWiiUTitle(title?.['@id'] ?? '')?.titleId ?? '';
             const iconUrl = title?.icon_url ?? '';
 
             if (titleId !== '' && iconUrl !== '') {
@@ -488,7 +491,7 @@ async function mergeSamuraiIcons(): Promise<void> {
     const icons = (await readJsonArray(iconsFile))
         .filter(isIcon)
         .map((icon) => ({
-            titleId: normalizeTitleId(icon.titleId),
+            titleId: icon.titleId,
             iconUrl: icon.iconUrl,
         }))
         .filter((icon) => icon.titleId !== '');

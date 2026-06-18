@@ -32,7 +32,7 @@ import {
     getLibraryVerifyEvents,
     handleLibraryConvertSocketCommand,
     handleLibraryVerifySocketCommand,
-    createTitleRouter,
+    createTitleLookupWiiURouter,
     handleTitleValidationSocketCommand,
     getTitleValidationResults,
     getDownloadQueue,
@@ -106,7 +106,7 @@ app.use('/api/config', createConfigRouter());
 app.use('/api/icon', createIconRouter());
 app.use('/api/library', createLibraryRouter());
 app.use('/api/storage', createStorageRouter());
-app.use('/api/title', createTitleRouter());
+app.use('/api/title-lookup-wiiu', createTitleLookupWiiURouter());
 
 const server = createServer(app);
 createAppSocket({

@@ -54,7 +54,7 @@ import {
 } from './formats/tmd.js';
 import { getUserAppRoot } from './paths.js';
 import {
-    classifyTitleId,
+    normalizeTitle,
     replaceTitleKind,
     TitleKinds,
 } from '../shared/titles.js';
@@ -952,7 +952,7 @@ export function getDownloadableTitle(titleId: string): DownloadableTitle {
         throw new Error(`Invalid titleId: ${titleId}`);
     }
 
-    const { kind } = classifyTitleId(titleId);
+    const kind = normalizeTitle(titleId)?.kind ?? TitleKinds.Unknown;
     if (
         kind !== TitleKinds.Base &&
         kind !== TitleKinds.Update &&

@@ -34,23 +34,6 @@ const TITLE_KIND_BY_PREFIX = new Map(
     ])
 );
 
-export function classifyTitleId(titleId: string): {
-    family: string;
-    kind: TitleKinds;
-} {
-    if (titleId.length !== 16) {
-        return { family: titleId, kind: TitleKinds.Unknown };
-    }
-
-    const prefix = titleId.slice(0, 8);
-    const family = getTitleFamily(titleId);
-
-    return {
-        family,
-        kind: TITLE_KIND_BY_PREFIX.get(prefix) ?? TitleKinds.Unknown,
-    };
-}
-
 export function replaceTitleKind(titleId: string, kind: TitleKinds): string {
     const prefix = TITLE_PREFIX_BY_KIND[kind];
 
@@ -102,6 +85,13 @@ export type TitleGroupStatus =
     | 'unavailable'
     | 'unknown';
 export type TitlePlatform = 'wiiu' | 'wii';
+
+export type NormalizedTitle = {
+    titleId: string;
+    platform: TitlePlatform;
+    kind: TitleKinds;
+    family: string;
+};
 
 export type RawTitleDatabaseEntry = {
     titleId: string;
@@ -302,20 +292,39 @@ export function normalizeTitleName(name?: string): string {
     return name?.replace(/\\n/g, ' ').replace(/\s+/g, ' ').trim() ?? 'Unknown';
 }
 
-export function normalizeTitleId(titleId: unknown): string {
+export function normalizeTitle(titleId: unknown): NormalizedTitle | null {
+    return normalizeWiiUTitle(titleId) ?? normalizeWiiTitle(titleId);
+}
+
+export function normalizeWiiUTitle(titleId: unknown): NormalizedTitle | null {
     const titleIdNormalized =
         typeof titleId === 'string' ? titleId.toLowerCase() : '';
 
-    return WII_U_TITLE_ID_PATTERN.test(titleIdNormalized)
-        ? titleIdNormalized
-        : '';
+    if (!WII_U_TITLE_ID_PATTERN.test(titleIdNormalized)) {
+        return null;
+    }
+
+    const prefix = titleIdNormalized.slice(0, 8);
+    return {
+        titleId: titleIdNormalized,
+        platform: 'wiiu',
+        kind: TITLE_KIND_BY_PREFIX.get(prefix) ?? TitleKinds.Unknown,
+        family: getTitleFamily(titleIdNormalized),
+    };
 }
 
-export function normalizeWiiTitleId(titleId: unknown): string {
+export function normalizeWiiTitle(titleId: unknown): NormalizedTitle | null {
     const titleIdNormalized =
         typeof titleId === 'string' ? titleId.toUpperCase() : '';
 
-    return WII_TITLE_ID_PATTERN.test(titleIdNormalized)
-        ? titleIdNormalized
-        : '';
+    if (!WII_TITLE_ID_PATTERN.test(titleIdNormalized)) {
+        return null;
+    }
+
+    return {
+        titleId: titleIdNormalized,
+        platform: 'wii',
+        kind: TitleKinds.Wii,
+        family: titleIdNormalized,
+    };
 }

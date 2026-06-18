@@ -12,11 +12,7 @@ import {
     TITLE_VALIDATE_SOCKET_COMMAND,
 } from '../shared/socket.js';
 import { type DownloadQueueItemDetails } from '../shared/download.js';
-import {
-    getTitleFamily,
-    normalizeTitleId,
-    TitleKinds,
-} from '../shared/titles.js';
+import { normalizeWiiUTitle, TitleKinds } from '../shared/titles.js';
 import logger from '../shared/logger.js';
 
 type AppSocketOptions = {
@@ -182,15 +178,15 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
     } else if (isSocketCommand(command, TITLE_VALIDATE_SOCKET_COMMAND.queue)) {
         const titleId = (command as { titleId?: unknown }).titleId;
         const name = (command as { name?: unknown }).name;
-        const normalizedTitleId = normalizeTitleId(titleId);
+        const normalizedTitle = normalizeWiiUTitle(titleId);
 
-        if (!normalizedTitleId || typeof name !== 'string') {
+        if (!normalizedTitle || typeof name !== 'string') {
             return null;
         }
 
         return {
             ...command,
-            titleId: normalizedTitleId,
+            titleId: normalizedTitle.titleId,
         };
     }
 
@@ -223,12 +219,12 @@ function parseDownloadQueueItemDetails(
     }
 
     const item = value as Record<string, unknown>;
-    const titleId = normalizeTitleId(item.titleId);
+    const title = normalizeWiiUTitle(item.titleId);
 
     if (
         typeof item.id !== 'string' ||
         item.id.length === 0 ||
-        !titleId ||
+        !title ||
         typeof item.groupName !== 'string' ||
         typeof item.label !== 'string' ||
         typeof item.kind !== 'string' ||
@@ -241,11 +237,11 @@ function parseDownloadQueueItemDetails(
 
     return {
         id: item.id,
-        family: getTitleFamily(titleId),
+        family: title.family,
         groupName: item.groupName,
         kind: item.kind as TitleKinds,
         label: item.label,
-        titleId,
+        titleId: title.titleId,
         sizeText: item.sizeText,
         totalBytes: item.totalBytes,
     };

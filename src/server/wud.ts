@@ -39,10 +39,11 @@ import {
     readTikFromBuffer,
 } from './title.js';
 import {
-    classifyTitleId,
     DOWNLOADABLE_KINDS,
     getTitleFamily,
+    normalizeTitle,
     normalizeTitleName,
+    TitleKinds,
     type WudTitleEntry,
 } from '../shared/titles.js';
 import { getImmediatePathSizeBytes, readOptionalFile } from '../shared/file.js';
@@ -543,7 +544,7 @@ async function readWudGamePartitionChild(
         }
 
         const titleId = getTitleIdHex(ticket.titleId);
-        const titleKind = classifyTitleId(titleId).kind;
+        const titleKind = normalizeTitle(titleId)?.kind ?? TitleKinds.Unknown;
         if (
             !DOWNLOADABLE_KINDS.includes(
                 titleKind as (typeof DOWNLOADABLE_KINDS)[number]

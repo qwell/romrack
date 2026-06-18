@@ -15,13 +15,13 @@ import {
     type WudTitleEntry,
     PARENT_KINDS,
     CHILD_KINDS,
-    classifyTitleId,
     cloneTitleGroup,
     createTitleGroup,
     getTitleFamily,
     mergeTitleEntry,
+    normalizeTitle,
     replaceTitleKind,
-    normalizeTitleId,
+    normalizeWiiUTitle,
     normalizeTitleName,
     TitleKinds,
     TitleDatabaseEntry,
@@ -395,10 +395,11 @@ export async function readWiiUTitleIdentity(
     }
 
     const titleId = Buffer.from(tmd.header.titleId).toString('hex');
+    const normalizedTitle = normalizeTitle(titleId);
     return {
         titleId,
         version: tmd.header.titleVersion,
-        kind: classifyTitleId(titleId).kind,
+        kind: normalizedTitle?.kind ?? TitleKinds.Unknown,
     };
 }
 
@@ -536,7 +537,9 @@ async function readTitleEntry(
     }
 
     const titleId = Buffer.from(tmd.header.titleId).toString('hex');
-    const { family, kind } = classifyTitleId(titleId);
+    const normalizedTitle = normalizeTitle(titleId);
+    const family = normalizedTitle?.family ?? getTitleFamily(titleId);
+    const kind = normalizedTitle?.kind ?? TitleKinds.Unknown;
     const databaseEntry = titleDatabase.get(family);
 
     return {
@@ -628,14 +631,14 @@ function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
     }
 
     const entries: TitleDatabaseEntry[] = json.map((entry) => {
-        const titleId = normalizeTitleId(entry.titleId);
-        if (!titleId) {
+        const title = normalizeWiiUTitle(entry.titleId);
+        if (!title) {
             throw new Error(
                 `invalid titleId in titles.json: ${JSON.stringify(entry)}`
             );
         }
 
-        const family = getTitleFamily(titleId);
+        const { titleId, family } = title;
 
         return {
             titleId,

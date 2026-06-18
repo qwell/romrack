@@ -3,6 +3,7 @@ import {
     type TitleEntry,
     type TitleGroup,
     type TitleKinds,
+    type TitlePlatform,
 } from '../shared/titles.js';
 import { assertReadableDirectory } from '../shared/file.js';
 import { resolveReadablePath } from '../shared/os.js';
@@ -26,9 +27,12 @@ export function setLibraryCacheGroups(groups: TitleGroup[]): void {
     libraryGroups = groups;
 }
 
-export function getLibraryCacheEntry(
-    titleId: string
-): { name: string; version: number | null; kind: TitleKinds | null } | null {
+export function getLibraryCacheEntry(titleId: string): {
+    platform: TitlePlatform;
+    name: string;
+    version: number | null;
+    kind: TitleKinds | null;
+} | null {
     const group =
         titleId.length === 16
             ? libraryGroups.find(
@@ -45,6 +49,7 @@ export function getLibraryCacheEntry(
         group.entries.find((candidate) => candidate.titleId === titleId) ??
         null;
     return {
+        platform: group.platform,
         name: group.name,
         version: entry?.version ?? null,
         kind: entry?.kind ?? null,

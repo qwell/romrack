@@ -111,7 +111,7 @@ export type StorageQueueResponse =
     | StorageDeleteQueuedResponse
     | ApiErrorResponse;
 
-export type TitleResponse = {
+export type TitleLookupWiiUResponse = {
     titleId: string;
     name: string | null;
     region: string | null;
