@@ -39,7 +39,7 @@ import {
     formatLogError,
     formatSize,
     formatTitleDisplay,
-} from '../../shared/shared.js';
+} from '../../shared/utils.js';
 import {
     type StorageDeleteQueuedResponse,
     type StorageFat32ListResponse,

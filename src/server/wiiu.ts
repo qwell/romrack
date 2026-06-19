@@ -39,7 +39,7 @@ import {
     formatLogError,
     formatSize,
     formatTitleDisplay,
-} from '../shared/shared.js';
+} from '../shared/utils.js';
 import { getAppRoot } from './paths.js';
 import {
     assertReadableDirectory,

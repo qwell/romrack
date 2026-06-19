@@ -1,6 +1,6 @@
 import { type DownloadQueueItem } from '../shared/download.js';
 import { formatActionStateIcon } from '../shared/action.js';
-import { formatSize } from '../shared/shared.js';
+import { formatSize } from '../shared/utils.js';
 import {
     getVirtualConsolePlatform,
     PARENT_KINDS,

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { lstat, readFile, readdir } from 'node:fs/promises';
 
-import { mapConcurrent } from './shared.js';
+import { mapConcurrent } from './utils.js';
 
 const DIRECTORY_SIZE_CONCURRENCY = 8;
 

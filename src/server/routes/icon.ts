@@ -4,7 +4,7 @@ import { getCachedImage } from '../image-cache.js';
 import { sendServerError } from '../request.js';
 import { getTitleIconUrl } from '../wiiu.js';
 import logger from '../../shared/logger.js';
-import { formatLogError } from '../../shared/shared.js';
+import { formatLogError } from '../../shared/utils.js';
 
 export function createIconRouter(): Router {
     const router = Router();

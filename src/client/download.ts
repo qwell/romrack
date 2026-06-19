@@ -6,7 +6,7 @@ import {
     formatActionStateIcon,
     type ActionState,
 } from '../shared/action.js';
-import { formatSize, formatTitleDisplay } from '../shared/shared.js';
+import { formatSize, formatTitleDisplay } from '../shared/utils.js';
 import { type TitleGroup, TitleKinds } from '../shared/titles.js';
 import { DOWNLOAD_SOCKET_COMMAND } from '../shared/socket.js';
 import { syncGroupStatusFromSlots } from './library.js';

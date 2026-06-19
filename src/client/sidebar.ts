@@ -1,7 +1,7 @@
 import { type StorageFat32ListResponse } from '../shared/api.js';
 import { type Fat32Volume } from '../shared/os/types.js';
 import { type TitleValidationSocketEvent } from '../shared/socket.js';
-import { formatSize } from '../shared/shared.js';
+import { formatSize } from '../shared/utils.js';
 import {
     type TitleDetails,
     type TitleEntry,

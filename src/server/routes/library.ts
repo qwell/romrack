@@ -24,7 +24,7 @@ import {
 import { getConfig } from './config.js';
 import logger from '../../shared/logger.js';
 import { isTerminalActionState } from '../../shared/action.js';
-import { formatLogError } from '../../shared/shared.js';
+import { formatLogError } from '../../shared/utils.js';
 import {
     LIBRARY_CONVERT_SOCKET_COMMAND,
     LIBRARY_CONVERT_SOCKET_EVENT,

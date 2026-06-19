@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import { type Fat32Volume, type OsOperations } from './types.js';
-import { nullableNumber, nullableString, toArray } from '../shared.js';
+import { nullableNumber, nullableString, toArray } from '../utils.js';
 
 const execFileAsync = promisify(execFile);
 

@@ -18,7 +18,7 @@ import { getConfig } from './config.js';
 import { isHttpErrorStatus } from '../../shared/download.js';
 import logger from '../../shared/logger.js';
 import { resolveReadablePath } from '../../shared/os.js';
-import { formatLogError } from '../../shared/shared.js';
+import { formatLogError } from '../../shared/utils.js';
 import {
     TITLE_VALIDATE_SOCKET_COMMAND,
     TITLE_VALIDATE_SOCKET_EVENT,

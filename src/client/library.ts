@@ -15,7 +15,7 @@ import {
     formatActionState,
     formatActionStateIcon,
 } from '../shared/action.js';
-import { formatSize, formatTitleDisplay } from '../shared/shared.js';
+import { formatSize, formatTitleDisplay } from '../shared/utils.js';
 import {
     identifyTitle,
     type AvailableTitleEntry,

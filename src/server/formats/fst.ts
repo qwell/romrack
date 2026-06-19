@@ -1,7 +1,7 @@
 import {
     isNonEmptyString,
     readNullTerminatedString,
-} from '../../shared/string.js';
+} from '../../shared/utils.js';
 import { isHashedContent } from './content.js';
 import { type Tmd } from './tmd.js';
 

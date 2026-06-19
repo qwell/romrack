@@ -11,7 +11,7 @@ import { type AppConfig, type AppConfigUpdate } from '../../shared/config.js';
 import logger from '../../shared/logger.js';
 import { resolveReadablePath } from '../../shared/os.js';
 import { isWindowsPath } from '../../shared/os/path.js';
-import { formatLogError, isObject } from '../../shared/shared.js';
+import { formatLogError, isObject } from '../../shared/utils.js';
 import { getStringBodyField, sendServerError } from '../request.js';
 import { getAppRoot, getUserAppRoot } from '../paths.js';
 

@@ -7,7 +7,7 @@ import { getAppRoot } from './paths.js';
 import { createAppSocket } from './socket.js';
 import { getConfig } from './routes/config.js';
 import logger from '../shared/logger.js';
-import { formatLogError } from '../shared/shared.js';
+import { formatLogError } from '../shared/utils.js';
 import {
     type SocketCommand,
     APP_SOCKET_EVENT,

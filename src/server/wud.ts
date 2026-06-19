@@ -47,7 +47,7 @@ import {
 } from '../shared/titles.js';
 import { getImmediatePathSizeBytes, readOptionalFile } from '../shared/file.js';
 import { findReadablePath } from '../shared/os.js';
-import { safeDirectoryName } from '../shared/string.js';
+import { safeDirectoryName } from '../shared/utils.js';
 import logger from '../shared/logger.js';
 
 type WuxInfo = {

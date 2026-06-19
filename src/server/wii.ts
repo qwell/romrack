@@ -7,7 +7,7 @@ import {
     formatSize,
     formatTitleDisplay,
     mapConcurrent,
-} from '../shared/shared.js';
+} from '../shared/utils.js';
 import {
     cloneTitleGroup,
     createTitleGroup,

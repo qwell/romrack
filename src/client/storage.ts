@@ -13,7 +13,7 @@ import {
     type StorageDeleteItem,
 } from '../shared/storage.js';
 import { sendAppSocketCommand } from './app-socket.js';
-import { formatSize, formatTitleDisplay } from '../shared/shared.js';
+import { formatSize, formatTitleDisplay } from '../shared/utils.js';
 import { type TitleEntry } from '../shared/titles.js';
 import { queueStorageDelete } from './api.js';
 

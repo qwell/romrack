@@ -2,7 +2,7 @@ import { type DownloadQueueItem } from '../../shared/download.js';
 import { type TitleDownloadResponse } from '../../shared/api.js';
 import { getConfig } from './config.js';
 import logger from '../../shared/logger.js';
-import { formatLogError } from '../../shared/shared.js';
+import { formatLogError } from '../../shared/utils.js';
 import { isTerminalActionState } from '../../shared/action.js';
 import {
     DOWNLOAD_SOCKET_COMMAND,

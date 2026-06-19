@@ -26,7 +26,7 @@ import {
 } from '../shared/storage.js';
 import { identifyTitle, type TitleGroup } from '../shared/titles.js';
 import { type DownloadQueueItem } from '../shared/download.js';
-import { formatSize } from '../shared/shared.js';
+import { formatSize } from '../shared/utils.js';
 import { type Fat32Volume, type RuntimeOs } from '../shared/os/types.js';
 import { isWindowsPath } from '../shared/os/path.js';
 import {

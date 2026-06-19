@@ -1,5 +1,5 @@
 import path from 'path';
-import { safeDirectoryName } from '../shared/string.js';
+import { safeDirectoryName } from '../shared/utils.js';
 import { decryptTitleKey } from './decryption.js';
 import {
     downloadContent,
@@ -42,7 +42,7 @@ import {
     TmdContent,
     writeGeneratedTik,
 } from './title.js';
-import { mapConcurrent } from '../shared/shared.js';
+import { mapConcurrent } from '../shared/utils.js';
 import { mkdir, stat, writeFile } from 'fs/promises';
 import { normalizeTitleName } from '../shared/titles.js';
 import { getTitleIdHex, TMD_TITLE_FILE } from './formats/tmd.js';

@@ -12,7 +12,7 @@ import {
     normalizeTitleName,
     RawTitleDatabaseEntry,
 } from '../src/shared/titles.js';
-import { toArray } from '../src/shared/shared.js';
+import { toArray } from '../src/shared/utils.js';
 import { requestJson } from '../src/shared/api.js';
 import { isHttpErrorStatus } from '../src/shared/download.js';
 

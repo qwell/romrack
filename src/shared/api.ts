@@ -7,7 +7,7 @@ import { type StorageCopyItem, type StorageDeleteItem } from './storage.js';
 import { type LibraryConvertItem } from './socket.js';
 import { type TitleGroup, type TitleKinds } from './titles.js';
 import { HttpError } from './download.js';
-import { isObject } from './shared.js';
+import { isObject } from './utils.js';
 
 export type ApiErrorResponse = {
     error: string;
