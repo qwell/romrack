@@ -36,16 +36,13 @@ const TITLE_KIND_BY_PREFIX = new Map(
 
 export function replaceTitleKind(titleId: string, kind: TitleKinds): string {
     const prefix = TITLE_PREFIX_BY_KIND[kind];
+    const title = identifyWiiUTitle(titleId);
 
-    if (titleId.length !== 16 || !prefix) {
+    if (!title || !prefix) {
         throw new Error(`Cannot replace title kind: ${titleId} ${kind}`);
     }
 
-    return `${prefix}${getTitleFamily(titleId)}`;
-}
-
-export function getTitleFamily(titleId: string): string {
-    return titleId.slice(8);
+    return `${prefix}${title.family}`;
 }
 
 export enum VirtualConsolePlatform {
@@ -86,7 +83,7 @@ export type TitleGroupStatus =
     | 'unknown';
 export type TitlePlatform = 'wiiu' | 'wii';
 
-export type NormalizedTitle = {
+export type TitleIdentity = {
     titleId: string;
     platform: TitlePlatform;
     kind: TitleKinds;
@@ -292,11 +289,11 @@ export function normalizeTitleName(name?: string): string {
     return name?.replace(/\\n/g, ' ').replace(/\s+/g, ' ').trim() ?? 'Unknown';
 }
 
-export function normalizeTitle(titleId: unknown): NormalizedTitle | null {
-    return normalizeWiiUTitle(titleId) ?? normalizeWiiTitle(titleId);
+export function identifyTitle(titleId: unknown): TitleIdentity | null {
+    return identifyWiiUTitle(titleId) ?? identifyWiiTitle(titleId);
 }
 
-export function normalizeWiiUTitle(titleId: unknown): NormalizedTitle | null {
+export function identifyWiiUTitle(titleId: unknown): TitleIdentity | null {
     const titleIdNormalized =
         typeof titleId === 'string' ? titleId.toLowerCase() : '';
 
@@ -305,15 +302,16 @@ export function normalizeWiiUTitle(titleId: unknown): NormalizedTitle | null {
     }
 
     const prefix = titleIdNormalized.slice(0, 8);
+    const titleFamily = titleIdNormalized.slice(8);
     return {
         titleId: titleIdNormalized,
         platform: 'wiiu',
         kind: TITLE_KIND_BY_PREFIX.get(prefix) ?? TitleKinds.Unknown,
-        family: getTitleFamily(titleIdNormalized),
+        family: titleFamily,
     };
 }
 
-export function normalizeWiiTitle(titleId: unknown): NormalizedTitle | null {
+export function identifyWiiTitle(titleId: unknown): TitleIdentity | null {
     const titleIdNormalized =
         typeof titleId === 'string' ? titleId.toUpperCase() : '';
 

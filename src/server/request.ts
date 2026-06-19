@@ -1,25 +1,25 @@
 import { type Request, type Response } from 'express';
 import { type ApiErrorResponse } from '../shared/api.js';
 import {
-    normalizeTitle,
-    normalizeWiiUTitle,
-    type NormalizedTitle,
+    identifyTitle,
+    identifyWiiUTitle,
+    type TitleIdentity,
 } from '../shared/titles.js';
 
 type TitleQueryResult =
     | {
           ok: true;
-          title: NormalizedTitle;
+          title: TitleIdentity;
       }
     | {
           ok: false;
           error: string;
       };
 
-type TitleIdQueryResult =
+type WiiUTitleQueryResult =
     | {
           ok: true;
-          titleId: string;
+          title: TitleIdentity;
       }
     | {
           ok: false;
@@ -55,8 +55,8 @@ export function getTitleQuery(req: Request): TitleQueryResult {
         };
     }
 
-    const normalizedTitle = normalizeTitle(titleId);
-    if (!normalizedTitle) {
+    const titleIdentity = identifyTitle(titleId);
+    if (!titleIdentity) {
         return {
             ok: false,
             error: 'titleId query parameter must be a Wii U title ID or Wii disc ID',
@@ -65,23 +65,11 @@ export function getTitleQuery(req: Request): TitleQueryResult {
 
     return {
         ok: true,
-        title: normalizedTitle,
+        title: titleIdentity,
     };
 }
 
-export function getTitleIdQuery(req: Request): TitleIdQueryResult {
-    const result = getTitleQuery(req);
-    if (!result.ok) {
-        return result;
-    }
-
-    return {
-        ok: true,
-        titleId: result.title.titleId,
-    };
-}
-
-export function getWiiUTitleIdQuery(req: Request): TitleIdQueryResult {
+export function getWiiUTitleQuery(req: Request): WiiUTitleQueryResult {
     const titleId = getStringQuery(req, 'titleId');
 
     if (!titleId) {
@@ -91,8 +79,8 @@ export function getWiiUTitleIdQuery(req: Request): TitleIdQueryResult {
         };
     }
 
-    const normalizedTitle = normalizeWiiUTitle(titleId);
-    if (!normalizedTitle) {
+    const titleIdentity = identifyWiiUTitle(titleId);
+    if (!titleIdentity) {
         return {
             ok: false,
             error: 'titleId query parameter must be 16 hexadecimal characters',
@@ -101,18 +89,26 @@ export function getWiiUTitleIdQuery(req: Request): TitleIdQueryResult {
 
     return {
         ok: true,
-        titleId: normalizedTitle.titleId,
+        title: titleIdentity,
     };
 }
 
-function requireTitleIdQueryResult(
+function requireTitleQueryResult<TTitle>(
     req: Request,
     res: Response,
-    getResult: (req: Request) => TitleIdQueryResult
-): string | null {
+    getResult: (req: Request) =>
+        | {
+              ok: true;
+              title: TTitle;
+          }
+        | {
+              ok: false;
+              error: string;
+          }
+): TTitle | null {
     const result = getResult(req);
     if (result.ok) {
-        return result.titleId;
+        return result.title;
     }
 
     res.status(400).json({
@@ -121,18 +117,18 @@ function requireTitleIdQueryResult(
     return null;
 }
 
-export function requireTitleIdQuery(
+export function requireTitleQuery(
     req: Request,
     res: Response
-): string | null {
-    return requireTitleIdQueryResult(req, res, getTitleIdQuery);
+): TitleIdentity | null {
+    return requireTitleQueryResult(req, res, getTitleQuery);
 }
 
-export function requireWiiUTitleIdQuery(
+export function requireWiiUTitleQuery(
     req: Request,
     res: Response
-): string | null {
-    return requireTitleIdQueryResult(req, res, getWiiUTitleIdQuery);
+): TitleIdentity | null {
+    return requireTitleQueryResult(req, res, getWiiUTitleQuery);
 }
 
 export function sendServerError(

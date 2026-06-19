@@ -5,10 +5,14 @@ import {
     getDlcMetadata,
     getUpdateMetadata,
 } from '../title.js';
-import { requireWiiUTitleIdQuery, sendServerError } from '../request.js';
+import { requireWiiUTitleQuery, sendServerError } from '../request.js';
 import { broadcastAppSocketEvent } from '../socket.js';
 import { findWiiUTitleSourcePaths } from '../wiiu.js';
-import { normalizeTitle, TitleKinds } from '../../shared/titles.js';
+import {
+    identifyWiiUTitle,
+    type TitleIdentity,
+    TitleKinds,
+} from '../../shared/titles.js';
 import { type TitleLookupWiiUResponse } from '../../shared/api.js';
 import { getConfig } from './config.js';
 import { isHttpErrorStatus } from '../../shared/download.js';
@@ -35,10 +39,11 @@ export function createTitleLookupWiiURouter(): Router {
     const router = Router();
 
     router.get('/', async (req, res) => {
-        const titleId = requireWiiUTitleIdQuery(req, res);
-        if (!titleId) {
+        const title = requireWiiUTitleQuery(req, res);
+        if (!title) {
             return;
         }
+        const { titleId } = title;
 
         try {
             const [metadata, updateMetadata, dlcMetadata] = await Promise.all([
@@ -111,28 +116,38 @@ export function handleTitleValidationSocketCommand(
 }
 
 async function validateTitleCopies(titleId: string): Promise<void> {
-    if (activeTitleValidations.has(titleId)) {
+    const title = identifyWiiUTitle(titleId);
+    if (!title) {
+        logger.warn(
+            'server',
+            `Invalid Wii U title validation request: ${titleId}`
+        );
         return;
     }
 
-    const cached = titleValidationResults.get(titleId);
+    if (activeTitleValidations.has(title.titleId)) {
+        return;
+    }
+
+    const cached = titleValidationResults.get(title.titleId);
     if (cached) {
         broadcastAppSocketEvent(cached);
         return;
     }
 
-    await runTitleCopyValidation(titleId, null);
+    await runTitleCopyValidation(title, null);
 }
 
 async function runTitleCopyValidation(
-    normalizedTitleId: string,
+    title: TitleIdentity,
     sourcePaths: string[] | null
 ): Promise<void> {
+    const { titleId } = title;
     const abortController = new AbortController();
-    activeTitleValidations.set(normalizedTitleId, abortController);
+    activeTitleValidations.set(titleId, abortController);
     broadcastAppSocketEvent({
         type: TITLE_VALIDATE_SOCKET_EVENT.changed,
-        titleId: normalizedTitleId,
+        titleId,
         status: 'validating',
         copies: [],
     });
@@ -140,10 +155,7 @@ async function runTitleCopyValidation(
     try {
         const paths =
             sourcePaths ??
-            (await findWiiUTitleSourcePaths(
-                getConfig().wiiuRoots,
-                normalizedTitleId
-            ));
+            (await findWiiUTitleSourcePaths(getConfig().wiiuRoots, titleId));
         abortController.signal.throwIfAborted();
         const copies: TitleValidationCopyResult[] = [];
 
@@ -154,12 +166,12 @@ async function runTitleCopyValidation(
                 readableSourcePath,
                 abortController.signal
             );
-            const verifiedTitleId = validation.titleId ?? normalizedTitleId;
+            const verifiedTitleId = validation.titleId ?? titleId;
+            const verifiedTitle = identifyWiiUTitle(verifiedTitleId);
             copies.push({
                 sourcePath: readableSourcePath,
                 titleId: validation.titleId,
-                titleKind:
-                    normalizeTitle(verifiedTitleId)?.kind ?? TitleKinds.Unknown,
+                titleKind: verifiedTitle?.kind ?? TitleKinds.Unknown,
                 titleVersion: validation.titleVersion,
                 status: validation.status,
                 failedCount: validation.failedFileCount,
@@ -170,13 +182,13 @@ async function runTitleCopyValidation(
 
         const event: TitleValidationSocketEvent = {
             type: TITLE_VALIDATE_SOCKET_EVENT.changed,
-            titleId: normalizedTitleId,
+            titleId,
             status: 'complete',
             copies,
         };
 
         abortController.signal.throwIfAborted();
-        titleValidationResults.set(normalizedTitleId, event);
+        titleValidationResults.set(titleId, event);
 
         broadcastAppSocketEvent(event);
     } catch (error) {
@@ -186,18 +198,18 @@ async function runTitleCopyValidation(
         const message = error instanceof Error ? error.message : String(error);
         logger.warn(
             'server',
-            `Failed to validate title ${normalizedTitleId}: ${formatLogError(error)}`
+            `Failed to validate title ${titleId}: ${formatLogError(error)}`
         );
         broadcastAppSocketEvent({
             type: TITLE_VALIDATE_SOCKET_EVENT.changed,
-            titleId: normalizedTitleId,
+            titleId,
             status: 'failed',
             copies: [],
             error: message,
         });
     } finally {
-        if (activeTitleValidations.get(normalizedTitleId) === abortController) {
-            activeTitleValidations.delete(normalizedTitleId);
+        if (activeTitleValidations.get(titleId) === abortController) {
+            activeTitleValidations.delete(titleId);
         }
     }
 }
@@ -206,16 +218,35 @@ export function revalidateTitleCopies(
     titles: Array<{ titleId: string; sourcePaths: string[] }>
 ): void {
     for (const title of titles) {
-        activeTitleValidations.get(title.titleId)?.abort();
-        titleValidationResults.delete(title.titleId);
-        void runTitleCopyValidation(title.titleId, [
+        const titleIdentity = identifyWiiUTitle(title.titleId);
+        if (!titleIdentity) {
+            logger.warn(
+                'server',
+                `Invalid Wii U title revalidation request: ${title.titleId}`
+            );
+            continue;
+        }
+
+        activeTitleValidations.get(titleIdentity.titleId)?.abort();
+        titleValidationResults.delete(titleIdentity.titleId);
+        void runTitleCopyValidation(titleIdentity, [
             ...new Set(title.sourcePaths),
         ]);
     }
 }
 
 export function markTitleCopiesValidating(titleIds: string[]): void {
-    for (const titleId of new Set(titleIds)) {
+    for (const requestedTitleId of new Set(titleIds)) {
+        const title = identifyWiiUTitle(requestedTitleId);
+        if (!title) {
+            logger.warn(
+                'server',
+                `Invalid Wii U title validating marker: ${requestedTitleId}`
+            );
+            continue;
+        }
+        const { titleId } = title;
+
         activeTitleValidations.get(titleId)?.abort();
         titleValidationResults.delete(titleId);
         broadcastAppSocketEvent({

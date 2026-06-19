@@ -17,11 +17,10 @@ import {
     CHILD_KINDS,
     cloneTitleGroup,
     createTitleGroup,
-    getTitleFamily,
     mergeTitleEntry,
-    normalizeTitle,
+    identifyTitle,
     replaceTitleKind,
-    normalizeWiiUTitle,
+    identifyWiiUTitle,
     normalizeTitleName,
     TitleKinds,
     TitleDatabaseEntry,
@@ -188,7 +187,10 @@ export async function scanWiiUTitleRoots(
 
     try {
         for (const entry of await scanWudTitleEntries(roots)) {
-            const family = getTitleFamily(entry.titles[0]?.titleId ?? '');
+            const family = identifyTitle(entry.titles[0]?.titleId)?.family;
+            if (!family) {
+                continue;
+            }
             let group = groups.find((candidate) => candidate.family === family);
             if (!group) {
                 group = createGroup(family);
@@ -395,11 +397,11 @@ export async function readWiiUTitleIdentity(
     }
 
     const titleId = Buffer.from(tmd.header.titleId).toString('hex');
-    const normalizedTitle = normalizeTitle(titleId);
+    const titleIdentity = identifyTitle(titleId);
     return {
         titleId,
         version: tmd.header.titleVersion,
-        kind: normalizedTitle?.kind ?? TitleKinds.Unknown,
+        kind: titleIdentity?.kind ?? TitleKinds.Unknown,
     };
 }
 
@@ -537,9 +539,9 @@ async function readTitleEntry(
     }
 
     const titleId = Buffer.from(tmd.header.titleId).toString('hex');
-    const normalizedTitle = normalizeTitle(titleId);
-    const family = normalizedTitle?.family ?? getTitleFamily(titleId);
-    const kind = normalizedTitle?.kind ?? TitleKinds.Unknown;
+    const titleIdentity = identifyTitle(titleId);
+    const family = titleIdentity?.family ?? titleId;
+    const kind = titleIdentity?.kind ?? TitleKinds.Unknown;
     const databaseEntry = titleDatabase.get(family);
 
     return {
@@ -631,7 +633,7 @@ function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
     }
 
     const entries: TitleDatabaseEntry[] = json.map((entry) => {
-        const title = normalizeWiiUTitle(entry.titleId);
+        const title = identifyWiiUTitle(entry.titleId);
         if (!title) {
             throw new Error(
                 `invalid titleId in titles.json: ${JSON.stringify(entry)}`

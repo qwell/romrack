@@ -12,7 +12,7 @@ import {
     TITLE_VALIDATE_SOCKET_COMMAND,
 } from '../shared/socket.js';
 import { type DownloadQueueItemDetails } from '../shared/download.js';
-import { normalizeWiiUTitle, TitleKinds } from '../shared/titles.js';
+import { identifyWiiUTitle, TitleKinds } from '../shared/titles.js';
 import logger from '../shared/logger.js';
 
 type AppSocketOptions = {
@@ -178,15 +178,15 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
     } else if (isSocketCommand(command, TITLE_VALIDATE_SOCKET_COMMAND.queue)) {
         const titleId = (command as { titleId?: unknown }).titleId;
         const name = (command as { name?: unknown }).name;
-        const normalizedTitle = normalizeWiiUTitle(titleId);
+        const titleIdentity = identifyWiiUTitle(titleId);
 
-        if (!normalizedTitle || typeof name !== 'string') {
+        if (!titleIdentity || typeof name !== 'string') {
             return null;
         }
 
         return {
             ...command,
-            titleId: normalizedTitle.titleId,
+            titleId: titleIdentity.titleId,
         };
     }
 
@@ -219,7 +219,7 @@ function parseDownloadQueueItemDetails(
     }
 
     const item = value as Record<string, unknown>;
-    const title = normalizeWiiUTitle(item.titleId);
+    const title = identifyWiiUTitle(item.titleId);
 
     if (
         typeof item.id !== 'string' ||

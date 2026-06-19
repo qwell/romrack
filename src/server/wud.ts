@@ -40,8 +40,7 @@ import {
 } from './title.js';
 import {
     DOWNLOADABLE_KINDS,
-    getTitleFamily,
-    normalizeTitle,
+    identifyTitle,
     normalizeTitleName,
     TitleKinds,
     type WudTitleEntry,
@@ -185,7 +184,10 @@ export async function scanWudTitleEntries(
 
                 for (const partition of partitions) {
                     const titleId = getTitleIdHex(partition.tmd.header.titleId);
-                    const family = getTitleFamily(titleId);
+                    const family = identifyTitle(titleId)?.family;
+                    if (!family) {
+                        continue;
+                    }
                     const titles = titlesByFamily.get(family) ?? [];
                     titles.push({
                         titleId,
@@ -226,7 +228,7 @@ export async function convertWudImagesInRoots(
 ): Promise<LibraryWudConvertResult> {
     const imagePaths = await findWudImagePaths(roots);
     const requestedTitleId = titleId;
-    const requestedFamily = getTitleFamily(requestedTitleId);
+    const requestedFamily = identifyTitle(requestedTitleId)?.family ?? null;
     const commonKey = await readCommonKey();
     const converted: ConvertedWudImage[] = [];
     logger.log(
@@ -544,13 +546,13 @@ async function readWudGamePartitionChild(
         }
 
         const titleId = getTitleIdHex(ticket.titleId);
-        const titleKind = normalizeTitle(titleId)?.kind ?? TitleKinds.Unknown;
+        const title = identifyTitle(titleId);
+        const titleKind = title?.kind ?? TitleKinds.Unknown;
         if (
             !DOWNLOADABLE_KINDS.includes(
                 titleKind as (typeof DOWNLOADABLE_KINDS)[number]
             ) ||
-            (requestedFamily !== null &&
-                getTitleFamily(titleId) !== requestedFamily)
+            (requestedFamily !== null && title?.family !== requestedFamily)
         ) {
             return null;
         }

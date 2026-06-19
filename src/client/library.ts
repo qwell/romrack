@@ -17,8 +17,7 @@ import {
 } from '../shared/action.js';
 import { formatSize, formatTitleDisplay } from '../shared/shared.js';
 import {
-    getTitleFamily,
-    normalizeTitle,
+    identifyTitle,
     type AvailableTitleEntry,
     type ChildKind,
     PARENT_KINDS,
@@ -88,7 +87,10 @@ export function mergeFailedVerificationsIntoAvailable(
             continue;
         }
 
-        const family = getTitleFamily(entry.titleId);
+        const family = identifyTitle(entry.titleId)?.family;
+        if (!family) {
+            continue;
+        }
         const group = groups.find((candidate) => candidate.family === family);
         if (!group) {
             continue;
@@ -478,7 +480,7 @@ export function renderLibrarySidebarWud(
     content.className = 'sidebar-download-content sidebar-wud-content';
     const titles = group.wudEntries.flatMap((entry) => entry.titles);
     const baseTitle = titles.find(
-        (title) => normalizeTitle(title.titleId)?.kind === TitleKinds.Base
+        (title) => identifyTitle(title.titleId)?.kind === TitleKinds.Base
     );
     const conversionTitle = baseTitle ?? titles[0];
 
@@ -509,7 +511,7 @@ export function renderLibrarySidebarWud(
         const space = document.createElement('span');
         const slot = document.createElement('span');
         slot.className = 'sidebar-download-slot';
-        slot.textContent = `${normalizeTitle(title.titleId)?.kind ?? TitleKinds.Unknown} v${title.version}`;
+        slot.textContent = `${identifyTitle(title.titleId)?.kind ?? TitleKinds.Unknown} v${title.version}`;
         const id = document.createElement('span');
         id.className = 'sidebar-download-id';
         id.textContent = title.titleId;
@@ -530,7 +532,7 @@ export function getLibraryVerifyActionBarEntries(
         const id = getLibraryVerifyId(item);
         let downloadDisabled = false;
         if (isLibraryVerifyFailure(item)) {
-            const family = getTitleFamily(item.titleId);
+            const family = identifyTitle(item.titleId)?.family;
             downloadDisabled = downloads.some(
                 (candidate) =>
                     candidate.state !== 'complete' &&
@@ -738,7 +740,7 @@ export function handleLibraryActionBarCommand(
             const queued = queueVerificationDownloads([
                 {
                     id: crypto.randomUUID(),
-                    family: getTitleFamily(item.titleId),
+                    family: identifyTitle(item.titleId)?.family ?? item.titleId,
                     groupName: item.name ?? item.titleId,
                     kind: item.kind,
                     label: item.kind,

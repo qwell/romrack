@@ -54,7 +54,7 @@ import {
 } from './formats/tmd.js';
 import { getUserAppRoot } from './paths.js';
 import {
-    normalizeTitle,
+    identifyWiiUTitle,
     replaceTitleKind,
     TitleKinds,
 } from '../shared/titles.js';
@@ -948,11 +948,12 @@ async function getChildTitleMetadata(
 }
 
 export function getDownloadableTitle(titleId: string): DownloadableTitle {
-    if (titleId.length !== 16) {
+    const title = identifyWiiUTitle(titleId);
+    if (!title) {
         throw new Error(`Invalid titleId: ${titleId}`);
     }
 
-    const kind = normalizeTitle(titleId)?.kind ?? TitleKinds.Unknown;
+    const { kind } = title;
     if (
         kind !== TitleKinds.Base &&
         kind !== TitleKinds.Update &&
@@ -961,5 +962,5 @@ export function getDownloadableTitle(titleId: string): DownloadableTitle {
         throw new Error(`Unsupported downloadable title kind: ${titleId}`);
     }
 
-    return { titleId, kind };
+    return { titleId: title.titleId, kind };
 }

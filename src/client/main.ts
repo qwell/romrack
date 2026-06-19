@@ -24,7 +24,7 @@ import {
     type StorageCopyItem,
     type StorageDeleteItem,
 } from '../shared/storage.js';
-import { getTitleFamily, type TitleGroup } from '../shared/titles.js';
+import { identifyTitle, type TitleGroup } from '../shared/titles.js';
 import { type DownloadQueueItem } from '../shared/download.js';
 import { formatSize } from '../shared/shared.js';
 import { type Fat32Volume, type RuntimeOs } from '../shared/os/types.js';
@@ -87,8 +87,9 @@ function reconcileCompletedLibraryConversions(
             continue;
         }
 
+        const family = identifyTitle(item.titleId)?.family;
         const group = getCurrentTitleGroups().find(
-            (candidate) => candidate.family === getTitleFamily(item.titleId)
+            (candidate) => candidate.family === family
         );
         if (!group) {
             continue;
@@ -354,8 +355,9 @@ function syncLibraryConversions(items: LibraryConvertItem[]): void {
 function handleTitleValidation(event: TitleValidationSocketEvent): void {
     titleValidations.set(event.titleId, event);
 
+    const family = identifyTitle(event.titleId)?.family;
     const group = getCurrentTitleGroups().find(
-        (candidate) => candidate.family === getTitleFamily(event.titleId)
+        (candidate) => candidate.family === family
     );
     if (!group) {
         return;

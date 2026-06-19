@@ -1,4 +1,4 @@
-import { type TitleKinds, type TitlePlatform } from './titles.js';
+import { type TitleIdentity, type TitleKinds } from './titles.js';
 import { type ActionState } from './action.js';
 
 export type StorageCopyOperation = 'copy' | 'move';
@@ -22,7 +22,7 @@ export type StorageCopyItem = {
 };
 
 export type StorageTransferQueueInput = {
-    titleId: string;
+    title: TitleIdentity;
     requestedDestination: string | null;
     move: boolean;
 };
@@ -50,6 +50,6 @@ export type StorageDeleteItem = {
 };
 
 export type StorageDeleteQueueItem = StorageDeleteItem & {
-    platform: TitlePlatform;
+    title: TitleIdentity;
     sourcePaths: string[];
 };

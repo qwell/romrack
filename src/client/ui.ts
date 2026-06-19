@@ -10,7 +10,7 @@ import {
     type StorageDeleteItem,
 } from '../shared/storage.js';
 import {
-    getTitleFamily,
+    identifyTitle,
     type TitleGroup,
     TitleKinds,
 } from '../shared/titles.js';
@@ -94,7 +94,7 @@ function getBusyKinds(options: UiOptions, group: TitleGroup): Set<TitleKinds> {
     }
     for (const item of options.libraryConversions) {
         if (
-            getTitleFamily(item.titleId) === group.family &&
+            identifyTitle(item.titleId)?.family === group.family &&
             running(item.state)
         ) {
             busyKinds.add(item.kind);
@@ -103,7 +103,7 @@ function getBusyKinds(options: UiOptions, group: TitleGroup): Set<TitleKinds> {
     for (const item of [...options.storageDeletes, ...options.storageCopies]) {
         if (
             !item.titleId ||
-            getTitleFamily(item.titleId) !== group.family ||
+            identifyTitle(item.titleId)?.family !== group.family ||
             !running(item.state)
         ) {
             continue;

@@ -10,7 +10,7 @@ import {
 } from '../library.js';
 import { scanWiiTitleRoots, verifyWiiTitleRoots } from '../wii.js';
 import { convertWudImagesInRoots } from '../wud.js';
-import { requireWiiUTitleIdQuery, sendServerError } from '../request.js';
+import { requireWiiUTitleQuery, sendServerError } from '../request.js';
 import {
     abortAndClearTitleValidations,
     markTitleCopiesValidating,
@@ -35,7 +35,6 @@ import {
     type LibraryVerifySocketCommand,
     type LibraryVerifyEvent,
 } from '../../shared/socket.js';
-import { normalizeTitle, TitleKinds } from '../../shared/titles.js';
 
 let latestLibraryVerifyEvent: LibraryVerifyEvent | null = null;
 const libraryVerifyFailures = new Map<string, LibraryVerifyEvent>();
@@ -253,17 +252,17 @@ export function createLibraryRouter(): Router {
     });
 
     router.get('/convert', (req, res) => {
-        const titleId = requireWiiUTitleIdQuery(req, res);
-        if (titleId === null) {
+        const title = requireWiiUTitleQuery(req, res);
+        if (title === null) {
             return;
         }
 
-        const cached = getLibraryCacheEntry(titleId);
+        const cached = getLibraryCacheEntry(title.titleId);
         const item: LibraryConvertItem = {
             id: randomUUID(),
-            titleId,
+            titleId: title.titleId,
             name: cached?.name ?? null,
-            kind: normalizeTitle(titleId)?.kind ?? TitleKinds.Unknown,
+            kind: title.kind,
             version: cached?.version ?? null,
             state: 'queued',
             currentFileName: null,

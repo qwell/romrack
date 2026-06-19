@@ -1,5 +1,5 @@
 import {
-    getTitleFamily,
+    identifyTitle,
     type TitleEntry,
     type TitleGroup,
     type TitleKinds,
@@ -33,10 +33,11 @@ export function getLibraryCacheEntry(titleId: string): {
     version: number | null;
     kind: TitleKinds | null;
 } | null {
+    const titleIdentity = identifyTitle(titleId);
     const group =
-        titleId.length === 16
+        titleIdentity?.platform === 'wiiu'
             ? libraryGroups.find(
-                  (candidate) => candidate.family === getTitleFamily(titleId)
+                  (candidate) => candidate.family === titleIdentity.family
               )
             : libraryGroups.find((candidate) =>
                   candidate.entries.some((entry) => entry.titleId === titleId)

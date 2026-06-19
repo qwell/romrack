@@ -12,7 +12,7 @@ import {
     cloneTitleGroup,
     createTitleGroup,
     mergeTitleEntry,
-    normalizeWiiTitle,
+    identifyWiiTitle,
     TitleDatabaseEntry,
     TitleKinds,
     type TitleGroup,
@@ -48,7 +48,6 @@ const WII_DISC_TITLE_ID_OFFSET = 0x00; // [0] = systemType, [1-2] = titleId, [3]
 const WII_DISC_TITLE_ID_LENGTH = 0x04;
 const WII_DISC_PUBLISHER_ID_OFFSET = 0x04;
 const WII_DISC_PUBLISHER_ID_LENGTH = 0x02;
-const WII_DISC_NUMBER_OFFSET = 0x06;
 const WII_DISC_VERSION_OFFSET = 0x07;
 const WII_DISC_MAGIC_OFFSET = 0x18;
 const WII_DISC_MAGIC = 0x5d1c9ea3;
@@ -543,11 +542,11 @@ function parseDiscHeader(buffer: Buffer): DiscHeaderInfo | null {
     const publisherId = WII_PUBLISHER_ID_PATTERN.test(headerPublisherId)
         ? headerPublisherId
         : null;
-    const normalizedTitle =
+    const titleIdentity =
         gameId && publisherId
-            ? normalizeWiiTitle(`${gameId}${publisherId}`)
+            ? identifyWiiTitle(`${gameId}${publisherId}`)
             : null;
-    const titleId = normalizedTitle?.titleId ?? null;
+    const titleId = titleIdentity?.titleId ?? null;
     const region = getDiscRegion(gameId);
 
     const version = buffer[WII_DISC_VERSION_OFFSET];
