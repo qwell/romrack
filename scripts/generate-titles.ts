@@ -8,7 +8,7 @@ import { XMLParser } from 'fast-xml-parser';
 
 import { normalizeRegion } from '../src/shared/regions.js';
 import {
-    normalizeWiiUTitle,
+    identifyWiiUTitle,
     normalizeTitleName,
     RawTitleDatabaseEntry,
 } from '../src/shared/titles.js';
@@ -124,7 +124,7 @@ function titleIdSet(entries: unknown[]): Set<string> {
 
     for (const entry of entries) {
         if (stringFieldRecord(entry, ['titleId'])) {
-            const title = normalizeWiiUTitle(entry.titleId);
+            const title = identifyWiiUTitle(entry.titleId);
             if (title) {
                 titleIds.add(title.titleId);
             }
@@ -248,7 +248,7 @@ function generateTitleIds(excluded: Set<string>): string[] {
         const end = BigInt(`0x${endHex}`);
 
         while (current <= end) {
-            const title = normalizeWiiUTitle(
+            const title = identifyWiiUTitle(
                 current.toString(16).padStart(16, '0')
             );
             const titleId = title?.titleId ?? '';
@@ -395,7 +395,7 @@ async function loadTitledbTitles(): Promise<RawTitleDatabaseEntry[]> {
     const rows = parseCsvRows(await fs.readFile(titledbFile, 'utf8'));
     return rows
         .map((row): RawTitleDatabaseEntry | null => {
-            const title = normalizeWiiUTitle(row['Title ID']);
+            const title = identifyWiiUTitle(row['Title ID']);
             if (!title) {
                 return null;
             }
@@ -452,7 +452,7 @@ async function loadSamuraiIcons(): Promise<Icon[] | null> {
 
         for (const { title } of contentEntries) {
             const titleId =
-                normalizeWiiUTitle(title?.['@id'] ?? '')?.titleId ?? '';
+                identifyWiiUTitle(title?.['@id'] ?? '')?.titleId ?? '';
             const iconUrl = title?.icon_url ?? '';
 
             if (titleId !== '' && iconUrl !== '') {
