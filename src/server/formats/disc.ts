@@ -132,8 +132,14 @@ async function readExactFromWbfsParts(
     return null;
 }
 
-export function readDiscHeaderText(buffer: Buffer): string | null {
-    const text = buffer.toString('utf8').replace(/\0.*$/s, '').trim();
+export function readDiscHeaderText(
+    buffer: Buffer,
+    encoding = 'utf-8'
+): string | null {
+    const nullIndex = buffer.indexOf(0);
+    const textBuffer =
+        nullIndex === -1 ? buffer : buffer.subarray(0, nullIndex);
+    const text = new TextDecoder(encoding).decode(textBuffer).trim();
     return text.length > 0 ? text : null;
 }
 

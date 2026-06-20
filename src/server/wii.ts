@@ -53,6 +53,7 @@ const WII_DISC_MAGIC_OFFSET = 0x18;
 const WII_DISC_MAGIC = 0x5d1c9ea3;
 const WII_DISC_TITLE_NAME_OFFSET = 0x20;
 const WII_DISC_TITLE_NAME_LENGTH = 64;
+const WII_DISC_TITLE_NAME_ENCODING = 'shift-jis';
 const WII_DISC_HEADER_LOCATION: DiscHeaderLocation = {
     position: 0,
     length: WII_DISC_TITLE_NAME_OFFSET + WII_DISC_TITLE_NAME_LENGTH,
@@ -555,7 +556,8 @@ function parseDiscHeader(buffer: Buffer): DiscHeaderInfo | null {
         buffer.subarray(
             WII_DISC_TITLE_NAME_OFFSET,
             WII_DISC_TITLE_NAME_OFFSET + WII_DISC_TITLE_NAME_LENGTH
-        )
+        ),
+        WII_DISC_TITLE_NAME_ENCODING
     );
 
     return {
