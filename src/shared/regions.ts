@@ -1,10 +1,8 @@
-function getProductCodeRegion(
-    productCode: string | null | undefined
-): string | null {
-    const match = /^WUP-[A-Z0-9]+-[A-Z0-9]{3}([A-Z0-9])$/i.exec(
-        productCode ?? ''
-    );
-    const suffix = match?.[1]?.toUpperCase();
+function getProductCodeRegion(productCode: string): string | null {
+    const code = productCode ?? '';
+    const fullCodeMatch = /^WUP-[A-Z0-9]+-[A-Z0-9]{3}([A-Z0-9])$/i.exec(code);
+    const shortCodeMatch = /^[A-Z0-9]{3}([A-Z0-9])$/i.exec(code);
+    const suffix = (fullCodeMatch ?? shortCodeMatch)?.[1]?.toUpperCase();
 
     switch (suffix) {
         case 'A':
@@ -31,13 +29,17 @@ function getProductCodeRegion(
 }
 
 export function normalizeRegion(
-    region: string | null | undefined,
-    productCode?: string | null
+    region: string | null,
+    productCode: string | null
 ): string {
+    if (!region || !productCode) {
+        return '';
+    }
+
     return getProductCodeRegion(productCode) ?? parseRegion(region);
 }
 
-export function parseRegion(value: string | null | undefined): string {
+export function parseRegion(value: string): string {
     if (!value) {
         return '';
     }

@@ -1,4 +1,8 @@
-import { type TitleIdentity, type TitleKinds } from './titles.js';
+import {
+    type TitleIdentity,
+    type TitleKinds,
+    type TitlePlatform,
+} from './titles.js';
 import { type ActionState } from './action.js';
 
 export type StorageCopyOperation = 'copy' | 'move';
@@ -29,10 +33,12 @@ export type StorageTransferQueueInput = {
 
 export type StorageCopyQueueItem = StorageCopyItem & {
     sourcePath: string | null;
+    sourcePaths: string[];
     destinationPath: string;
     currentFilePath: string | null;
     requestedDestination: string | null;
     requestedTitleId: string;
+    requestedPlatform: TitlePlatform;
     duplicateSourcePaths: string[];
 };
 

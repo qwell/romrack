@@ -1,4 +1,4 @@
-import { normalizeTitleName, type TitleKinds } from './titles.js';
+import { identifyTitle, normalizeTitleName } from './titles.js';
 
 export function toArray<T>(value: T | readonly T[] | null | undefined): T[] {
     if (value == null) {
@@ -12,24 +12,6 @@ export function toArray<T>(value: T | readonly T[] | null | undefined): T[] {
 
 export function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-export function formatSize(sizeBytes: number | null): string {
-    if (sizeBytes === null || sizeBytes === undefined) {
-        return '';
-    }
-
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let value = sizeBytes;
-    let unitIndex = 0;
-
-    while (value >= 1024 && unitIndex < units.length - 1) {
-        value /= 1024;
-        unitIndex += 1;
-    }
-
-    const digits = value >= 100 || unitIndex === 0 ? 0 : value >= 10 ? 1 : 2;
-    return `${value.toFixed(digits)} ${units[unitIndex]}`;
 }
 
 export async function mapConcurrent<T, U>(
@@ -83,29 +65,58 @@ export function formatLogError(error: unknown): string {
     return `${error.message}; cause: ${formatLogError(cause)}`;
 }
 
-export function nullableString(value: unknown): string | null {
-    return typeof value === 'string' && value.length > 0 ? value : null;
-}
+export function formatSize(sizeBytes: number | null): string {
+    if (sizeBytes === null || sizeBytes === undefined) {
+        return '';
+    }
 
-export function nullableNumber(value: unknown): number | null {
-    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let value = sizeBytes;
+    let unitIndex = 0;
+
+    while (value >= 1024 && unitIndex < units.length - 1) {
+        value /= 1024;
+        unitIndex += 1;
+    }
+
+    const digits = value >= 100 || unitIndex === 0 ? 0 : value >= 10 ? 1 : 2;
+    return `${value.toFixed(digits)} ${units[unitIndex]}`;
 }
 
 export function formatTitleDisplay(
     name: string | null,
     titleId: string,
-    kind: TitleKinds | string | null,
     version: number | null = null
 ): string {
+    const title = identifyTitle(titleId);
+    if (!title) {
+        return '';
+    }
+
     const label = name ?? titleId;
     const versionText = version === null ? '' : ` v${version}`;
-    const kindText = kind && kind !== 'Wii' ? ` [${kind}]` : '';
+    let kindText = '';
+    if (title.kind) {
+        switch (title.platform) {
+            case 'wiiu':
+                kindText = ` [${title.kind}]`;
+                break;
+        }
+    }
     const titleIdText = name === null ? '' : ` ${titleId}`;
     return `${label}${versionText}${kindText}${titleIdText}`;
 }
 
 export function isNonEmptyString(value: string): boolean {
     return value.length > 0;
+}
+
+export function nullableString(value: unknown): string | null {
+    return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+export function nullableNumber(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 export function readNullTerminatedString(

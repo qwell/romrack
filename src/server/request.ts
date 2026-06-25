@@ -59,7 +59,7 @@ export function getTitleQuery(req: Request): TitleQueryResult {
     if (!titleIdentity) {
         return {
             ok: false,
-            error: 'titleId query parameter must be a Wii U title ID or Wii disc ID',
+            error: 'titleId query parameter must be a Wii U title ID or Wii product code',
         };
     }
 

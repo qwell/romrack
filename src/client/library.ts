@@ -68,6 +68,8 @@ function verificationToAvailableEntry(
         name: title.name,
         region: null,
         iconUrl: null,
+        bannerUrl: null,
+        discUrl: null,
         version: title.version ?? 0,
         kind: title.kind,
         sizeBytes: 0,
@@ -361,12 +363,7 @@ function formatLibraryVerifyState(item: LibraryVerifyEvent): string {
 
 function formatLibraryVerifyTitle(item: LibraryVerifyEvent): string {
     if (isLibraryVerifyTitleEvent(item)) {
-        return formatTitleDisplay(
-            item.name,
-            item.titleId,
-            item.kind,
-            item.version
-        );
+        return formatTitleDisplay(item.name, item.titleId, item.version);
     }
 
     return '';
@@ -454,7 +451,7 @@ function formatLibraryConvertState(item: LibraryConvertItem): string {
 }
 
 function formatLibraryConvertTitle(item: LibraryConvertItem): string {
-    return formatTitleDisplay(item.name, item.titleId, item.kind, item.version);
+    return formatTitleDisplay(item.name, item.titleId, item.version);
 }
 
 function formatLibraryConvertDetails(item: LibraryConvertItem): string {

@@ -183,7 +183,7 @@ function formatRegion(region: string | null): {
 
 function formatTooltip(group: TitleGroup): string {
     if (group.platform === 'wii') {
-        const entry = getEntry(group, TitleKinds.Wii);
+        const entry = getEntry(group, TitleKinds.Base);
         return `Disc image: ${
             entry ? `${formatSize(entry.sizeBytes)} (${entry.titleId})` : '-'
         }`;
@@ -235,19 +235,43 @@ function renderSlotBadge(
     return badge;
 }
 
-function renderWiiBadge(group: TitleGroup): HTMLElement {
-    return renderSlotBadge(group, TitleKinds.Wii, getBaseBadgeState(group));
+function renderPlatformBadge(group: TitleGroup): HTMLElement {
+    const badge = document.createElement('div');
+    badge.className = 'title-metadata-badge title-platform';
+    badge.dataset.family = group.family;
+    badge.dataset.platform = group.platform;
+
+    switch (group.platform) {
+        case 'wii':
+            badge.textContent = 'Wii';
+            break;
+        case 'wiiu':
+            badge.textContent = 'Wii U';
+            break;
+        default:
+            badge.textContent = group.platform;
+            break;
+    }
+
+    return badge;
 }
 
-function renderVirtualConsoleBadge(group: TitleGroup): HTMLElement | null {
-    const platform = getVirtualConsolePlatform(group.productCode);
-    if (!platform) {
-        return null;
-    }
+function renderVirtualConsoleBadge(group: TitleGroup): HTMLElement {
+    const platform = getVirtualConsolePlatform(
+        group.platform,
+        group.productCode
+    );
     const badge = document.createElement('div');
-    badge.className = 'title-slot-badge title-slot-badge-vc';
-    badge.textContent = platform.toString();
-    badge.title = 'Virtual Console';
+    badge.className = 'title-metadata-badge title-vc';
+
+    if (platform) {
+        badge.textContent = platform.toString();
+        badge.title = 'Virtual Console';
+    } else {
+        badge.classList.add('title-metadata-badge-placeholder');
+        badge.setAttribute('aria-hidden', 'true');
+    }
+
     return badge;
 }
 
@@ -305,37 +329,45 @@ function renderGroup(
     badges.className = 'title-group-metadata';
     const badgeList = document.createElement('div');
     badgeList.className = 'title-slot-badges';
-    const vcBadge = renderVirtualConsoleBadge(group);
     const wudBadge = renderWudBadge(group);
-    if (vcBadge) {
-        badgeList.append(vcBadge);
-    }
     if (wudBadge) {
         badgeList.append(wudBadge);
     }
-    if (group.platform === 'wii') {
-        badgeList.append(renderWiiBadge(group));
-    } else {
-        badgeList.append(
-            renderSlotBadge(group, TitleKinds.Base, getBaseBadgeState(group)),
-            renderSlotBadge(
-                group,
-                TitleKinds.Update,
-                getChildBadgeState(group, TitleKinds.Update)
-            ),
-            renderSlotBadge(
-                group,
-                TitleKinds.DLC,
-                getChildBadgeState(group, TitleKinds.DLC)
-            )
-        );
+    switch (group.platform) {
+        case 'wiiu':
+            badgeList.append(
+                renderSlotBadge(
+                    group,
+                    TitleKinds.Base,
+                    getBaseBadgeState(group)
+                ),
+                renderSlotBadge(
+                    group,
+                    TitleKinds.Update,
+                    getChildBadgeState(group, TitleKinds.Update)
+                ),
+                renderSlotBadge(
+                    group,
+                    TitleKinds.DLC,
+                    getChildBadgeState(group, TitleKinds.DLC)
+                )
+            );
+            break;
     }
+
     badges.append(badgeList);
+
+    const rightBadges = document.createElement('div');
+    rightBadges.className = 'title-group-right-metadata';
+    rightBadges.append(
+        renderVirtualConsoleBadge(group),
+        renderPlatformBadge(group)
+    );
 
     if (group.region) {
         const formatted = formatRegion(group.region);
         const region = document.createElement('div');
-        region.className = 'title-region';
+        region.className = 'title-metadata-badge title-region';
         const flag = document.createElement('span');
         flag.className = formatted.class ?? '';
         flag.textContent = formatted.flag;
@@ -343,8 +375,9 @@ function renderGroup(
         text.className = 'region';
         text.textContent = formatted.text;
         region.append(flag, text);
-        badges.append(region);
+        rightBadges.append(region);
     }
+    badges.append(rightBadges);
 
     root.append(header, badges);
     root.addEventListener('click', () => onSelect(group));
@@ -449,9 +482,10 @@ function collectRegions(groups: TitleGroup[]): string[] {
 
 function collectVcPlatforms(groups: TitleGroup[]): VirtualConsolePlatform[] {
     const platforms = groups.flatMap((group) => {
-        const platform = group.productCode
-            ? getVirtualConsolePlatform(group.productCode)
-            : null;
+        const platform = getVirtualConsolePlatform(
+            group.platform,
+            group.productCode
+        );
         return platform ? [platform] : [];
     });
     return [...new Set(platforms)].sort((a, b) =>
@@ -459,6 +493,23 @@ function collectVcPlatforms(groups: TitleGroup[]): VirtualConsolePlatform[] {
             sensitivity: 'base',
         })
     );
+}
+
+function updateVirtualConsoleBadgeWidth(
+    groups: TitleGroup[],
+    grid: HTMLDivElement
+): void {
+    const platforms = collectVcPlatforms(groups);
+
+    if (platforms.length === 0) {
+        grid.style.removeProperty('--title-vc-badge-width');
+        return;
+    }
+
+    const label = platforms.reduce((longest, platform) => {
+        return platform.length > longest.length ? platform : longest;
+    }, '');
+    grid.style.setProperty('--title-vc-badge-width', `${label.length + 2}ch`);
 }
 
 function normalizeControlState(groups: TitleGroup[]): void {
@@ -493,9 +544,10 @@ function isGroupVisible(group: TitleGroup): boolean {
         return false;
     }
 
-    const platform = group.productCode
-        ? getVirtualConsolePlatform(group.productCode)
-        : null;
+    const platform = getVirtualConsolePlatform(
+        group.platform,
+        group.productCode
+    );
     if (controlState.vc === 'vc' && !platform) {
         return false;
     }
@@ -522,6 +574,7 @@ function renderGroups(
 ): void {
     currentGroups = groups;
     const filtered = groups.filter(isGroupVisible);
+    updateVirtualConsoleBadgeWidth(groups, grid);
 
     grid.replaceChildren();
     resetIconObserver();

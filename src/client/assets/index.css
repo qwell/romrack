@@ -587,13 +587,17 @@ select {
 .title-group-metadata {
     grid-area: badges;
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
     font-size: 9px;
 
     justify-content: space-between;
 }
 
 .library-grid[data-view='list'] .title-group-metadata {
+    flex-direction: row;
+    align-items: center;
     justify-content: flex-end;
     gap: 4px;
 }
@@ -606,10 +610,25 @@ select {
     white-space: nowrap;
 }
 
+.title-group-right-metadata {
+    display: grid;
+    grid-template-columns: var(--title-vc-badge-width, 0) auto auto;
+    gap: 4px;
+    align-items: center;
+    justify-content: end;
+    white-space: nowrap;
+}
+
 .title-slot-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-height: 16px;
     padding: 1px 6px;
     border: 1px solid currentColor;
     border-radius: 8px;
+    line-height: 1;
 }
 
 .title-slot-badge-complete {
@@ -642,13 +661,32 @@ select {
     color: var(--unknown);
 }
 
-.title-region {
+.title-metadata-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    box-sizing: border-box;
     min-width: 36px;
+    min-height: 16px;
+    padding: 1px 6px;
     border: 1px solid var(--border-muted);
-    margin-left: 8px;
+    line-height: 1;
+}
+
+.title-platform {
+    color: var(--complete);
+}
+
+.title-vc {
+    color: var(--vc);
+    justify-self: end;
+}
+
+.title-metadata-badge-placeholder {
+    visibility: hidden;
+}
+
+.title-region {
     font-family: 'Noto Color Emoji', system-ui, sans-serif;
 }
 
@@ -700,8 +738,10 @@ select {
 
 .sidebar-thumbnail img {
     display: block;
-    width: 64px;
-    height: 64px;
+    height: 128px;
+    width: auto;
+    max-width: 100%;
+    object-fit: contain;
 }
 
 .sidebar-title {
@@ -855,7 +895,7 @@ footer > div:last-child {
 
 .sidebar-download-row {
     display: grid;
-    grid-template-columns: 18px 12ch minmax(16ch, 1fr) 6ch 8ch;
+    grid-template-columns: 18px 12ch minmax(16ch, 1fr) 6ch 10ch;
     gap: 6px;
     align-items: center;
     min-height: 20px;

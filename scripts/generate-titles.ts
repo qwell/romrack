@@ -22,15 +22,15 @@ type Icon = {
 };
 
 type TitleLookupWiiUResponse = {
-    titleId?: string;
-    name?: string;
-    region?: string | null;
-    iconUrl?: string | null;
-    productCode?: string | null;
+    titleId: string;
+    name: string;
+    region: string;
+    productCode: string;
     companyCode?: string | null;
     baseVersions?: number[];
     updateVersions?: number[];
     dlcVersions?: number[];
+    iconUrl?: string | null;
     availableOnCdn?: boolean;
 };
 
@@ -69,7 +69,7 @@ const ranges = [
     '000500001fbf1000:000500001fbf1000',
 ];
 
-const titleUrl = 'http://localhost:3000/api/title-lookup-wiiu?titleId=%s';
+const titleUrl = 'http://localhost:3000/api/title/wiiu?titleId=%s';
 const samuraiContentsUrl =
     'https://samurai.wup.shop.nintendo.net/samurai/ws/US/contents/?shop_id=2&limit=10000';
 const wiiUTdbZipUrl = 'https://www.gametdb.com/wiiutdb.zip';
@@ -291,10 +291,14 @@ function logTitleResult(
     console.log(lines.join('\n'));
 }
 
-function hasBaseMetadata(metadata: TitleLookupWiiUResponse | null): boolean {
+function hasBaseMetadata(
+    metadata: TitleLookupWiiUResponse | null
+): metadata is TitleLookupWiiUResponse {
     return (
         metadata !== null &&
         metadata.titleId !== undefined &&
+        metadata.name !== null &&
+        metadata.region !== null &&
         (metadata.baseVersions?.length ?? 0) > 0
     );
 }

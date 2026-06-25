@@ -124,6 +124,18 @@
         "dlcVersions": []
     },
     {
+        "titleId": "0005000010189400",
+        "name": "c",
+        "region": "ALL",
+        "productCode": "WUP-P-BCFA",
+        "companyCode": "0002",
+        "iconUrl": null,
+        "baseVersions": [2],
+        "updateVersions": [],
+        "dlcVersions": [],
+        "availableOnCdn": true
+    },
+    {
         "titleId": "00050000101bca00",
         "name": "Napster",
         "region": "EUR",

@@ -21,10 +21,13 @@ import {
     identifyTitle,
     replaceTitleKind,
     identifyWiiUTitle,
+    getWiiUProductCode,
     normalizeTitleName,
     TitleKinds,
     TitleDatabaseEntry,
     RawTitleDatabaseEntry,
+    type TitleMediaType,
+    TitlePlatform,
 } from '../shared/titles.js';
 import {
     findFirstReadableTitleRoot,
@@ -56,6 +59,8 @@ import {
 import { resolveReadablePath } from '../shared/os.js';
 import { TMD_TITLE_FILE } from './formats/tmd.js';
 import { scanWudTitleEntries } from './wud.js';
+import { readGameTdbMedia } from './gametdb.js';
+import { readTitleMediaFromUrl, type CachedImage } from './image-cache.js';
 
 type GameTdbLocale = {
     '@lang'?: string;
@@ -127,6 +132,7 @@ async function scanWiiUTitles(root: string): Promise<TitleGroup[]> {
         group.details = databaseEntry
             ? getGameTdbDetails(gameTdb, databaseEntry)
             : null;
+        const titleUrls = getTitleMediaUrls(databaseEntry);
         group.availableEntries = getAvailableEntries(databaseEntry);
         group.expectedChildren = CHILD_KINDS.filter((kind) => {
             if (!databaseEntry) {
@@ -142,15 +148,15 @@ async function scanWiiUTitles(root: string): Promise<TitleGroup[]> {
         if (parentEntry) {
             group.name = parentEntry.name;
             group.region = parentEntry.region;
-            group.iconUrl = databaseEntry?.iconUrl
-                ? getApiIconUrl(group.family)
-                : parentEntry.iconUrl;
+            group.iconUrl = titleUrls.iconUrl ?? parentEntry.iconUrl;
+            group.bannerUrl = titleUrls.bannerUrl ?? parentEntry.bannerUrl;
+            group.discUrl = titleUrls.discUrl ?? parentEntry.discUrl;
         } else if (databaseEntry) {
             group.name = databaseEntry.name;
             group.region = databaseEntry.region;
-            group.iconUrl = databaseEntry.iconUrl
-                ? getApiIconUrl(group.family)
-                : null;
+            group.iconUrl = titleUrls.iconUrl;
+            group.bannerUrl = titleUrls.bannerUrl;
+            group.discUrl = titleUrls.discUrl;
         } else {
             const firstLocalChild = group.entries.find((entry) =>
                 CHILD_KINDS.includes(entry.kind as ChildKind)
@@ -159,6 +165,8 @@ async function scanWiiUTitles(root: string): Promise<TitleGroup[]> {
             group.name = firstLocalChild?.name ?? 'Unknown';
             group.region = firstLocalChild?.region ?? null;
             group.iconUrl = firstLocalChild?.iconUrl ?? null;
+            group.bannerUrl = firstLocalChild?.bannerUrl ?? null;
+            group.discUrl = firstLocalChild?.discUrl ?? null;
         }
 
         group.entries.sort((a, b) => (b.version ?? 0) - (a.version ?? 0));
@@ -269,7 +277,6 @@ async function verifyWiiUTitles(
             `verifying title: ${formatTitleDisplay(
                 titleName,
                 titleId,
-                titleKind,
                 titleVersion
             )} (${sizeText})`
         );
@@ -302,7 +309,6 @@ async function verifyWiiUTitles(
             `verified title:  ${formatTitleDisplay(
                 titleName,
                 titleId,
-                titleKind,
                 verification.titleVersion
             )} (${status})`
         );
@@ -397,17 +403,74 @@ export async function readWiiUTitleIdentity(
     }
 
     const titleId = Buffer.from(tmd.header.titleId).toString('hex');
-    const titleIdentity = identifyTitle(titleId);
+    const title = identifyTitle(titleId);
+    if (!title) {
+        return null;
+    }
+
     return {
         titleId,
         version: tmd.header.titleVersion,
-        kind: titleIdentity?.kind ?? TitleKinds.Unknown,
+        kind: title.kind ?? TitleKinds.Unknown,
     };
 }
 
-export async function getTitleIconUrl(family: string): Promise<string | null> {
-    const titleDatabase = await readTitleDatabase();
-    return titleDatabase.get(family)?.iconUrl ?? null;
+export async function readWiiUTitleMedia(
+    type: TitleMediaType,
+    platform: TitlePlatform,
+    productCode: string
+): Promise<CachedImage | null> {
+    const normalizedProductCode = getWiiUProductCode(productCode);
+    if (!normalizedProductCode) {
+        return null;
+    }
+
+    const titleDatabase = await readTitleDatabaseByProductCode();
+    const entry = titleDatabase.get(normalizedProductCode) ?? null;
+    if (!entry?.productCode) {
+        return null;
+    }
+
+    let url: string | null = '';
+    switch (type) {
+        case 'icons':
+            url = entry.iconUrl;
+            break;
+        case 'covers':
+            url = entry.bannerUrl;
+            break;
+        case 'discs':
+            url = entry.discUrl;
+            break;
+    }
+
+    if (url) {
+        try {
+            return await readTitleMediaFromUrl(
+                url,
+                type,
+                platform,
+                normalizedProductCode
+            );
+        } catch (error) {
+            if (type !== 'icons') {
+                throw error;
+            }
+
+            logger.warn(
+                'assets',
+                `failed to load Wii U icon media from URL for ${normalizedProductCode}: ${formatLogError(error)}`
+            );
+        }
+    }
+
+    switch (type) {
+        case 'icons':
+            return readGameTdbMedia('discs', 'wiiu', productCode);
+        case 'covers':
+        case 'discs':
+            return readGameTdbMedia(type, 'wiiu', productCode);
+    }
 }
 
 export async function findWiiUTitleSourcePaths(
@@ -469,6 +532,8 @@ function mergeTitleGroups(groups: TitleGroup[]): TitleGroup[] {
             existing.region = group.region;
             existing.productCode = group.productCode;
             existing.iconUrl = group.iconUrl;
+            existing.bannerUrl = group.bannerUrl;
+            existing.discUrl = group.discUrl;
             existing.details = group.details;
             existing.titleInDatabase = group.titleInDatabase;
             existing.status = group.status;
@@ -540,26 +605,36 @@ async function readTitleEntry(
 
     const titleId = Buffer.from(tmd.header.titleId).toString('hex');
     const titleIdentity = identifyTitle(titleId);
-    const family = titleIdentity?.family ?? titleId;
-    const kind = titleIdentity?.kind ?? TitleKinds.Unknown;
-    const databaseEntry = titleDatabase.get(family);
+    if (!titleIdentity) {
+        return null;
+    }
+
+    const family = titleIdentity.family ?? titleId;
+    const kind = titleIdentity.kind ?? TitleKinds.Unknown;
+
+    const databaseEntry = titleDatabase.get(family) ?? null;
+    const titleUrls = getTitleMediaUrls(databaseEntry);
 
     return {
-        platform: 'wiiu',
         titleId,
-        sourcePath: dirPath,
-        version: tmd.header.titleVersion,
+        platform: titleIdentity.platform,
         name: getTitleName(dirname, databaseEntry?.name ?? null),
         region: normalizeRegion(
             databaseEntry?.region ?? tmd.header.region,
             databaseEntry?.productCode
         ),
-        iconUrl: databaseEntry?.iconUrl ?? null,
+        version: tmd.header.titleVersion,
+
+        iconUrl: titleUrls.iconUrl,
+        bannerUrl: titleUrls.bannerUrl,
+        discUrl: titleUrls.discUrl,
 
         kind,
         family,
+
         sizeBytes: await getImmediatePathSizeBytes(dirPath),
         copyCount: 1,
+        sourcePath: dirPath,
     };
 }
 
@@ -607,10 +682,6 @@ function normalizeRelativeTitleDir(value: string): string {
     return value === '' ? '.' : value;
 }
 
-function getApiIconUrl(family: string): string {
-    return `/api/icon/${encodeURIComponent(family)}`;
-}
-
 function getTitleName(dirname: string, databaseName: string | null): string {
     if (databaseName && databaseName.length > 0) {
         return normalizeTitleName(databaseName);
@@ -623,6 +694,15 @@ function getTitleName(dirname: string, databaseName: string | null): string {
     }
 
     return 'Unknown';
+}
+
+function getTitleMediaUrl(
+    type: TitleMediaType,
+    productCode: string | null
+): string | null {
+    return productCode
+        ? `/api/media/${type}/wiiu/${encodeURIComponent(productCode)}`
+        : null;
 }
 
 function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
@@ -647,8 +727,10 @@ function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
             name: normalizeTitleName(entry.name),
             region: normalizeRegion(entry.region, entry.productCode),
             companyCode: entry.companyCode?.length ? entry.companyCode : null,
-            productCode: entry.productCode?.length ? entry.productCode : null,
+            productCode: getWiiUProductCode(entry.productCode),
             iconUrl: entry.iconUrl,
+            bannerUrl: entry.bannerUrl ?? null,
+            discUrl: entry.discUrl ?? null,
 
             baseVersions:
                 entry.baseVersions?.filter((version) =>
@@ -681,22 +763,33 @@ function parseNumber(value: string | null | undefined): number | null {
     return Number.isFinite(parsed) ? parsed : null;
 }
 
-function getGameTdbId(entry: TitleDatabaseEntry): string | null {
-    const productCode = entry.productCode?.match(/WUP-[PN]-([A-Z0-9]{4})/i);
-
-    if (!productCode) {
-        return null;
-    }
-
-    return productCode[1].toUpperCase();
-}
-
 function getGameTdbDetails(
     gameTdb: Map<string, TitleDetails>,
     entry: TitleDatabaseEntry
 ): TitleDetails | null {
-    const id = getGameTdbId(entry);
+    const id = entry.productCode;
     return id ? (gameTdb.get(id) ?? null) : null;
+}
+
+function getTitleMediaUrls(entry: TitleDatabaseEntry | null): {
+    iconUrl: string | null;
+    bannerUrl: string | null;
+    discUrl: string | null;
+} {
+    if (!entry) {
+        return {
+            iconUrl: null,
+            bannerUrl: null,
+            discUrl: null,
+        };
+    }
+
+    return {
+        iconUrl: getTitleMediaUrl('icons', entry.productCode),
+        bannerUrl:
+            entry.bannerUrl ?? getTitleMediaUrl('covers', entry.productCode),
+        discUrl: entry.discUrl ?? getTitleMediaUrl('discs', entry.productCode),
+    };
 }
 
 function latestVersion(versions: number[]): number[] {
@@ -830,6 +923,21 @@ async function readTitleDatabase(): Promise<Map<string, TitleDatabaseEntry>> {
     }
 
     return new Map(titleEntries.map((entry) => [entry.family, entry]));
+}
+
+async function readTitleDatabaseByProductCode(): Promise<
+    Map<string, TitleDatabaseEntry>
+> {
+    const titleDatabase = await readTitleDatabase();
+    const entriesByProductCode = new Map<string, TitleDatabaseEntry>();
+
+    for (const entry of titleDatabase.values()) {
+        if (entry.productCode) {
+            entriesByProductCode.set(entry.productCode, entry);
+        }
+    }
+
+    return entriesByProductCode;
 }
 
 function getParentByKind<T extends { kind: TitleKinds }>(

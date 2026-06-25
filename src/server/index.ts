@@ -6,6 +6,7 @@ import path from 'node:path';
 import { getAppRoot } from './paths.js';
 import { createAppSocket } from './socket.js';
 import { getConfig } from './routes/config.js';
+import { cacheAllGameTdbMedia } from './gametdb.js';
 import logger from '../shared/logger.js';
 import { formatLogError } from '../shared/utils.js';
 import {
@@ -20,7 +21,6 @@ import {
     isSocketCommand,
 } from '../shared/socket.js';
 import {
-    createIconRouter,
     createConfigRouter,
     createStorageRouter,
     getStorageCopies,
@@ -32,14 +32,16 @@ import {
     getLibraryVerifyEvents,
     handleLibraryConvertSocketCommand,
     handleLibraryVerifySocketCommand,
-    createTitleLookupWiiURouter,
+    createTitleRouter,
     handleTitleValidationSocketCommand,
     getTitleValidationResults,
     getDownloadQueue,
     handleDownloadSocketCommand,
+    createMediaRouter,
 } from './routes.js';
 
 const config = getConfig();
+cacheAllGameTdbMedia();
 
 const app = express();
 const host = config.host;
@@ -103,10 +105,10 @@ app.use(
 );
 
 app.use('/api/config', createConfigRouter());
-app.use('/api/icon', createIconRouter());
 app.use('/api/library', createLibraryRouter());
+app.use('/api/media', createMediaRouter());
 app.use('/api/storage', createStorageRouter());
-app.use('/api/title-lookup-wiiu', createTitleLookupWiiURouter());
+app.use('/api/title', createTitleRouter());
 
 const server = createServer(app);
 createAppSocket({

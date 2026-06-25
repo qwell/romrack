@@ -34,14 +34,24 @@ export function getLibraryCacheEntry(titleId: string): {
     kind: TitleKinds | null;
 } | null {
     const titleIdentity = identifyTitle(titleId);
-    const group =
-        titleIdentity?.platform === 'wiiu'
-            ? libraryGroups.find(
-                  (candidate) => candidate.family === titleIdentity.family
-              )
-            : libraryGroups.find((candidate) =>
-                  candidate.entries.some((entry) => entry.titleId === titleId)
-              );
+    if (!titleIdentity) {
+        return null;
+    }
+
+    let group;
+    switch (titleIdentity.platform) {
+        case 'wiiu':
+            group = libraryGroups.find(
+                (candidate) => candidate.family === titleIdentity.family
+            );
+            break;
+        case 'wii':
+            group = libraryGroups.find((candidate) =>
+                candidate.entries.some((entry) => entry.titleId === titleId)
+            );
+            break;
+    }
+
     if (!group || !group.name) {
         return null;
     }

@@ -174,7 +174,7 @@ export type LibraryConvertSocketCommand =
 
 export type TitleValidationSocketCommand = {
     type: typeof TITLE_VALIDATE_SOCKET_COMMAND.queue;
-    titleId: string;
+    id: string;
     name: string;
 };
 

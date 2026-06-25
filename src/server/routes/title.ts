@@ -10,6 +10,7 @@ import { broadcastAppSocketEvent } from '../socket.js';
 import { findWiiUTitleSourcePaths } from '../wiiu.js';
 import {
     identifyWiiUTitle,
+    isTitlePlatform,
     type TitleIdentity,
     TitleKinds,
 } from '../../shared/titles.js';
@@ -35,10 +36,29 @@ export function getTitleValidationResults(): TitleValidationSocketEvent[] {
     return [...titleValidationResults.values()];
 }
 
-export function createTitleLookupWiiURouter(): Router {
+export function createTitleRouter(): Router {
     const router = Router();
 
-    router.get('/', async (req, res) => {
+    router.get('/:platform', async (req, res) => {
+        const { platform } = req.params;
+        if (!isTitlePlatform(platform)) {
+            res.status(400).json({
+                error: 'Invalid title lookup platform',
+            });
+            return;
+        }
+
+        switch (platform) {
+            case 'wii':
+                res.status(404).json({
+                    error: 'Title lookup is not available for Wii titles',
+                });
+                return;
+
+            case 'wiiu':
+                break;
+        }
+
         const title = requireWiiUTitleQuery(req, res);
         if (!title) {
             return;
@@ -110,7 +130,7 @@ export function handleTitleValidationSocketCommand(
 ): void {
     switch (command.type) {
         case TITLE_VALIDATE_SOCKET_COMMAND.queue:
-            void validateTitleCopies(command.titleId);
+            void validateTitleCopies(command.id);
             return;
     }
 }

@@ -110,6 +110,8 @@ function reconcileCompletedLibraryConversions(
                     ...converted,
                     region: group.region,
                     iconUrl: group.iconUrl,
+                    bannerUrl: group.bannerUrl,
+                    discUrl: group.discUrl,
                     copyCount: 1,
                 });
             }
@@ -380,6 +382,8 @@ function handleTitleValidation(event: TitleValidationSocketEvent): void {
                 name: group.name,
                 region: group.region,
                 iconUrl: group.iconUrl,
+                bannerUrl: group.bannerUrl,
+                discUrl: group.discUrl,
                 version: copy?.titleVersion ?? wudTitle?.version ?? 0,
                 kind,
                 sizeBytes: 0,
@@ -501,7 +505,7 @@ setupUi({
     requestTitleValidation(titleId, name) {
         sendAppSocketCommand({
             type: TITLE_VALIDATE_SOCKET_COMMAND.queue,
-            titleId,
+            id: titleId,
             name,
         });
     },

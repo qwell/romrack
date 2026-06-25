@@ -10,6 +10,7 @@ import {
 } from '../library.js';
 import { scanWiiTitleRoots, verifyWiiTitleRoots } from '../wii.js';
 import { convertWudImagesInRoots } from '../wud.js';
+import { cacheGameTdbMediaForGroups } from '../gametdb.js';
 import { requireWiiUTitleQuery, sendServerError } from '../request.js';
 import {
     abortAndClearTitleValidations,
@@ -149,6 +150,7 @@ export function createLibraryRouter(): Router {
                 groups,
             };
             res.json(response);
+            cacheGameTdbMediaForGroups(groups);
             logger.log(
                 'server',
                 `library scan complete: ${groups.length} title group(s)`

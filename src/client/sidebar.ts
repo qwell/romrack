@@ -61,6 +61,28 @@ function getAvailableSizeText(entry: unknown): string {
     return formatSize(getAvailableSizeBytes(entry));
 }
 
+function getSidebarBannerUrl(group: TitleGroup): string | null {
+    return group.bannerUrl ?? group.iconUrl;
+}
+
+function addSidebarImageFallback(
+    image: HTMLImageElement,
+    group: TitleGroup,
+    src: string
+): void {
+    let usedFallback = false;
+
+    image.addEventListener('error', () => {
+        if (!usedFallback && group.iconUrl && src !== group.iconUrl) {
+            usedFallback = true;
+            image.src = group.iconUrl;
+            return;
+        }
+
+        image.remove();
+    });
+}
+
 export function setupSidebar(nextOptions: SidebarOptions): void {
     options = nextOptions;
 }
@@ -112,10 +134,12 @@ function showDetailSidebar(sidebar: HTMLElement, group: TitleGroup): void {
     if (thumbnail) {
         thumbnail.replaceChildren();
 
-        if (group.iconUrl) {
+        const bannerUrl = getSidebarBannerUrl(group);
+        if (bannerUrl) {
             const image = document.createElement('img');
-            image.src = group.iconUrl;
+            image.src = bannerUrl;
             image.alt = group.name;
+            addSidebarImageFallback(image, group, bannerUrl);
             thumbnail.append(image);
         }
     }

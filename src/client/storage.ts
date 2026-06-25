@@ -226,12 +226,7 @@ export async function confirmAndQueueStorageDeletes(
 
     const names = selectedEntries
         .map((entry) =>
-            formatTitleDisplay(
-                entry.name,
-                entry.titleId,
-                entry.kind,
-                entry.version
-            )
+            formatTitleDisplay(entry.name, entry.titleId, entry.version)
         )
         .join('\n');
     const confirmed = window.confirm(

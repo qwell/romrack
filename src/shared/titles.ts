@@ -1,5 +1,12 @@
+export {
+    getVirtualConsolePlatform,
+    VirtualConsolePlatform,
+} from './virtual-console.js';
+
+const WII_U_TITLE_ID_PATTERN = /^[0-9a-f]{16}$/;
+const WII_TITLE_ID_PATTERN = /^[A-Z0-9]{4}$/;
+
 export enum TitleKinds {
-    Wii = 'Wii',
     vWii = 'vWii',
     Base = 'Base',
     Demo = 'Demo',
@@ -12,10 +19,7 @@ export enum TitleKinds {
     Unknown = 'Unknown',
 }
 
-const WII_U_TITLE_ID_PATTERN = /^[0-9a-f]{16}$/;
-const WII_TITLE_ID_PATTERN = /^[A-Z0-9]{6}$/;
-
-export const TITLE_PREFIX_BY_KIND: Partial<Record<TitleKinds, string>> = {
+const TITLE_PREFIX_BY_KIND: Record<TitleKinds, string> = {
     [TitleKinds.vWii]: '00000007',
     [TitleKinds.Base]: '00050000',
     [TitleKinds.Demo]: '00050002',
@@ -25,36 +29,8 @@ export const TITLE_PREFIX_BY_KIND: Partial<Record<TitleKinds, string>> = {
     [TitleKinds.SystemApp]: '00050010',
     [TitleKinds.SystemData]: '0005001b',
     [TitleKinds.SystemApplet]: '00050030',
+    [TitleKinds.Unknown]: '00000000',
 };
-
-const TITLE_KIND_BY_PREFIX = new Map(
-    Object.entries(TITLE_PREFIX_BY_KIND).map(([kind, prefix]) => [
-        prefix,
-        kind as TitleKinds,
-    ])
-);
-
-export function replaceTitleKind(titleId: string, kind: TitleKinds): string {
-    const prefix = TITLE_PREFIX_BY_KIND[kind];
-    const title = identifyWiiUTitle(titleId);
-
-    if (!title || !prefix) {
-        throw new Error(`Cannot replace title kind: ${titleId} ${kind}`);
-    }
-
-    return `${prefix}${title.family}`;
-}
-
-export enum VirtualConsolePlatform {
-    NES = 'NES',
-    SNES = 'SNES',
-    N64 = 'N64',
-    GBA = 'GBA',
-    NDS = 'NDS',
-    Wii = 'Wii',
-    PCE = 'PCE',
-    MSX = 'MSX',
-}
 
 export const PARENT_KINDS = [
     TitleKinds.vWii,
@@ -75,13 +51,18 @@ export const DOWNLOADABLE_KINDS = [
 
 export type ParentKind = (typeof PARENT_KINDS)[number];
 export type ChildKind = (typeof CHILD_KINDS)[number];
+
 export type TitleGroupStatus =
     | 'complete'
     | 'incomplete'
     | 'missing'
     | 'unavailable'
     | 'unknown';
-export type TitlePlatform = 'wiiu' | 'wii';
+
+export const TITLE_PLATFORMS = ['wii', 'wiiu'] as const;
+export const TITLE_MEDIA_TYPES = ['icons', 'covers', 'discs'] as const;
+export type TitlePlatform = (typeof TITLE_PLATFORMS)[number];
+export type TitleMediaType = (typeof TITLE_MEDIA_TYPES)[number];
 
 export type TitleIdentity = {
     titleId: string;
@@ -95,6 +76,8 @@ export type RawTitleDatabaseEntry = {
     name: string;
     region: string | null;
     iconUrl: string | null;
+    bannerUrl?: string | null;
+    discUrl?: string | null;
     companyCode: string | null;
     productCode: string | null;
     baseVersions: number[];
@@ -108,6 +91,8 @@ export type TitleDatabaseEntry = {
     name: string;
     region: string | null;
     iconUrl: string | null;
+    bannerUrl: string | null;
+    discUrl: string | null;
     companyCode: string | null;
     productCode: string | null;
     baseVersions: number[];
@@ -124,6 +109,8 @@ export type TitleEntry = {
     name: string;
     region: string | null;
     iconUrl: string | null;
+    bannerUrl: string | null;
+    discUrl: string | null;
     version: number | null;
     kind: TitleKinds;
 
@@ -169,6 +156,8 @@ export type TitleGroup = {
     name: string;
     region: string | null;
     iconUrl: string | null;
+    bannerUrl: string | null;
+    discUrl: string | null;
     productCode: string | null;
     details: TitleDetails | null;
     availableEntries: AvailableTitleEntry[];
@@ -182,6 +171,17 @@ export type TitleGroup = {
     status: TitleGroupStatus;
 };
 
+export function replaceTitleKind(titleId: string, kind: TitleKinds): string {
+    const prefix = TITLE_PREFIX_BY_KIND[kind];
+    const title = identifyWiiUTitle(titleId);
+
+    if (!title || !prefix) {
+        throw new Error(`Cannot replace title kind: ${titleId} ${kind}`);
+    }
+
+    return `${prefix}${title.family}`;
+}
+
 export function createTitleGroup(
     platform: TitlePlatform,
     family: string
@@ -193,6 +193,8 @@ export function createTitleGroup(
         region: null,
         productCode: null,
         iconUrl: null,
+        bannerUrl: null,
+        discUrl: null,
         details: null,
         availableEntries: [],
         wudEntries: [],
@@ -230,6 +232,8 @@ function updateEntryWithNewerVersion(
     target.name = source.name;
     target.region = source.region;
     target.iconUrl = source.iconUrl;
+    target.bannerUrl = source.bannerUrl;
+    target.discUrl = source.discUrl;
     target.sizeBytes = source.sizeBytes;
 }
 
@@ -250,38 +254,17 @@ export function mergeTitleEntry(
     updateEntryWithNewerVersion(existing, entry);
 }
 
-export function getVirtualConsolePlatform(
-    productCode: string | null
-): VirtualConsolePlatform | null {
-    const code = productCode;
+export function getWiiUProductCode(
+    value: string | null | undefined
+): string | null {
+    const code = value?.trim().toUpperCase() ?? '';
+    const match = /^WUP-[PN]-([A-Z0-9]{4})$/.exec(code);
 
-    if (code === null) {
-        return null;
-    }
-    if (code.startsWith('WUP-N-D')) {
-        return VirtualConsolePlatform.NDS;
-    } else if (code.startsWith('WUP-N-F')) {
-        return VirtualConsolePlatform.NES;
-    } else if (code.startsWith('WUP-N-J')) {
-        return VirtualConsolePlatform.SNES;
-    } else if (code.startsWith('WUP-N-N')) {
-        return VirtualConsolePlatform.N64;
-    } else if (code.startsWith('WUP-N-V')) {
-        return VirtualConsolePlatform.Wii;
-    } else if (code.startsWith('WUP-N-MN')) {
-        return VirtualConsolePlatform.MSX;
-    } else if (
-        code.startsWith('WUP-N-PA') ||
-        code.startsWith('WUP-N-PB') ||
-        code.startsWith('WUP-N-PC') ||
-        code.startsWith('WUP-N-PD')
-    ) {
-        return VirtualConsolePlatform.GBA;
-    } else if (code.startsWith('WUP-N-PN')) {
-        return VirtualConsolePlatform.PCE;
+    if (match) {
+        return match[1];
     }
 
-    return null;
+    return /^[A-Z0-9]{4}$/.test(code) ? code : null;
 }
 
 export function normalizeTitleName(name?: string): string {
@@ -289,11 +272,11 @@ export function normalizeTitleName(name?: string): string {
     return name?.replace(/\\n/g, ' ').replace(/\s+/g, ' ').trim() ?? 'Unknown';
 }
 
-export function identifyTitle(titleId: unknown): TitleIdentity | null {
+export function identifyTitle(titleId: string): TitleIdentity | null {
     return identifyWiiUTitle(titleId) ?? identifyWiiTitle(titleId);
 }
 
-export function identifyWiiUTitle(titleId: unknown): TitleIdentity | null {
+export function identifyWiiUTitle(titleId: string): TitleIdentity | null {
     const titleIdNormalized =
         typeof titleId === 'string' ? titleId.toLowerCase() : '';
 
@@ -306,12 +289,15 @@ export function identifyWiiUTitle(titleId: unknown): TitleIdentity | null {
     return {
         titleId: titleIdNormalized,
         platform: 'wiiu',
-        kind: TITLE_KIND_BY_PREFIX.get(prefix) ?? TitleKinds.Unknown,
+        kind:
+            (Object.entries(TITLE_PREFIX_BY_KIND).find(
+                ([, titlePrefix]) => titlePrefix === prefix
+            )?.[0] as TitleKinds) ?? TitleKinds.Unknown,
         family: titleFamily,
     };
 }
 
-export function identifyWiiTitle(titleId: unknown): TitleIdentity | null {
+export function identifyWiiTitle(titleId: string): TitleIdentity | null {
     const titleIdNormalized =
         typeof titleId === 'string' ? titleId.toUpperCase() : '';
 
@@ -322,7 +308,15 @@ export function identifyWiiTitle(titleId: unknown): TitleIdentity | null {
     return {
         titleId: titleIdNormalized,
         platform: 'wii',
-        kind: TitleKinds.Wii,
+        kind: TitleKinds.Base,
         family: titleIdNormalized,
     };
+}
+
+export function isTitlePlatform(value: string): value is TitlePlatform {
+    return TITLE_PLATFORMS.includes(value as TitlePlatform);
+}
+
+export function isTitleMediaType(value: string): value is TitleMediaType {
+    return TITLE_MEDIA_TYPES.includes(value as TitleMediaType);
 }

@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import http, { type IncomingMessage } from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
 
+import { type TitleMediaType, type TitlePlatform } from '../shared/titles.js';
 import { getUserAppRoot } from './paths.js';
 
 export type CachedImage = {
@@ -11,15 +11,23 @@ export type CachedImage = {
     contentType: string;
 };
 
-const imageCacheDir = path.join(getUserAppRoot(), '.cache', 'images');
+const mediaCacheDir = path.join(getUserAppRoot(), '.cache');
 const FETCH_TIMEOUT_MS = 30_000;
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
-const META_SUFFIX = '.json';
 const MAX_REDIRECTS = 5;
-const inFlightImages = new Map<string, Promise<CachedImage>>();
+const MEDIA_EXTENSIONS = ['.png', '.jpg'] as const;
+const mediaUrlReads = new Map<string, Promise<CachedImage>>();
 
-function cacheKey(url: string): string {
-    return createHash('sha256').update(url).digest('hex');
+export function getImageContentType(filePath: string): string {
+    switch (path.extname(filePath).toLowerCase()) {
+        case '.jpg':
+        case '.jpeg':
+            return 'image/jpeg';
+        case '.png':
+            return 'image/png';
+        default:
+            return 'application/octet-stream';
+    }
 }
 
 async function readBodyWithLimit(
@@ -215,60 +223,119 @@ async function writeFile(
     await fs.rename(tempPath, targetPath);
 }
 
-async function readCachedImage(
-    bodyFile: string,
-    metaFile: string
-): Promise<CachedImage | null> {
-    try {
-        const [body, metaText] = await Promise.all([
-            fs.readFile(bodyFile),
-            fs.readFile(metaFile, 'utf8').catch(() => null),
-        ]);
-        const meta = metaText
-            ? (JSON.parse(metaText) as { contentType?: unknown })
-            : null;
-        const contentType =
-            typeof meta?.contentType === 'string'
-                ? meta.contentType
-                : 'application/octet-stream';
-        return { body, contentType };
-    } catch {
-        return null;
+function getTitleMediaDir(
+    type: TitleMediaType,
+    platform: TitlePlatform
+): string {
+    return path.join(mediaCacheDir, type, platform);
+}
+
+function getTitleMediaKey(productCode: string): string {
+    return productCode.trim().toUpperCase();
+}
+
+function getTitleMediaExtension(
+    image: CachedImage,
+    url: string
+): '.jpg' | '.png' {
+    const contentType = image.contentType.toLowerCase().split(';')[0]?.trim();
+    switch (contentType) {
+        case 'image/png':
+            return '.png';
+        case 'image/jpeg':
+        case 'image/jpg':
+            return '.jpg';
+    }
+
+    const extension = path.extname(new URL(url).pathname).toLowerCase();
+    switch (extension) {
+        case '.png':
+            return '.png';
+        case '.jpg':
+        case '.jpeg':
+            return '.jpg';
+        default:
+            throw new Error(
+                `unsupported title media content type for ${url}: ${image.contentType}`
+            );
     }
 }
 
-async function fetchAndCacheImage(
-    url: string,
-    bodyFile: string,
-    metaFile: string
-): Promise<CachedImage> {
-    const image = await fetchImage(url);
-
-    await fs.mkdir(imageCacheDir, { recursive: true });
-    await writeFile(bodyFile, image.body);
-    await writeFile(
-        metaFile,
-        JSON.stringify({ contentType: image.contentType })
+function getTitleMediaPath(
+    type: TitleMediaType,
+    platform: TitlePlatform,
+    productCode: string,
+    extension: '.jpg' | '.png'
+): string {
+    return path.join(
+        getTitleMediaDir(type, platform),
+        `${productCode}${extension}`
     );
-
-    return image;
 }
 
-export async function getCachedImage(url: string): Promise<CachedImage> {
-    const key = cacheKey(url);
-    const bodyFile = path.join(imageCacheDir, key);
-    const metaFile = `${bodyFile}${META_SUFFIX}`;
+async function readCachedTitleMedia(
+    type: TitleMediaType,
+    platform: TitlePlatform,
+    productCode: string
+): Promise<CachedImage | null> {
+    for (const extension of MEDIA_EXTENSIONS) {
+        const filePath = getTitleMediaPath(
+            type,
+            platform,
+            productCode,
+            extension
+        );
+        try {
+            return {
+                body: await fs.readFile(filePath),
+                contentType: getImageContentType(filePath),
+            };
+        } catch {
+            continue;
+        }
+    }
 
-    const cached = await readCachedImage(bodyFile, metaFile);
+    return null;
+}
+
+async function fetchAndCacheTitleMedia(
+    url: string,
+    type: TitleMediaType,
+    platform: TitlePlatform,
+    productCode: string
+): Promise<CachedImage> {
+    const image = await fetchImage(url);
+    const extension = getTitleMediaExtension(image, url);
+    const filePath = getTitleMediaPath(type, platform, productCode, extension);
+
+    await fs.mkdir(getTitleMediaDir(type, platform), { recursive: true });
+    await writeFile(filePath, image.body);
+
+    return {
+        body: image.body,
+        contentType: getImageContentType(filePath),
+    };
+}
+
+export async function readTitleMediaFromUrl(
+    url: string,
+    type: TitleMediaType,
+    platform: TitlePlatform,
+    productCode: string
+): Promise<CachedImage> {
+    const mediaKey = getTitleMediaKey(productCode);
+
+    const cached = await readCachedTitleMedia(type, platform, mediaKey);
     if (cached) {
         return cached;
     }
 
+    const pendingKey = `${type}:${platform}:${mediaKey}`;
     const pending =
-        inFlightImages.get(key) ??
-        fetchAndCacheImage(url, bodyFile, metaFile).finally(() => {
-            inFlightImages.delete(key);
+        mediaUrlReads.get(pendingKey) ??
+        fetchAndCacheTitleMedia(url, type, platform, mediaKey).finally(() => {
+            mediaUrlReads.delete(pendingKey);
         });
-    inFlightImages.set(key, pending);
+    mediaUrlReads.set(pendingKey, pending);
     return pending;
 }

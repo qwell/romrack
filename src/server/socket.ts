@@ -130,12 +130,12 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
     const command = parsed as SocketCommand;
 
     const hasId = (): boolean => {
-        const id = (command as { id?: unknown }).id;
+        const id = (command as { id?: string }).id;
         return typeof id === 'string' && id.length > 0;
     };
 
     if (isSocketCommand(command, DOWNLOAD_SOCKET_COMMAND.queue)) {
-        const items = (command as { items?: unknown }).items;
+        const items = (command as { items?: DownloadQueueItemDetails[] }).items;
 
         if (!Array.isArray(items)) {
             return null;
@@ -170,15 +170,26 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
 
         return command;
     } else if (isSocketCommand(command, LIBRARY_VERIFY_SOCKET_COMMAND.clear)) {
-        return hasId() ? command : null;
+        if (!hasId()) {
+            return null;
+        }
+
+        return command;
     } else if (isSocketCommand(command, LIBRARY_VERIFY_SOCKET_COMMAND)) {
         return command;
     } else if (isSocketCommand(command, LIBRARY_CONVERT_SOCKET_COMMAND)) {
-        return hasId() ? command : null;
+        if (!hasId()) {
+            return null;
+        }
+
+        return command;
     } else if (isSocketCommand(command, TITLE_VALIDATE_SOCKET_COMMAND.queue)) {
-        const titleId = (command as { titleId?: unknown }).titleId;
-        const name = (command as { name?: unknown }).name;
-        const titleIdentity = identifyWiiUTitle(titleId);
+        if (!hasId()) {
+            return null;
+        }
+
+        const name = command.name;
+        const titleIdentity = identifyWiiUTitle(command.id);
 
         if (!titleIdentity || typeof name !== 'string') {
             return null;
@@ -186,7 +197,7 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
 
         return {
             ...command,
-            titleId: titleIdentity.titleId,
+            id: titleIdentity.titleId,
         };
     }
 
@@ -219,12 +230,10 @@ function parseDownloadQueueItemDetails(
     }
 
     const item = value as Record<string, unknown>;
-    const title = identifyWiiUTitle(item.titleId);
 
     if (
         typeof item.id !== 'string' ||
         item.id.length === 0 ||
-        !title ||
         typeof item.groupName !== 'string' ||
         typeof item.label !== 'string' ||
         typeof item.kind !== 'string' ||
@@ -232,6 +241,11 @@ function parseDownloadQueueItemDetails(
         (typeof item.sizeText !== 'string' && item.sizeText !== null) ||
         (typeof item.totalBytes !== 'number' && item.totalBytes !== null)
     ) {
+        return null;
+    }
+
+    const title = identifyWiiUTitle(item.id);
+    if (!title) {
         return null;
     }
 

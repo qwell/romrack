@@ -16,6 +16,8 @@ import {
     TitleDatabaseEntry,
     TitleKinds,
     type TitleGroup,
+    type TitleMediaType,
+    TitlePlatform,
 } from '../shared/titles.js';
 import { resolveReadablePath } from '../shared/os.js';
 import logger from '../shared/logger.js';
@@ -26,6 +28,8 @@ import {
 } from '../shared/api.js';
 import { assertReadableDirectory } from '../shared/file.js';
 import { ansi } from '../shared/ansi.js';
+import { readGameTdbMedia } from './gametdb.js';
+import { type CachedImage } from './image-cache.js';
 import {
     type DiscHeaderLocation,
     getWbfsDiscFilePaths,
@@ -46,8 +50,6 @@ const LIBRARY_SCAN_CONCURRENCY = 8;
 const WII_DISC_IMAGE_EXTENSIONS = new Set(['.iso', '.wbfs']);
 const WII_DISC_TITLE_ID_OFFSET = 0x00; // [0] = systemType, [1-2] = titleId, [3] = region
 const WII_DISC_TITLE_ID_LENGTH = 0x04;
-const WII_DISC_PUBLISHER_ID_OFFSET = 0x04;
-const WII_DISC_PUBLISHER_ID_LENGTH = 0x02;
 const WII_DISC_VERSION_OFFSET = 0x07;
 const WII_DISC_MAGIC_OFFSET = 0x18;
 const WII_DISC_MAGIC = 0x5d1c9ea3;
@@ -66,8 +68,6 @@ const WII_GAME_ID_PATTERN = new RegExp(
     `^[${WII_SYSTEM_CODES}][A-Z0-9]{2}[${WII_REGION_CODES}]$`
 );
 
-const WII_PUBLISHER_ID_PATTERN = /^[A-Z0-9]{2}$/;
-
 type DiscHeaderInfo = {
     titleId: string | null;
     name: string | null;
@@ -83,7 +83,7 @@ async function scanWiiTitles(root: string): Promise<TitleGroup[]> {
         let group = groups.get(entry.family);
 
         if (!group) {
-            group = createGroup(entry.family, entry.name, entry.region);
+            group = createGroup(entry.family, entry);
             groups.set(entry.family, group);
         }
 
@@ -150,7 +150,7 @@ async function verifyWiiTitles(
             (await getDiscSizeBytes(await getDiscFilePaths(filePath)));
         const titleId = titleEntry?.titleId ?? 'unknown';
         const titleName = titleEntry?.name ?? directory;
-        const titleKind = titleEntry?.kind ?? TitleKinds.Wii;
+        const titleKind = titleEntry?.kind ?? TitleKinds.Base;
         const titleVersion = titleEntry?.version ?? null;
         const sizeText = formatSize(sizeBytes);
 
@@ -168,7 +168,6 @@ async function verifyWiiTitles(
             `verifying title: ${formatTitleDisplay(
                 titleName,
                 titleId,
-                titleKind,
                 titleVersion
             )} (${sizeText})`
         );
@@ -202,7 +201,6 @@ async function verifyWiiTitles(
             `verified title:  ${formatTitleDisplay(
                 titleName,
                 titleId,
-                titleKind,
                 titleVersion
             )} (${status})`
         );
@@ -292,13 +290,22 @@ export async function readWiiTitleIdentity(
     return {
         titleId: discInfo.titleId,
         version: discInfo.version ?? 0,
-        kind: TitleKinds.Wii,
+        kind: TitleKinds.Base,
     };
 }
 
-export function getTitleIconUrl(family: string): Promise<string | null> {
-    void family;
-    return Promise.resolve(null);
+export function readWiiTitleMedia(
+    type: TitleMediaType,
+    platform: TitlePlatform,
+    productCode: string
+): Promise<CachedImage | null> {
+    switch (type) {
+        case 'icons':
+            return readGameTdbMedia('discs', platform, productCode);
+        case 'covers':
+        case 'discs':
+            return readGameTdbMedia(type, platform, productCode);
+    }
 }
 
 export async function findWiiTitleSourcePaths(
@@ -322,13 +329,19 @@ export async function findFirstReadableWiiRoot(
 
 function createGroup(
     family: string,
-    name = 'Unknown',
-    region: string | null = null
+    entry?: LibraryCacheTitleEntry
 ): TitleGroup {
+    const productCode = entry?.titleId ?? family;
+    const titleUrls = getTitleMediaUrls(productCode);
+
     return {
         ...createTitleGroup('wii', family),
-        name,
-        region,
+        name: entry?.name ?? 'Unknown',
+        region: entry?.region ?? null,
+        productCode,
+        iconUrl: titleUrls.iconUrl,
+        bannerUrl: titleUrls.bannerUrl,
+        discUrl: titleUrls.discUrl,
         titleInDatabase: getTitleInDatabase(),
         status: 'complete',
     };
@@ -337,6 +350,35 @@ function createGroup(
 function getTitleAvailableOnCdn(titleId = ''): boolean {
     void titleId;
     return false;
+}
+
+function getTitleMediaUrl(
+    type: TitleMediaType,
+    productCode: string | null
+): string | null {
+    return productCode
+        ? `/api/media/${type}/wii/${encodeURIComponent(productCode)}`
+        : null;
+}
+
+function getTitleMediaUrls(productCode: string | null): {
+    iconUrl: string | null;
+    bannerUrl: string | null;
+    discUrl: string | null;
+} {
+    if (!productCode) {
+        return {
+            iconUrl: null,
+            bannerUrl: null,
+            discUrl: null,
+        };
+    }
+
+    return {
+        iconUrl: getTitleMediaUrl('icons', productCode),
+        bannerUrl: getTitleMediaUrl('covers', productCode),
+        discUrl: getTitleMediaUrl('discs', productCode),
+    };
 }
 
 function mergeTitleGroups(groups: TitleGroup[]): TitleGroup[] {
@@ -438,18 +480,21 @@ async function readTitleEntry(
     }
 
     const filePaths = await getDiscFilePaths(filePath);
+    const titleUrls = getTitleMediaUrls(titleId);
 
     return {
         platform: 'wii',
         titleId,
         name,
         region: discInfo?.region ?? null,
-        iconUrl: null,
+        iconUrl: titleUrls.iconUrl,
+        bannerUrl: titleUrls.bannerUrl,
+        discUrl: titleUrls.discUrl,
         version: discInfo?.version ?? null,
-        kind: TitleKinds.Wii,
+        kind: TitleKinds.Base,
         sizeBytes: await getDiscSizeBytes(filePaths),
         copyCount: 1,
-        family: titleId.toLowerCase(),
+        family: titleId,
         sourcePath: filePath,
         extraSourcePaths: filePaths.slice(1),
     };
@@ -532,21 +577,7 @@ function parseDiscHeader(buffer: Buffer): DiscHeaderInfo | null {
 
     const gameId = WII_GAME_ID_PATTERN.test(headerGameId) ? headerGameId : null;
 
-    const headerPublisherId = buffer
-        .subarray(
-            WII_DISC_PUBLISHER_ID_OFFSET,
-            WII_DISC_PUBLISHER_ID_OFFSET + WII_DISC_PUBLISHER_ID_LENGTH
-        )
-        .toString('ascii')
-        .toUpperCase();
-
-    const publisherId = WII_PUBLISHER_ID_PATTERN.test(headerPublisherId)
-        ? headerPublisherId
-        : null;
-    const titleIdentity =
-        gameId && publisherId
-            ? identifyWiiTitle(`${gameId}${publisherId}`)
-            : null;
+    const titleIdentity = gameId ? identifyWiiTitle(gameId) : null;
     const titleId = titleIdentity?.titleId ?? null;
     const region = getDiscRegion(gameId);
 

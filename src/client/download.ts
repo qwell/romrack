@@ -65,7 +65,6 @@ export function formatDownloadTitle(item: DownloadQueueItem): string {
     return formatTitleDisplay(
         item.installedTitleName ?? item.groupName,
         item.titleId,
-        item.kind,
         null
     );
 }
@@ -325,6 +324,8 @@ function markDownloadComplete(
             name: installedTitleName,
             region: group.region,
             iconUrl: group.iconUrl,
+            bannerUrl: group.bannerUrl,
+            discUrl: group.discUrl,
             kind: item.kind,
             sizeBytes: installedSizeBytes,
             copyCount: 1,
