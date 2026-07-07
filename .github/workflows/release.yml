@@ -39,8 +39,8 @@ jobs:
             #
             # It needs to run after staging and before zipping, because it must replace:
             #
-            # release/wiiu-vault-windows-x64/wiiu-vault.exe
-            # release/wiiu-vault-windows-arm64/wiiu-vault.exe
+            # release/romrack-windows-x64/romrack.exe
+            # release/romrack-windows-arm64/romrack.exe
             #
             # with signed versions.
 
@@ -50,8 +50,8 @@ jobs:
             - name: Upload ZIPs as workflow artifact
               uses: actions/upload-artifact@v7
               with:
-                  name: wiiu-vault-release-zips
-                  path: release/wiiu-vault-*.zip
+                  name: romrack-release-zips
+                  path: release/romrack-*.zip
                   retention-days: 7
 
             - name: Create GitHub release
@@ -65,7 +65,7 @@ jobs:
                     count == 2 { exit }
                   ' CHANGELOG.md > RELEASE_NOTES.md
 
-                  gh release create "${GITHUB_REF_NAME}" ./release/wiiu-vault-*.zip \
+                  gh release create "${GITHUB_REF_NAME}" ./release/romrack-*.zip \
                     --title "${GITHUB_REF_NAME}" \
                     --notes-file RELEASE_NOTES.md \
                     --verify-tag

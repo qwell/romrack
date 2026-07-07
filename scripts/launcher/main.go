@@ -124,7 +124,7 @@ func getPlatformInfo() (platformInfo, error) {
 }
 
 func installNodeRuntime(runtimeDir string, platformDir string, nodePath string, platform platformInfo) error {
-	fmt.Println("Installing Node.js runtime for WiiU Vault...")
+	fmt.Println("Installing Node.js runtime for ROM Rack...")
 	fmt.Println("This is a one-time setup. Node.js will be downloaded from nodejs.org and verified before use.")
 	fmt.Println()
 

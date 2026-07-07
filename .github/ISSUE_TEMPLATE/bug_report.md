@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a problem with WiiU Vault
+about: Report a problem with ROM Rack
 title: '[Bug]: '
 labels: bug
 ---
@@ -16,4 +16,4 @@ labels: bug
 ## System
 
 - OS:
-- WiiU Vault version:
+- ROM Rack version:

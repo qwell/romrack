@@ -1,3 +1,3 @@
-# Top Contributors: qwell/wiiu-vault
+# Top Contributors: qwell/romrack
 
 - [qwell](https://github.com/qwell)

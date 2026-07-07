@@ -7,7 +7,7 @@ import { readAppVersion } from '../src/shared/scripts.js';
 
 const execFileAsync = promisify(execFile);
 
-const RELEASE_NAME = 'wiiu-vault';
+const RELEASE_NAME = 'romrack';
 
 const ROOT_DIR = process.cwd();
 const RELEASE_ROOT = path.join(ROOT_DIR, 'release');

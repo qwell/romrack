@@ -108,7 +108,7 @@ const wiiTdbZipUrl = 'https://www.gametdb.com/wiitdb.zip';
 // https://tagaya.wup.shop.nintendo.net/tagaya/versionlist/ZZZ/ZZ/latest_version
 // https://tagaya-wup.cdn.nintendo.net/tagaya/versionlist/ZZZ/ZZ/list/{latestVersion}.versionlist
 
-const userAgent = 'WiiU Vault';
+const userAgent = 'ROM Rack';
 
 const parallel = 16;
 

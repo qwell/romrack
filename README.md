@@ -1,6 +1,6 @@
-# WiiU Vault
+# ROM Rack
 
-WiiU Vault is a web-based application that allows users to manage and organize their Wii U game library. It provides features such as game categorization, search and filter functionality, the ability to track title statuses (e.g., complete, incomplete, etc.), download homebrew and other titles, and copy titles to an SD card. The application is built using TypeScript and Node.js, with the aim to be cross-platform.
+ROM Rack is a web-based application that allows users to manage and organize their Wii U game library. It provides features such as game categorization, search and filter functionality, the ability to track title statuses (e.g., complete, incomplete, etc.), download homebrew and other titles, and copy titles to an SD card. The application is built using TypeScript and Node.js, with the aim to be cross-platform.
 
 Work in Progress
 
@@ -16,6 +16,7 @@ Work in Progress
 - [Contributing](#contributing)
 - [License](#license)
 - [TODO](#todo)
+- [Acknowledgements](#acknowledgements)
 
 ## Features
 
@@ -36,7 +37,7 @@ Development from source requires [Node 24](https://nodejs.org/) and [Yarn](https
 
 ## Configuration
 
-`config.json` lives at `~/.wiiu-vault/config.json`. If it does not exist, WiiU Vault creates it with default values on startup.
+`config.json` lives at `~/.romrack/config.json`. If it does not exist, ROM Rack creates it with default values on startup.
 
 Available options:
 
@@ -50,17 +51,17 @@ Available options:
 }
 ```
 
-`host` sets the network host WiiU Vault binds to.
+`host` sets the network host ROM Rack binds to.
 
-`port` sets the port WiiU Vault listens on.
+`port` sets the port ROM Rack listens on.
 
-`openBrowser` controls whether WiiU Vault opens your browser on startup using the configured host and port.
+`openBrowser` controls whether ROM Rack opens your browser on startup using the configured host and port.
 
 `wiiRoots` is a list of Wii library directories.
 
 `wiiuRoots` is a list of Wii U title directories.
 
-For title metadata generation or title downloads, put `common.key` in `~/.wiiu-vault/common.key`. If no key is found, WiiU Vault will try to download one and save it there. The key may be raw 16-byte binary, hex text, or comma-separated byte literals.
+For title metadata generation or title downloads, put `common.key` in `~/.romrack/common.key`. If no key is found, ROM Rack will try to download one and save it there. The key may be raw 16-byte binary, hex text, or comma-separated byte literals.
 
 ## Release
 
@@ -68,7 +69,7 @@ From a packaged release:
 
 1. Download the latest release zip from GitHub.
 2. Extract the release zip.
-3. Edit `~/.wiiu-vault/config.json` if needed.
+3. Edit `~/.romrack/config.json` if needed.
 4. Run `start.bat` on Windows or `./start.sh` on macOS/Linux.
 
 By default, the server listens on the host and port configured in `config.json`, then opens the app in your browser when `openBrowser` is `true`.
@@ -78,13 +79,13 @@ By default, the server listens on the host and port configured in `config.json`,
 Clone the repository.
 
 ```bash
-git clone https://github.com/qwell/wiiu-vault.git
+git clone https://github.com/qwell/romrack.git
 ```
 
 Navigate to the repo directory.
 
 ```bash
-cd wiiu-vault
+cd romrack
 ```
 
 Install dependencies using Yarn.
@@ -150,7 +151,7 @@ yarn release
 yarn generate:titles
 ```
 
-`yarn generate:titles` only needs to be run when refreshing the checked-in title databases, updating title source files, rebuilding GameTDB data, or supplementing icons, and is only necessary in very specific cases. By default it reads cached NUS scan results from `titles/3ds/nus.json` and `titles/wiiu/nus.json`; pass `--refresh-nus` to refresh those files. If a NUS cache file is missing, the generator scans automatically. The WiiU Vault server must already be running when a NUS scan is needed because the generator calls the local metadata endpoints.
+`yarn generate:titles` only needs to be run when refreshing the checked-in title databases, updating title source files, rebuilding GameTDB data, or supplementing icons, and is only necessary in very specific cases. By default it reads cached NUS scan results from `titles/3ds/nus.json` and `titles/wiiu/nus.json`; pass `--refresh-nus` to refresh those files. If a NUS cache file is missing, the generator scans automatically. The ROM Rack server must already be running when a NUS scan is needed because the generator calls the local metadata endpoints.
 
 ## API
 
@@ -223,8 +224,12 @@ If you'd like to contribute, pull requests and issues are always appreciated.
 
 ## License
 
-WiiU Vault is licensed under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.en.html) or later.
+ROM Rack is licensed under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.en.html) or later.
 
 ## TODO
 
 - Show when newer versions of base titles, updates, or DLC are available.
+
+## Acknowledgements
+
+Hi.

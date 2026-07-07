@@ -3,7 +3,7 @@ import path from 'node:path';
 import process from 'node:process';
 
 export function getUserAppRoot(): string {
-    return path.join(os.homedir(), '.wiiu-vault');
+    return path.join(os.homedir(), '.romrack');
 }
 
 export function getAppRoot(): string {
