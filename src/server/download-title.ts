@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { rename, rm, stat } from 'node:fs/promises';
+import https from 'node:https';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
@@ -8,38 +9,50 @@ import logger from '../shared/logger.js';
 import { formatContentId } from './formats/content.js';
 import { HttpError } from '../shared/download.js';
 
-export const NUS_BASE_URL = 'http://ccs.cdn.wup.shop.nintendo.net/ccs/download';
-// export const NUS_BASE_URL = 'http://ccs.cdn.c.shop.nintendowifi.net/ccs/download/';
+export const WII_U_NUS_BASE_URL =
+    'http://ccs.cdn.wup.shop.nintendo.net/ccs/download';
+export const THREE_DS_NUS_BASE_URL =
+    'https://ccs.c.shop.nintendowifi.net/ccs/download/';
+
 export const DEFAULT_CERT_TITLE_ID = '000500101000400a'; // OSv10
 
 const TIK_TITLE_FILE_CDN = 'cetk';
 
+export type DownloadOptions = {
+    signal?: AbortSignal;
+    cert?: string;
+    key?: string;
+    pfx?: Buffer;
+    passphrase?: string;
+    allowSelfSignedCertificate?: boolean;
+};
+
 export async function downloadTicket(
     baseUrl: string,
     titleId: string,
-    signal?: AbortSignal
+    options?: DownloadOptions
 ): Promise<Uint8Array> {
-    return downloadBinary(getTicketUrl(baseUrl, titleId), 'ticket', signal);
+    return downloadBinary(getTicketUrl(baseUrl, titleId), 'ticket', options);
 }
 
 export async function downloadTmd(
     baseUrl: string,
     titleId: string,
-    signal?: AbortSignal
+    options?: DownloadOptions
 ): Promise<Uint8Array> {
-    return downloadBinary(getTmdUrl(baseUrl, titleId), 'tmd', signal);
+    return downloadBinary(getTmdUrl(baseUrl, titleId), 'tmd', options);
 }
 
 export async function downloadContent(
     baseUrl: string,
     titleId: string,
     contentId: number,
-    signal?: AbortSignal
+    options?: DownloadOptions
 ): Promise<Uint8Array> {
     return downloadBinary(
         getContentUrl(baseUrl, titleId, contentId),
         `content ${formatContentId(contentId)}`,
-        signal
+        options
     );
 }
 
@@ -47,12 +60,12 @@ export async function downloadContentH3(
     baseUrl: string,
     titleId: string,
     contentId: number,
-    signal?: AbortSignal
+    options?: DownloadOptions
 ): Promise<Uint8Array> {
     return downloadBinary(
         getContentH3Url(baseUrl, titleId, contentId),
         `content ${formatContentId(contentId)}.h3`,
-        signal
+        options
     );
 }
 
@@ -61,13 +74,13 @@ export async function downloadContentToFile(
     titleId: string,
     contentId: number,
     targetFile: string,
-    signal?: AbortSignal
+    options?: DownloadOptions
 ): Promise<void> {
     return downloadBinaryToFile(
         getContentUrl(baseUrl, titleId, contentId),
         targetFile,
         `content ${formatContentId(contentId)}`,
-        signal
+        options
     );
 }
 
@@ -76,13 +89,13 @@ export async function downloadContentH3ToFile(
     titleId: string,
     contentId: number,
     targetFile: string,
-    signal?: AbortSignal
+    options?: DownloadOptions
 ): Promise<void> {
     return downloadBinaryToFile(
         getContentH3Url(baseUrl, titleId, contentId),
         targetFile,
         `content ${formatContentId(contentId)}.h3`,
-        signal
+        options
     );
 }
 
@@ -128,10 +141,13 @@ function buildDownloadUrl(
 async function downloadBinary(
     url: string,
     label = 'file',
-    signal?: AbortSignal
+    options: DownloadOptions = {}
 ): Promise<Uint8Array> {
     logger.log('download', `downloading ${label}: ${url}`);
-    const response = await fetch(url, { signal });
+    const response =
+        options.cert || options.pfx
+            ? await fetchWithClientCert(url, options)
+            : await fetch(url, { signal: options.signal });
     if (!response.ok) {
         throw new HttpError(url, response.status);
     }
@@ -147,10 +163,13 @@ async function downloadBinaryToFile(
     url: string,
     targetFile: string,
     label = 'file',
-    signal?: AbortSignal
+    options: DownloadOptions = {}
 ): Promise<void> {
     logger.log('download', `downloading ${label}: ${url}`);
-    const response = await fetch(url, { signal });
+    const response =
+        options.cert || options.pfx
+            ? await fetchWithClientCert(url, options)
+            : await fetch(url, { signal: options.signal });
     if (!response.ok) {
         throw new HttpError(url, response.status);
     }
@@ -164,7 +183,7 @@ async function downloadBinaryToFile(
         await pipeline(
             Readable.fromWeb(response.body),
             createWriteStream(tempFile),
-            { signal }
+            { signal: options?.signal }
         );
         await rename(tempFile, targetFile);
     } catch (error) {
@@ -181,4 +200,53 @@ async function downloadBinaryToFile(
 
 function ensureTrailingSlash(value: string): string {
     return value.endsWith('/') ? value : `${value}/`;
+}
+
+async function fetchWithClientCert(
+    url: string,
+    options: DownloadOptions
+): Promise<Response> {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') {
+        return fetch(url, { signal: options.signal });
+    }
+
+    const { body, status } = await new Promise<{
+        body: Uint8Array;
+        status: number;
+    }>((resolve, reject) => {
+        const chunks: Uint8Array[] = [];
+        const request = https.get(
+            parsed,
+            {
+                rejectUnauthorized: options.allowSelfSignedCertificate !== true,
+                cert: options.cert,
+                key: options.key,
+                pfx: options.pfx,
+                passphrase: options.passphrase,
+            },
+            (response) => {
+                response.on('data', (chunk: Buffer) => {
+                    chunks.push(chunk);
+                });
+                response.on('end', () => {
+                    resolve({
+                        body: new Uint8Array(Buffer.concat(chunks)),
+                        status: response.statusCode ?? 0,
+                    });
+                });
+            }
+        );
+
+        options.signal?.addEventListener(
+            'abort',
+            () => {
+                request.destroy(new Error('Aborted'));
+            },
+            { once: true }
+        );
+        request.on('error', reject);
+    });
+
+    return new Response(body, { status });
 }

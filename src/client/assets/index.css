@@ -472,10 +472,11 @@ select {
 
 .library-grid {
     flex: 1 1 auto;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    align-content: start;
-    gap: 8px;
+    --title-grid-row-height: 124px;
+    --title-grid-gap: 8px;
+
+    position: relative;
+    display: block;
     min-height: 0;
     overflow: auto;
     scrollbar-gutter: stable;
@@ -483,13 +484,31 @@ select {
 }
 
 .library-grid[data-view='list'] {
-    grid-template-columns: 1fr;
-    gap: 4px;
+    --title-grid-row-height: 30px;
+    --title-grid-gap: 4px;
+}
+
+.title-virtual-spacer {
+    position: relative;
+}
+
+.title-virtual-window {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: grid;
+    gap: var(--title-grid-gap);
+    align-content: start;
+    will-change: transform;
 }
 
 .title-group {
+    box-sizing: border-box;
     display: grid;
     gap: 8px 8px;
+    height: var(--title-grid-row-height);
+    overflow: hidden;
     border: 1px solid var(--border);
     border-radius: 6px;
     background-color: var(--bg);
@@ -520,40 +539,20 @@ select {
     border-color: var(--incomplete);
 }
 
-.title-group-incomplete .title-group-name {
-    color: var(--incomplete);
-}
-
 .title-group-complete {
     border-color: var(--complete);
-}
-
-.title-group-complete .title-group-name {
-    color: var(--complete);
 }
 
 .title-group-missing {
     border-color: var(--fg);
 }
 
-.title-group-missing .title-group-name {
-    color: var(--fg);
-}
-
 .title-group-unavailable {
     border-color: var(--unavailable);
 }
 
-.title-group-unavailable .title-group-name {
-    color: var(--unavailable);
-}
-
 .title-group-unknown {
     border-color: var(--unknown);
-}
-
-.title-group-unknown .title-group-name {
-    color: var(--unknown);
 }
 
 .title-icon,
@@ -574,6 +573,14 @@ select {
 
 .title-icon-placeholder {
     background-color: var(--placeholder-bg);
+}
+
+.title-icon-placeholder .title-icon {
+    display: block;
+}
+
+.title-icon-loading {
+    opacity: 0;
 }
 
 .title-group-name {
@@ -617,6 +624,12 @@ select {
     align-items: center;
     justify-content: end;
     white-space: nowrap;
+}
+
+.title-group-right-metadata:has(.title-metadata-slot-badge) {
+    grid-template-columns:
+        auto auto auto var(--title-vc-badge-width, 0)
+        auto auto;
 }
 
 .title-slot-badge {

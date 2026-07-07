@@ -12,7 +12,7 @@ import {
     TITLE_VALIDATE_SOCKET_COMMAND,
 } from '../shared/socket.js';
 import { type DownloadQueueItemDetails } from '../shared/download.js';
-import { identifyWiiUTitle, TitleKinds } from '../shared/titles.js';
+import { identifyTitle, TitleKinds } from '../shared/titles.js';
 import logger from '../shared/logger.js';
 
 type AppSocketOptions = {
@@ -189,7 +189,7 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
         }
 
         const name = command.name;
-        const titleIdentity = identifyWiiUTitle(command.id);
+        const titleIdentity = identifyTitle(command.id);
 
         if (!titleIdentity || typeof name !== 'string') {
             return null;
@@ -234,6 +234,7 @@ function parseDownloadQueueItemDetails(
     if (
         typeof item.id !== 'string' ||
         item.id.length === 0 ||
+        typeof item.titleId !== 'string' ||
         typeof item.groupName !== 'string' ||
         typeof item.label !== 'string' ||
         typeof item.kind !== 'string' ||
@@ -244,7 +245,7 @@ function parseDownloadQueueItemDetails(
         return null;
     }
 
-    const title = identifyWiiUTitle(item.id);
+    const title = identifyTitle(item.titleId);
     if (!title) {
         return null;
     }

@@ -1,26 +1,15 @@
-import { readdir, readFile } from 'node:fs/promises';
-import { type Dirent } from 'node:fs';
 import path from 'node:path';
 import { normalizeRegion } from '../shared/regions.js';
 import { verifyTitleInstallFiles } from './install-title.js';
 
 import {
-    type AvailableTitleEntry,
     type TitleGroup,
-    type TitleGroupStatus,
     type TitleDetails,
-    type TitleInputControl,
     type ChildKind,
-    type ParentKind,
     type WudTitleEntry,
-    PARENT_KINDS,
     CHILD_KINDS,
-    cloneTitleGroup,
-    createTitleGroup,
     mergeTitleEntry,
     identifyTitle,
-    replaceTitleKind,
-    identifyWiiUTitle,
     getWiiUProductCode,
     normalizeTitleName,
     TitleKinds,
@@ -30,69 +19,49 @@ import {
     TitlePlatform,
 } from '../shared/titles.js';
 import {
+    cacheLocalTitleIcon,
+    createEmptyTitleGroup,
+    createExpectedChildren,
     findFirstReadableTitleRoot,
+    findLibraryItems,
     findTitleSourcePathsInRoots,
-    getTitleScanCacheEntries,
+    getAvailableEntries,
+    getGroupStatus,
+    getParentByKind,
+    getTitleMediaUrl,
     type LibraryCacheTitleEntry,
-    setTitleScanCacheEntries,
+    mergeLibraryTitleGroups,
+    parseGameTdbInputControls,
+    parseGameTdbNumber,
+    readGameTdb as readLibraryGameTdb,
+    readTitleDatabase as readLibraryTitleDatabase,
+    readTitleDatabaseByProductCode,
+    readTitleMedia,
+    scanCachedTitleEntries,
+    scanTitleRoots,
+    throwIfLibraryVerifyCancelled,
+    verifyTitleRoots,
+    splitGameTdbList,
 } from './library.js';
-import {
-    toArray,
-    mapConcurrent,
-    formatLogError,
-    formatSize,
-    formatTitleDisplay,
-} from '../shared/utils.js';
-import { getAppRoot } from './paths.js';
-import {
-    assertReadableDirectory,
-    getImmediatePathSizeBytes,
-} from '../shared/file.js';
+import { formatSize, formatTitleDisplay } from '../shared/utils.js';
+import { getImmediatePathSizeBytes } from '../shared/file.js';
 import { readTmd } from './title.js';
 import logger from '../shared/logger.js';
 import { ansi } from '../shared/ansi.js';
 import {
     type LibraryVerifyProgress,
     type LibraryVerifyTitle,
-    sortLibraryTitleVerifications,
 } from '../shared/api.js';
-import { resolveReadablePath } from '../shared/os.js';
 import { TMD_TITLE_FILE } from './formats/tmd.js';
 import { scanWudTitleEntries } from './wud.js';
-import { readGameTdbMedia } from './gametdb.js';
-import { readTitleMediaFromUrl, type CachedImage } from './image-cache.js';
-
-type GameTdbLocale = {
-    '@lang'?: string;
-    synopsis?: string;
-};
-
-type GameTdbControl = {
-    '@type'?: string;
-    '@required'?: string;
-};
-
-type GameTdbGameImage = {
-    '@size'?: string;
-};
-
-type GameTdbGame = {
-    id?: string;
-    region?: string;
-    languages?: string;
-    locale?: GameTdbLocale | GameTdbLocale[];
-    developer?: string;
-    genre?: string;
-    input?: {
-        control?: GameTdbControl | GameTdbControl[];
-        '@players'?: string;
-    };
-    rom?: GameTdbGameImage;
-};
-
-type GameTdbFile = {
-    games?: GameTdbGame[];
-};
+import {
+    getGameTdbLocale,
+    getGameTdbLocales,
+    getGameTdbSynopsis,
+    GameTdbGame,
+    readGameTdbMedia,
+} from './gametdb.js';
+import { type CachedImage } from './image-cache.js';
 
 const LIBRARY_SCAN_CONCURRENCY = 8;
 const availableOnCdnByTitleId = new Map<string, boolean>();
@@ -133,16 +102,11 @@ async function scanWiiUTitles(root: string): Promise<TitleGroup[]> {
             ? getGameTdbDetails(gameTdb, databaseEntry)
             : null;
         const titleUrls = getTitleMediaUrls(databaseEntry);
-        group.availableEntries = getAvailableEntries(databaseEntry);
-        group.expectedChildren = CHILD_KINDS.filter((kind) => {
-            if (!databaseEntry) {
-                return false;
-            }
-
-            return kind === TitleKinds.Update
-                ? databaseEntry.updateVersions.length > 0
-                : databaseEntry.dlcVersions.length > 0;
-        });
+        group.availableEntries = getAvailableEntries(
+            databaseEntry,
+            getTitleAvailableOnCdn
+        );
+        group.expectedChildren = createExpectedChildren(databaseEntry);
         group.status = getGroupStatus(group);
 
         if (parentEntry) {
@@ -150,13 +114,11 @@ async function scanWiiUTitles(root: string): Promise<TitleGroup[]> {
             group.region = parentEntry.region;
             group.iconUrl = titleUrls.iconUrl ?? parentEntry.iconUrl;
             group.bannerUrl = titleUrls.bannerUrl ?? parentEntry.bannerUrl;
-            group.discUrl = titleUrls.discUrl ?? parentEntry.discUrl;
         } else if (databaseEntry) {
             group.name = databaseEntry.name;
             group.region = databaseEntry.region;
             group.iconUrl = titleUrls.iconUrl;
             group.bannerUrl = titleUrls.bannerUrl;
-            group.discUrl = titleUrls.discUrl;
         } else {
             const firstLocalChild = group.entries.find((entry) =>
                 CHILD_KINDS.includes(entry.kind as ChildKind)
@@ -166,7 +128,6 @@ async function scanWiiUTitles(root: string): Promise<TitleGroup[]> {
             group.region = firstLocalChild?.region ?? null;
             group.iconUrl = firstLocalChild?.iconUrl ?? null;
             group.bannerUrl = firstLocalChild?.bannerUrl ?? null;
-            group.discUrl = firstLocalChild?.discUrl ?? null;
         }
 
         group.entries.sort((a, b) => (b.version ?? 0) - (a.version ?? 0));
@@ -178,20 +139,13 @@ async function scanWiiUTitles(root: string): Promise<TitleGroup[]> {
 export async function scanWiiUTitleRoots(
     roots: string[]
 ): Promise<TitleGroup[]> {
-    const scannedGroups: TitleGroup[] = [];
-
-    for (const root of roots) {
-        logger.log('wiiu', `scanning Wii U root: ${root}`);
-        try {
-            const readableRoot = await resolveReadablePath(root);
-            await assertReadableDirectory(readableRoot);
-            scannedGroups.push(...(await scanWiiUTitles(readableRoot)));
-        } catch {
-            logger.warn('wiiu', `skipping Wii U root ${root}`);
-        }
-    }
-
-    const groups = mergeTitleGroups(scannedGroups);
+    const groups = await scanTitleRoots(roots, {
+        platformLabel: 'Wii U',
+        logNamespace: 'wiiu',
+        scanTitles: scanWiiUTitles,
+        mergeTitleGroups,
+        resultLabel: 'title group(s)',
+    });
 
     try {
         for (const entry of await scanWudTitleEntries(roots)) {
@@ -213,12 +167,7 @@ export async function scanWiiUTitleRoots(
         );
     }
 
-    const sortedGroups = groups.sort((a, b) => a.name.localeCompare(b.name));
-    logger.log(
-        'wiiu',
-        `finished scanning Wii U roots: ${sortedGroups.length} title group(s)`
-    );
-    return sortedGroups;
+    return groups.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 async function verifyWiiUTitles(
@@ -346,52 +295,20 @@ export async function verifyWiiUTitleRoots(
     onProgress?: (progress: LibraryVerifyProgress) => void,
     signal?: AbortSignal
 ): Promise<LibraryVerifyTitle[]> {
-    const verifications: LibraryVerifyTitle[] = [];
-    const readableRoots: { root: string; directories: string[] }[] = [];
-
-    for (const root of roots) {
-        throwIfLibraryVerifyCancelled(signal);
-
-        try {
-            const readableRoot = await resolveReadablePath(root);
-            await assertReadableDirectory(readableRoot);
-            readableRoots.push({
-                root: readableRoot,
-                directories: await findTitleDirs(readableRoot),
-            });
-        } catch {
-            logger.warn('wiiu', `skipping Wii U root ${root}`);
-        }
-    }
-
-    const total = readableRoots.reduce(
-        (sum, root) => sum + root.directories.length,
-        0
-    );
-    let offset = 0;
-
-    for (const root of readableRoots) {
-        throwIfLibraryVerifyCancelled(signal);
-
-        verifications.push(
-            ...(await verifyWiiUTitles(root.root, onProgress, {
-                directories: root.directories,
-                offset,
-                total,
-                signal,
-            }))
-        );
-        offset += root.directories.length;
-    }
-
-    verifications.push(
-        ...createMissingExpectedChildVerifications(
-            await scanWiiUTitleRoots(roots),
-            verifications
-        )
-    );
-
-    return sortLibraryTitleVerifications(verifications);
+    return verifyTitleRoots({
+        roots,
+        onProgress,
+        signal,
+        platformLabel: 'Wii U',
+        logNamespace: 'wiiu',
+        findItems: findTitleDirs,
+        verifyTitles: verifyWiiUTitles,
+        afterVerify: async (verifications) =>
+            createMissingExpectedChildVerifications(
+                await scanWiiUTitleRoots(roots),
+                verifications
+            ),
+    });
 }
 
 export async function readWiiUTitleIdentity(
@@ -425,52 +342,32 @@ export async function readWiiUTitleMedia(
         return null;
     }
 
-    const titleDatabase = await readTitleDatabaseByProductCode();
-    const entry = titleDatabase.get(normalizedProductCode) ?? null;
-    if (!entry?.productCode) {
-        return null;
-    }
+    const titleDatabase =
+        await readTitleDatabaseByProductCode(readTitleDatabase);
 
-    let url: string | null = '';
-    switch (type) {
-        case 'icons':
-            url = entry.iconUrl;
-            break;
-        case 'covers':
-            url = entry.bannerUrl;
-            break;
-        case 'discs':
-            url = entry.discUrl;
-            break;
-    }
-
-    if (url) {
-        try {
-            return await readTitleMediaFromUrl(
-                url,
-                type,
-                platform,
-                normalizedProductCode
-            );
-        } catch (error) {
-            if (type !== 'icons') {
-                throw error;
+    return readTitleMedia({
+        type,
+        platform,
+        productCode: normalizedProductCode,
+        readEntry: (productCode) => titleDatabase.get(productCode) ?? null,
+        getUrl: (type, entry) => {
+            switch (type) {
+                case 'icons':
+                    return entry?.iconUrl ?? null;
+                case 'covers':
+                    return entry?.bannerUrl ?? null;
             }
-
-            logger.warn(
-                'assets',
-                `failed to load Wii U icon media from URL for ${normalizedProductCode}: ${formatLogError(error)}`
-            );
-        }
-    }
-
-    switch (type) {
-        case 'icons':
-            return readGameTdbMedia('discs', 'wiiu', productCode);
-        case 'covers':
-        case 'discs':
-            return readGameTdbMedia(type, 'wiiu', productCode);
-    }
+        },
+        fallback: (type, platform, productCode) => {
+            switch (type) {
+                case 'icons':
+                    return readGameTdbMedia('icons', platform, productCode);
+                case 'covers':
+                    return readGameTdbMedia(type, platform, productCode);
+            }
+        },
+        logLabel: 'Wii U',
+    });
 }
 
 export async function findWiiUTitleSourcePaths(
@@ -498,11 +395,7 @@ function createGroup(
     name = 'Unknown',
     region: string | null = null
 ): TitleGroup {
-    return {
-        ...createTitleGroup('wiiu', family),
-        name,
-        region,
-    };
+    return createEmptyTitleGroup('wiiu', family, name, region);
 }
 
 function getTitleAvailableOnCdn(titleId: string): boolean {
@@ -510,86 +403,28 @@ function getTitleAvailableOnCdn(titleId: string): boolean {
 }
 
 function mergeTitleGroups(groups: TitleGroup[]): TitleGroup[] {
-    const merged = new Map<string, TitleGroup>();
-
-    for (const group of groups) {
-        const existing = merged.get(group.family);
-        if (!existing) {
-            merged.set(group.family, cloneTitleGroup(group));
-            continue;
-        }
-
-        for (const entry of group.entries) {
-            mergeTitleEntry(existing.entries, entry);
-        }
-
-        for (const entry of group.wudEntries) {
-            mergeWudTitleEntry(existing.wudEntries, entry);
-        }
-
-        if (existing.status === 'missing' && group.status !== 'missing') {
-            existing.name = group.name;
-            existing.region = group.region;
-            existing.productCode = group.productCode;
-            existing.iconUrl = group.iconUrl;
-            existing.bannerUrl = group.bannerUrl;
-            existing.discUrl = group.discUrl;
-            existing.details = group.details;
-            existing.titleInDatabase = group.titleInDatabase;
-            existing.status = group.status;
-        }
-    }
-
-    for (const group of merged.values()) {
-        group.entries.sort((a, b) => (b.version ?? 0) - (a.version ?? 0));
-        group.status = getGroupStatus(group);
-    }
-
-    return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function throwIfLibraryVerifyCancelled(signal?: AbortSignal): void {
-    if (signal?.aborted) {
-        throw new Error('Verification cancelled');
-    }
+    return mergeLibraryTitleGroups(groups, {
+        afterMergeEntry: (existing, group) => {
+            for (const entry of group.wudEntries) {
+                mergeWudTitleEntry(existing.wudEntries, entry);
+            }
+        },
+        afterMergeGroup: (group) => {
+            group.status = getGroupStatus(group);
+        },
+    });
 }
 
 async function findTitleDirs(root: string): Promise<string[]> {
-    async function findTitleDirsInPath(
-        currentPath: string,
-        relative = ''
-    ): Promise<string[]> {
-        const found: string[] = [];
-        let entries: Dirent[];
-        try {
-            entries = await readdir(currentPath, { withFileTypes: true });
-        } catch {
-            return found;
-        }
-
-        const hasTmd = entries.some(
-            (entry) => entry.isFile() && entry.name === TMD_TITLE_FILE
-        );
-        if (hasTmd) {
-            found.push(relative || '.');
-        }
-
-        const childDirectories = entries.filter((entry) => entry.isDirectory());
-        const childResults = await mapConcurrent(
-            childDirectories,
-            LIBRARY_SCAN_CONCURRENCY,
-            async (entry) => {
-                const subRel = path.join(relative, entry.name);
-                const childPath = path.join(currentPath, entry.name);
-                return findTitleDirsInPath(childPath, subRel);
-            }
-        );
-        found.push(...childResults.flat());
-
-        return found;
-    }
-
-    return (await findTitleDirsInPath(root)).sort((a, b) => a.localeCompare(b));
+    return findLibraryItems(root, {
+        concurrency: LIBRARY_SCAN_CONCURRENCY,
+        logNamespace: 'wiiu',
+        logLabel: 'Wii U',
+        includeDirectory: (entries) =>
+            entries.some(
+                (entry) => entry.isFile() && entry.name === TMD_TITLE_FILE
+            ),
+    });
 }
 
 async function readTitleEntry(
@@ -614,6 +449,12 @@ async function readTitleEntry(
 
     const databaseEntry = titleDatabase.get(family) ?? null;
     const titleUrls = getTitleMediaUrls(databaseEntry);
+    const productCode = databaseEntry?.productCode ?? null;
+    const sidecarIconUrl = await cacheLocalTitleIcon(
+        'wiiu',
+        productCode,
+        dirPath
+    );
 
     return {
         titleId,
@@ -621,13 +462,12 @@ async function readTitleEntry(
         name: getTitleName(dirname, databaseEntry?.name ?? null),
         region: normalizeRegion(
             databaseEntry?.region ?? tmd.header.region,
-            databaseEntry?.productCode
+            databaseEntry?.productCode ?? null
         ),
         version: tmd.header.titleVersion,
 
-        iconUrl: titleUrls.iconUrl,
+        iconUrl: sidecarIconUrl ?? titleUrls.iconUrl,
         bannerUrl: titleUrls.bannerUrl,
-        discUrl: titleUrls.discUrl,
 
         kind,
         family,
@@ -642,40 +482,13 @@ async function scanTitleEntries(
     root: string,
     titleDatabase: Map<string, TitleDatabaseEntry>
 ): Promise<LibraryCacheTitleEntry[]> {
-    const cached = getTitleScanCacheEntries(root);
-    if (cached) {
-        return cached;
-    }
-
-    const directories = await findTitleDirs(root);
-    const entries = (
-        await mapConcurrent(
-            directories,
-            LIBRARY_SCAN_CONCURRENCY,
-            async (dirname) => {
-                try {
-                    return await readTitleEntry(root, dirname, titleDatabase);
-                } catch (error) {
-                    logger.warn(
-                        'wiiu',
-                        `Failed to scan title ${path.join(root, dirname)}: ${formatLogError(error)}`
-                    );
-                    return null;
-                }
-            }
-        )
-    ).filter((entry): entry is LibraryCacheTitleEntry => entry !== null);
-
-    setTitleScanCacheEntries(root, entries);
-    return entries;
-}
-
-function cleanDirectoryName(dirname: string): string {
-    // Clear [ and anything after it.
-    return path
-        .basename(dirname)
-        .replace(/\s*\[.*$/, '')
-        .trim();
+    return scanCachedTitleEntries(root, {
+        concurrency: LIBRARY_SCAN_CONCURRENCY,
+        logNamespace: 'wiiu',
+        findItems: findTitleDirs,
+        readEntry: readTitleEntry,
+        context: titleDatabase,
+    });
 }
 
 function normalizeRelativeTitleDir(value: string): string {
@@ -696,15 +509,6 @@ function getTitleName(dirname: string, databaseName: string | null): string {
     return 'Unknown';
 }
 
-function getTitleMediaUrl(
-    type: TitleMediaType,
-    productCode: string | null
-): string | null {
-    return productCode
-        ? `/api/media/${type}/wiiu/${encodeURIComponent(productCode)}`
-        : null;
-}
-
 function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
     const json = JSON.parse(jsonText) as RawTitleDatabaseEntry[];
 
@@ -712,55 +516,47 @@ function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
         throw new Error('titles.json must contain an array');
     }
 
-    const entries: TitleDatabaseEntry[] = json.map((entry) => {
-        const title = identifyWiiUTitle(entry.titleId);
-        if (!title) {
-            throw new Error(
-                `invalid titleId in titles.json: ${JSON.stringify(entry)}`
-            );
-        }
+    const entries = json
+        .map((entry): TitleDatabaseEntry | null => {
+            const title = identifyTitle(entry.titleId);
+            if (!title) {
+                throw new Error(
+                    `invalid titleId in titles.json: ${JSON.stringify(entry)}`
+                );
+            }
 
-        const { titleId, family } = title;
+            if (title.platform !== 'wiiu') {
+                return null;
+            }
 
-        return {
-            titleId,
-            name: normalizeTitleName(entry.name),
-            region: normalizeRegion(entry.region, entry.productCode),
-            companyCode: entry.companyCode?.length ? entry.companyCode : null,
-            productCode: getWiiUProductCode(entry.productCode),
-            iconUrl: entry.iconUrl,
-            bannerUrl: entry.bannerUrl ?? null,
-            discUrl: entry.discUrl ?? null,
+            const { titleId, family } = title;
 
-            baseVersions:
-                entry.baseVersions?.filter((version) =>
-                    Number.isFinite(version)
-                ) ?? [],
-            updateVersions: entry.updateVersions ?? [],
-            dlcVersions: entry.dlcVersions ?? [],
+            return {
+                platform: title.platform,
+                titleId,
+                name: normalizeTitleName(entry.name),
+                region: normalizeRegion(entry.region, entry.productCode),
+                companyCode: entry.companyCode?.length
+                    ? entry.companyCode
+                    : null,
+                productCode: getWiiUProductCode(entry.productCode),
+                iconUrl: entry.iconUrl,
+                bannerUrl: entry.bannerUrl ?? null,
 
-            family,
-            availableOnCdn: entry.availableOnCdn,
-        };
-    });
+                baseVersions:
+                    entry.baseVersions?.filter((version) =>
+                        Number.isFinite(version)
+                    ) ?? [],
+                updateVersions: entry.updateVersions ?? [],
+                dlcVersions: entry.dlcVersions ?? [],
+
+                family,
+                availableOnCdn: entry.availableOnCdn,
+            };
+        })
+        .filter((entry): entry is TitleDatabaseEntry => entry !== null);
 
     return entries;
-}
-
-function splitList(value: string | null | undefined): string[] {
-    return (value ?? '')
-        .split(',')
-        .map((item) => item.trim())
-        .filter((item) => item.length > 0);
-}
-
-function parseNumber(value: string | null | undefined): number | null {
-    if (!value) {
-        return null;
-    }
-
-    const parsed = Number.parseInt(value, 10);
-    return Number.isFinite(parsed) ? parsed : null;
 }
 
 function getGameTdbDetails(
@@ -774,201 +570,69 @@ function getGameTdbDetails(
 function getTitleMediaUrls(entry: TitleDatabaseEntry | null): {
     iconUrl: string | null;
     bannerUrl: string | null;
-    discUrl: string | null;
 } {
     if (!entry) {
         return {
             iconUrl: null,
             bannerUrl: null,
-            discUrl: null,
         };
     }
 
     return {
-        iconUrl: getTitleMediaUrl('icons', entry.productCode),
+        iconUrl: getTitleMediaUrl('icons', 'wiiu', entry.productCode),
         bannerUrl:
-            entry.bannerUrl ?? getTitleMediaUrl('covers', entry.productCode),
-        discUrl: entry.discUrl ?? getTitleMediaUrl('discs', entry.productCode),
+            entry.bannerUrl ??
+            getTitleMediaUrl('covers', 'wiiu', entry.productCode),
     };
 }
 
-function latestVersion(versions: number[]): number[] {
-    return versions.length === 0 ? [] : [versions[versions.length - 1]];
-}
-
-function getAvailableEntries(
-    entry: TitleDatabaseEntry | null
-): AvailableTitleEntry[] {
-    if (!entry) {
-        return [];
-    }
-
-    const available: AvailableTitleEntry[] = [
-        {
-            kind: TitleKinds.Base,
-            titleId: entry.titleId,
-            versions: latestVersion(entry.baseVersions),
-            availableOnCdn: getTitleAvailableOnCdn(entry.titleId),
-        },
-    ];
-
-    if (entry.updateVersions.length > 0) {
-        available.push({
-            kind: TitleKinds.Update,
-            titleId: replaceTitleKind(entry.titleId, TitleKinds.Update),
-            versions: latestVersion(entry.updateVersions),
-            availableOnCdn: getTitleAvailableOnCdn(
-                replaceTitleKind(entry.titleId, TitleKinds.Update)
-            ),
-        });
-    }
-
-    if (entry.dlcVersions.length > 0) {
-        available.push({
-            kind: TitleKinds.DLC,
-            titleId: replaceTitleKind(entry.titleId, TitleKinds.DLC),
-            versions: latestVersion(entry.dlcVersions),
-            availableOnCdn: getTitleAvailableOnCdn(
-                replaceTitleKind(entry.titleId, TitleKinds.DLC)
-            ),
-        });
-    }
-
-    return available;
+function cleanDirectoryName(dirname: string): string {
+    // Clear [ and anything after it.
+    return path
+        .basename(dirname)
+        .replace(/\s*\[.*$/, '')
+        .trim();
 }
 
 function parseGameTdbDetails(game: GameTdbGame): TitleDetails {
-    const { rom: gameImage } = game;
-    const englishLocale =
-        toArray(game.locale).find((locale) => locale['@lang'] === 'EN') ?? null;
-    const synopsis = englishLocale?.synopsis?.trim() || null;
-    const controls: TitleInputControl[] = toArray(game.input?.control)
-        .filter((control) => control['@type'])
-        .map((control) => ({
-            type: control['@type'] ?? '',
-            required: control['@required'] === 'true',
-        }));
-
     return {
         tvFormat: game.region ?? null,
-        languages: splitList(game.languages),
-        synopsis,
+        languages: splitGameTdbList(game.languages),
+        synopsis: getGameTdbSynopsis(
+            getGameTdbLocale(getGameTdbLocales(game), 'EN')
+        ),
         developer: game.developer?.trim() || null,
-        genre: splitList(game.genre),
-        inputPlayers: parseNumber(game.input?.['@players']),
-        inputControls: controls,
-        sizeBytes: parseNumber(gameImage?.['@size']),
+        genre: splitGameTdbList(game.genre),
+        inputPlayers: parseGameTdbNumber(game.input?.['@players']),
+        inputControls: parseGameTdbInputControls(game),
+        sizeBytes: parseGameTdbNumber(game.rom?.['@size']),
     };
 }
 
 async function readGameTdb(): Promise<Map<string, TitleDetails>> {
-    const filePath = path.join(getAppRoot(), 'titles', 'wiiutdb.json');
-
-    try {
-        const text = await readFile(filePath, 'utf8');
-        const parsed = JSON.parse(text) as GameTdbFile;
-        const games = Array.isArray(parsed.games) ? parsed.games : [];
-
-        return new Map(
-            games
-                .filter((game) => game.id)
-                .map((game) => [
-                    (game.id ?? '').slice(0, 4).toUpperCase(),
-                    parseGameTdbDetails(game),
-                ])
-        );
-    } catch (error) {
-        logger.warn(
-            'wiiu',
-            `failed to read GameTdb at ${filePath}:`,
-            String(error)
-        );
-        return new Map();
-    }
-}
-
-async function readTitleDatabaseFile(
-    filePath: string,
-    required = false
-): Promise<TitleDatabaseEntry[]> {
-    try {
-        const jsonText = await readFile(filePath, 'utf8');
-        return parseTitleDatabaseEntries(jsonText);
-    } catch (error) {
-        const message = `[wiiu] failed to read titles DB at ${filePath}:`;
-
-        if (required) {
-            logger.error('metadata', message, String(error));
-        } else {
-            logger.warn('metadata', message, String(error));
-        }
-
-        return [];
-    }
+    return readLibraryGameTdb<GameTdbGame>({
+        fileName: 'wiiu/tdb.xml',
+        logNamespace: 'wiiu',
+        getId: (game) => (game.id ?? '').slice(0, 4).toUpperCase() || null,
+        parseDetails: parseGameTdbDetails,
+    });
 }
 
 async function readTitleDatabase(): Promise<Map<string, TitleDatabaseEntry>> {
-    const titlesDir = path.join(getAppRoot(), 'titles');
-    const titlesJsonPath = path.join(titlesDir, 'titles.json');
-
-    const titleEntries = await readTitleDatabaseFile(titlesJsonPath, true);
-
-    for (const entry of titleEntries) {
-        if (entry.availableOnCdn !== undefined) {
+    return readLibraryTitleDatabase({
+        logNamespace: 'wiiu',
+        required: true,
+        parseEntries: parseTitleDatabaseEntries,
+        onEntry: (entry) => {
+            if (entry.availableOnCdn === undefined) {
+                return;
+            }
             availableOnCdnByTitleId.set(
                 entry.titleId,
                 entry.availableOnCdn === true
             );
-        }
-    }
-
-    return new Map(titleEntries.map((entry) => [entry.family, entry]));
-}
-
-async function readTitleDatabaseByProductCode(): Promise<
-    Map<string, TitleDatabaseEntry>
-> {
-    const titleDatabase = await readTitleDatabase();
-    const entriesByProductCode = new Map<string, TitleDatabaseEntry>();
-
-    for (const entry of titleDatabase.values()) {
-        if (entry.productCode) {
-            entriesByProductCode.set(entry.productCode, entry);
-        }
-    }
-
-    return entriesByProductCode;
-}
-
-function getParentByKind<T extends { kind: TitleKinds }>(
-    entries: T[]
-): T | null {
-    return (
-        entries.find((candidate) =>
-            PARENT_KINDS.includes(candidate.kind as ParentKind)
-        ) ?? null
-    );
-}
-
-function getGroupStatus(group: TitleGroup): TitleGroupStatus {
-    if (!group.titleInDatabase) {
-        return 'unknown';
-    }
-
-    if (group.entries.length === 0) {
-        return 'missing';
-    }
-
-    if (
-        !getParentByKind(group.entries) ||
-        group.expectedChildren.some(
-            (kind) => !group.entries.some((entry) => entry.kind === kind)
-        )
-    ) {
-        return 'incomplete';
-    }
-
-    return 'complete';
+        },
+    });
 }
 
 function mergeWudTitleEntry(

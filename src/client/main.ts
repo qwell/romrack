@@ -111,7 +111,6 @@ function reconcileCompletedLibraryConversions(
                     region: group.region,
                     iconUrl: group.iconUrl,
                     bannerUrl: group.bannerUrl,
-                    discUrl: group.discUrl,
                     copyCount: 1,
                 });
             }
@@ -383,7 +382,6 @@ function handleTitleValidation(event: TitleValidationSocketEvent): void {
                 region: group.region,
                 iconUrl: group.iconUrl,
                 bannerUrl: group.bannerUrl,
-                discUrl: group.discUrl,
                 version: copy?.titleVersion ?? wudTitle?.version ?? 0,
                 kind,
                 sizeBytes: 0,

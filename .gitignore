@@ -1,6 +1,5 @@
 common.key
 config.json
-titles/wiiutdb.xml
 
 # Transient node files
 **/node_modules/

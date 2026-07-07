@@ -12,6 +12,7 @@ import logger from '../../shared/logger.js';
 import { resolveReadablePath } from '../../shared/os.js';
 import { isWindowsPath } from '../../shared/os/path.js';
 import { formatLogError, isObject } from '../../shared/utils.js';
+import { isFileNotFoundError } from '../../shared/file.js';
 import { getStringBodyField, sendServerError } from '../request.js';
 import { getAppRoot, getUserAppRoot } from '../paths.js';
 
@@ -30,11 +31,30 @@ type LibraryRootInspection = {
     readable: boolean;
 };
 
+function readConfigValue(
+    config: Record<string, unknown>,
+    key: string
+): unknown {
+    const normalizedKey = key.toLowerCase();
+    const entry = Object.entries(config).find(
+        ([candidate]) => candidate.toLowerCase() === normalizedKey
+    );
+    return entry?.[1];
+}
+
+function hasConfigValue(config: Record<string, unknown>, key: string): boolean {
+    const normalizedKey = key.toLowerCase();
+    return Object.keys(config).some(
+        (candidate) => candidate.toLowerCase() === normalizedKey
+    );
+}
+
 function getDefaultConfig(): AppConfig {
     return {
         host: DEFAULT_SERVER_HOST,
         port: DEFAULT_SERVER_PORT,
         openBrowser: DEFAULT_BROWSER_OPEN,
+        '3dsRoots': [],
         wiiRoots: [],
         wiiuRoots: [DEFAULT_ROM_DIR],
     };
@@ -48,30 +68,35 @@ function assertConfigValues(
     }
 
     if (
-        'host' in value &&
-        (typeof value.host !== 'string' || value.host.length === 0)
+        hasConfigValue(value, 'host') &&
+        (typeof readConfigValue(value, 'host') !== 'string' ||
+            (readConfigValue(value, 'host') as string).length === 0)
     ) {
         throw new Error('Config.host must be a non-empty string.');
     }
 
+    const port = readConfigValue(value, 'port');
     if (
-        'port' in value &&
-        (typeof value.port !== 'number' ||
-            !Number.isInteger(value.port) ||
-            value.port < 1 ||
-            value.port > 65535)
+        hasConfigValue(value, 'port') &&
+        (typeof port !== 'number' ||
+            !Number.isInteger(port) ||
+            port < 1 ||
+            port > 65535)
     ) {
         throw new Error('Config.port must be an integer between 1 and 65535.');
     }
 
-    if ('openBrowser' in value && typeof value.openBrowser !== 'boolean') {
+    if (
+        hasConfigValue(value, 'openBrowser') &&
+        typeof readConfigValue(value, 'openBrowser') !== 'boolean'
+    ) {
         throw new Error('Config.openBrowser must be a boolean.');
     }
 
-    for (const key of ['wiiRoots', 'wiiuRoots']) {
-        const roots = value[key];
+    for (const key of ['3dsRoots', 'wiiRoots', 'wiiuRoots']) {
+        const roots = readConfigValue(value, key);
         if (
-            key in value &&
+            hasConfigValue(value, key) &&
             !(
                 (Array.isArray(roots) &&
                     roots.every(
@@ -93,8 +118,8 @@ function readConfiguredRoots(
     options: { defaultRoot?: string } = {}
 ): string[] {
     const roots: string[] = [];
-    const hasConfiguredRoots = key in config;
-    const configuredRoots = config[key];
+    const hasConfiguredRoots = hasConfigValue(config, key);
+    const configuredRoots = readConfigValue(config, key);
 
     if (Array.isArray(configuredRoots)) {
         for (const root of configuredRoots) {
@@ -131,6 +156,13 @@ function readWiiURoots(
     options: { defaultRoot?: string } = {}
 ): string[] {
     return readConfiguredRoots(config, 'wiiuRoots', options);
+}
+
+function readThreeDSRoots(
+    config: Record<string, unknown>,
+    options: { defaultRoot?: string } = {}
+): string[] {
+    return readConfiguredRoots(config, '3dsRoots', options);
 }
 
 function readWiiRoots(
@@ -188,12 +220,7 @@ async function inspectLibraryRoot(
             };
         }
     } catch (error) {
-        if (
-            error &&
-            typeof error === 'object' &&
-            'code' in error &&
-            error.code === 'ENOENT'
-        ) {
+        if (isFileNotFoundError(error)) {
             return {
                 normalizedRoot,
                 exists: false,
@@ -301,13 +328,18 @@ function loadConfig(): AppConfig {
 
     return {
         host:
-            typeof parsed.host === 'string' ? parsed.host : DEFAULT_SERVER_HOST,
+            typeof readConfigValue(parsed, 'host') === 'string'
+                ? (readConfigValue(parsed, 'host') as string)
+                : DEFAULT_SERVER_HOST,
         port:
-            typeof parsed.port === 'number' ? parsed.port : DEFAULT_SERVER_PORT,
+            typeof readConfigValue(parsed, 'port') === 'number'
+                ? (readConfigValue(parsed, 'port') as number)
+                : DEFAULT_SERVER_PORT,
         openBrowser:
-            typeof parsed.openBrowser === 'boolean'
-                ? parsed.openBrowser
+            typeof readConfigValue(parsed, 'openBrowser') === 'boolean'
+                ? (readConfigValue(parsed, 'openBrowser') as boolean)
                 : DEFAULT_BROWSER_OPEN,
+        '3dsRoots': readThreeDSRoots(parsed),
         wiiRoots: readWiiRoots(parsed),
         wiiuRoots: readWiiURoots(parsed, { defaultRoot: DEFAULT_ROM_DIR }),
     };
@@ -322,20 +354,27 @@ export function saveConfig(update: AppConfigUpdate): ConfigResponse {
     assertConfigValues(update);
     const previous = getConfig();
     const next: AppConfig = {
-        host: typeof update.host === 'string' ? update.host : previous.host,
-        port: typeof update.port === 'number' ? update.port : previous.port,
+        host:
+            typeof readConfigValue(update, 'host') === 'string'
+                ? (readConfigValue(update, 'host') as string)
+                : previous.host,
+        port:
+            typeof readConfigValue(update, 'port') === 'number'
+                ? (readConfigValue(update, 'port') as number)
+                : previous.port,
         openBrowser:
-            typeof update.openBrowser === 'boolean'
-                ? update.openBrowser
+            typeof readConfigValue(update, 'openBrowser') === 'boolean'
+                ? (readConfigValue(update, 'openBrowser') as boolean)
                 : previous.openBrowser,
-        wiiRoots:
-            update.wiiRoots === undefined
-                ? previous.wiiRoots
-                : readWiiRoots(update),
-        wiiuRoots:
-            update.wiiuRoots === undefined
-                ? previous.wiiuRoots
-                : readWiiURoots(update),
+        '3dsRoots': !hasConfigValue(update, '3dsRoots')
+            ? previous['3dsRoots']
+            : readThreeDSRoots(update),
+        wiiRoots: !hasConfigValue(update, 'wiiRoots')
+            ? previous.wiiRoots
+            : readWiiRoots(update),
+        wiiuRoots: !hasConfigValue(update, 'wiiuRoots')
+            ? previous.wiiuRoots
+            : readWiiURoots(update),
     };
 
     writeConfig(next);

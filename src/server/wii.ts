@@ -1,49 +1,70 @@
-import { readdir, stat } from 'node:fs/promises';
-import { type Dirent } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import path from 'node:path';
 
+import { normalizeRegion } from '../shared/regions.js';
 import {
     formatLogError,
     formatSize,
     formatTitleDisplay,
-    mapConcurrent,
 } from '../shared/utils.js';
 import {
-    cloneTitleGroup,
-    createTitleGroup,
-    mergeTitleEntry,
+    getWiiProductCode,
     identifyWiiTitle,
-    TitleDatabaseEntry,
+    mergeTitleEntry,
+    normalizeTitleName,
+    type RawTitleDatabaseEntry,
+    type TitleDatabaseEntry,
+    type TitleDetails,
     TitleKinds,
     type TitleGroup,
     type TitleMediaType,
     TitlePlatform,
 } from '../shared/titles.js';
-import { resolveReadablePath } from '../shared/os.js';
 import logger from '../shared/logger.js';
 import {
     type LibraryVerifyProgress,
     type LibraryVerifyTitle,
-    sortLibraryTitleVerifications,
 } from '../shared/api.js';
-import { assertReadableDirectory } from '../shared/file.js';
 import { ansi } from '../shared/ansi.js';
-import { readGameTdbMedia } from './gametdb.js';
+import {
+    getGameTdbLocale,
+    getGameTdbLocales,
+    getGameTdbSynopsis,
+    type GameTdbGame,
+    readGameTdbMedia,
+} from './gametdb.js';
 import { type CachedImage } from './image-cache.js';
 import {
     type DiscHeaderLocation,
-    getWbfsDiscFilePaths,
-    isWbfsSplitPart,
     readDiscHeaderText,
     readIsoDiscHeader,
-    readWbfsDiscHeader,
 } from './formats/disc.js';
 import {
+    getWbfsDiscFilePaths,
+    isWbfsSplitPart,
+    readWbfsDiscHeader,
+} from './formats/wbfs.js';
+import {
+    cacheLocalTitleIcon,
+    createEmptyTitleGroup,
     findFirstReadableTitleRoot,
+    findLibraryItems,
     findTitleSourcePathsInRoots,
-    getTitleScanCacheEntries,
+    getGroupStatus,
+    getTitleMediaUrl,
     type LibraryCacheTitleEntry,
-    setTitleScanCacheEntries,
+    mergeLibraryTitleGroups,
+    parseGameTdbInputControls,
+    parseGameTdbNumber,
+    readGameTdb,
+    readTitleDatabase,
+    readTitleDatabaseByProductCode,
+    readTitleMedia,
+    scanCachedTitleEntries,
+    scanTitleRoots,
+    splitGameTdbList,
+    throwIfLibraryVerifyCancelled,
+    verifyTitleRoots,
 } from './library.js';
 
 const LIBRARY_SCAN_CONCURRENCY = 8;
@@ -76,8 +97,12 @@ type DiscHeaderInfo = {
 };
 
 async function scanWiiTitles(root: string): Promise<TitleGroup[]> {
+    const [titleDatabase, gameTdb] = await Promise.all([
+        readWiiTitleDatabase(),
+        readWiiGameTdb(),
+    ]);
     const groups = new Map<string, TitleGroup>();
-    const scanned = await scanTitleEntries(root);
+    const scanned = await scanTitleEntries(root, titleDatabase);
 
     for (const entry of scanned) {
         let group = groups.get(entry.family);
@@ -90,31 +115,57 @@ async function scanWiiTitles(root: string): Promise<TitleGroup[]> {
         mergeTitleEntry(group.entries, entry);
     }
 
+    for (const family of titleDatabase.keys()) {
+        if (!groups.has(family)) {
+            groups.set(family, createGroup(family));
+        }
+    }
+
+    for (const group of groups.values()) {
+        const databaseEntry = titleDatabase.get(group.family) ?? null;
+        const parentEntry = group.entries.find(
+            (entry) => entry.kind === TitleKinds.Base
+        );
+        const productCode = databaseEntry?.productCode ?? group.family;
+        const titleUrls = getTitleMediaUrls(productCode);
+        const gameTdbDetails = gameTdb.get(productCode) ?? null;
+        const gameTdbRegion = normalizeRegion(
+            gameTdbDetails?.tvFormat ?? null,
+            null
+        );
+
+        group.productCode = productCode;
+        group.titleInDatabase = databaseEntry !== null;
+        group.details = gameTdbDetails;
+        group.expectedChildren = [];
+        group.status = getGroupStatus(group);
+
+        if (parentEntry) {
+            group.name = parentEntry.name;
+            group.region = parentEntry.region || gameTdbRegion;
+            group.iconUrl = titleUrls.iconUrl ?? parentEntry.iconUrl;
+            group.bannerUrl = titleUrls.bannerUrl ?? parentEntry.bannerUrl;
+        } else if (databaseEntry) {
+            group.name = databaseEntry.name;
+            group.region = databaseEntry.region || gameTdbRegion;
+            group.iconUrl = titleUrls.iconUrl;
+            group.bannerUrl = titleUrls.bannerUrl;
+        }
+    }
+
     return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function scanWiiTitleRoots(
     roots: string[]
 ): Promise<TitleGroup[]> {
-    const scannedGroups: TitleGroup[] = [];
-
-    for (const root of roots) {
-        logger.log('wii', `scanning Wii root: ${root}`);
-        try {
-            const readableRoot = await resolveReadablePath(root);
-            await assertReadableDirectory(readableRoot);
-            scannedGroups.push(...(await scanWiiTitles(readableRoot)));
-        } catch {
-            logger.warn('wii', `skipping Wii root ${root}`);
-        }
-    }
-
-    const groups = mergeTitleGroups(scannedGroups);
-    logger.log(
-        'wii',
-        `finished scanning Wii roots: ${groups.length} disc image group(s)`
-    );
-    return groups;
+    return scanTitleRoots(roots, {
+        platformLabel: 'Wii',
+        logNamespace: 'wii',
+        scanTitles: scanWiiTitles,
+        mergeTitleGroups,
+        resultLabel: 'disc image group(s)',
+    });
 }
 
 async function verifyWiiTitles(
@@ -132,7 +183,10 @@ async function verifyWiiTitles(
     const offset = options.offset ?? 0;
     const total = options.total ?? directories.length;
 
-    const cachedEntries = await scanTitleEntries(root);
+    const cachedEntries = await scanTitleEntries(
+        root,
+        await readWiiTitleDatabase()
+    );
     const entriesByDirectory = new Map(
         cachedEntries.map((entry) => [
             path.relative(root, entry.sourcePath),
@@ -230,7 +284,7 @@ async function verifyWiiTitles(
         });
     }
 
-    return sortLibraryTitleVerifications(verifications);
+    return verifications;
 }
 
 export async function verifyWiiTitleRoots(
@@ -238,45 +292,15 @@ export async function verifyWiiTitleRoots(
     onProgress?: (progress: LibraryVerifyProgress) => void,
     signal?: AbortSignal
 ): Promise<LibraryVerifyTitle[]> {
-    const verifications: LibraryVerifyTitle[] = [];
-    const readableRoots: { root: string; directories: string[] }[] = [];
-
-    for (const root of roots) {
-        throwIfLibraryVerifyCancelled(signal);
-
-        try {
-            const readableRoot = await resolveReadablePath(root);
-            await assertReadableDirectory(readableRoot);
-            readableRoots.push({
-                root: readableRoot,
-                directories: await findTitleDirs(readableRoot),
-            });
-        } catch {
-            logger.warn('wii', `skipping Wii root ${root}`);
-        }
-    }
-
-    const total = readableRoots.reduce(
-        (sum, root) => sum + root.directories.length,
-        0
-    );
-    let offset = 0;
-
-    for (const root of readableRoots) {
-        throwIfLibraryVerifyCancelled(signal);
-
-        verifications.push(
-            ...(await verifyWiiTitles(root.root, onProgress, {
-                directories: root.directories,
-                offset,
-                total,
-                signal,
-            }))
-        );
-        offset += root.directories.length;
-    }
-
-    return sortLibraryTitleVerifications(verifications);
+    return verifyTitleRoots({
+        roots,
+        onProgress,
+        signal,
+        platformLabel: 'Wii',
+        logNamespace: 'wii',
+        findItems: findTitleDirs,
+        verifyTitles: verifyWiiTitles,
+    });
 }
 
 export async function readWiiTitleIdentity(
@@ -294,18 +318,42 @@ export async function readWiiTitleIdentity(
     };
 }
 
-export function readWiiTitleMedia(
+export async function readWiiTitleMedia(
     type: TitleMediaType,
     platform: TitlePlatform,
     productCode: string
 ): Promise<CachedImage | null> {
-    switch (type) {
-        case 'icons':
-            return readGameTdbMedia('discs', platform, productCode);
-        case 'covers':
-        case 'discs':
-            return readGameTdbMedia(type, platform, productCode);
+    const normalizedProductCode = getWiiProductCode(productCode);
+    if (!normalizedProductCode) {
+        return null;
     }
+
+    const titleDatabase =
+        await readTitleDatabaseByProductCode(readWiiTitleDatabase);
+
+    return readTitleMedia({
+        type,
+        platform,
+        productCode: normalizedProductCode,
+        readEntry: (productCode) => titleDatabase.get(productCode) ?? null,
+        getUrl: (type, entry) => {
+            switch (type) {
+                case 'icons':
+                    return entry?.iconUrl ?? null;
+                case 'covers':
+                    return entry?.bannerUrl ?? null;
+            }
+        },
+        fallback: (type, platform, productCode) => {
+            switch (type) {
+                case 'icons':
+                    return readGameTdbMedia('icons', platform, productCode);
+                case 'covers':
+                    return readGameTdbMedia(type, platform, productCode);
+            }
+        },
+        logLabel: 'Wii',
+    });
 }
 
 export async function findWiiTitleSourcePaths(
@@ -315,7 +363,7 @@ export async function findWiiTitleSourcePaths(
     return findTitleSourcePathsInRoots(
         roots,
         titleId,
-        scanTitleEntries,
+        scanTitleEntriesWithDatabase,
         'wii',
         'Wii'
     );
@@ -335,15 +383,94 @@ function createGroup(
     const titleUrls = getTitleMediaUrls(productCode);
 
     return {
-        ...createTitleGroup('wii', family),
-        name: entry?.name ?? 'Unknown',
-        region: entry?.region ?? null,
+        ...createEmptyTitleGroup(
+            'wii',
+            family,
+            entry?.name ?? 'Unknown',
+            entry?.region ?? null
+        ),
         productCode,
         iconUrl: titleUrls.iconUrl,
         bannerUrl: titleUrls.bannerUrl,
-        discUrl: titleUrls.discUrl,
         titleInDatabase: getTitleInDatabase(),
         status: 'complete',
+    };
+}
+
+function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
+    const json = JSON.parse(jsonText) as RawTitleDatabaseEntry[];
+
+    if (!Array.isArray(json)) {
+        throw new Error('titles.json must contain an array');
+    }
+
+    return json
+        .map((entry): TitleDatabaseEntry | null => {
+            const title = identifyWiiTitle(entry.titleId);
+            if (!title) {
+                return null;
+            }
+
+            const productCode =
+                getWiiProductCode(entry.productCode) ?? title.titleId;
+            const region =
+                normalizeRegion(null, productCode) ||
+                normalizeRegion(entry.region, null);
+
+            return {
+                platform: title.platform,
+                titleId: title.titleId,
+                name: normalizeTitleName(entry.name),
+                region,
+                companyCode: entry.companyCode?.length
+                    ? entry.companyCode
+                    : null,
+                productCode,
+                iconUrl: entry.iconUrl,
+                bannerUrl: entry.bannerUrl ?? null,
+
+                baseVersions: [],
+                updateVersions: [],
+                dlcVersions: [],
+
+                family: title.family,
+                availableOnCdn: false,
+            };
+        })
+        .filter((entry): entry is TitleDatabaseEntry => entry !== null);
+}
+
+async function readWiiTitleDatabase(): Promise<
+    Map<string, TitleDatabaseEntry>
+> {
+    return readTitleDatabase({
+        logNamespace: 'wii',
+        required: true,
+        parseEntries: parseTitleDatabaseEntries,
+    });
+}
+
+async function readWiiGameTdb(): Promise<Map<string, TitleDetails>> {
+    return readGameTdb<GameTdbGame>({
+        fileName: 'wii/tdb.xml',
+        logNamespace: 'wii',
+        getId: (game) => (game.id ?? '').slice(0, 4).toUpperCase() || null,
+        parseDetails: parseGameTdbDetails,
+    });
+}
+
+function parseGameTdbDetails(game: GameTdbGame): TitleDetails {
+    return {
+        tvFormat: game.region ?? null,
+        languages: splitGameTdbList(game.languages),
+        synopsis: getGameTdbSynopsis(
+            getGameTdbLocale(getGameTdbLocales(game), 'EN')
+        ),
+        developer: game.developer?.trim() || null,
+        genre: splitGameTdbList(game.genre),
+        inputPlayers: parseGameTdbNumber(game.input?.['@players']),
+        inputControls: parseGameTdbInputControls(game),
+        sizeBytes: parseGameTdbNumber(game.rom?.['@size']),
     };
 }
 
@@ -352,111 +479,43 @@ function getTitleAvailableOnCdn(titleId = ''): boolean {
     return false;
 }
 
-function getTitleMediaUrl(
-    type: TitleMediaType,
-    productCode: string | null
-): string | null {
-    return productCode
-        ? `/api/media/${type}/wii/${encodeURIComponent(productCode)}`
-        : null;
-}
-
 function getTitleMediaUrls(productCode: string | null): {
     iconUrl: string | null;
     bannerUrl: string | null;
-    discUrl: string | null;
 } {
     if (!productCode) {
         return {
             iconUrl: null,
             bannerUrl: null,
-            discUrl: null,
         };
     }
 
     return {
-        iconUrl: getTitleMediaUrl('icons', productCode),
-        bannerUrl: getTitleMediaUrl('covers', productCode),
-        discUrl: getTitleMediaUrl('discs', productCode),
+        iconUrl: getTitleMediaUrl('icons', 'wii', productCode),
+        bannerUrl: getTitleMediaUrl('covers', 'wii', productCode),
     };
 }
 
 function mergeTitleGroups(groups: TitleGroup[]): TitleGroup[] {
-    const merged = new Map<string, TitleGroup>();
-
-    for (const group of groups) {
-        const existing = merged.get(group.family);
-        if (!existing) {
-            merged.set(group.family, cloneTitleGroup(group));
-            continue;
-        }
-
-        for (const entry of group.entries) {
-            mergeTitleEntry(existing.entries, entry);
-        }
-    }
-
-    return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function throwIfLibraryVerifyCancelled(signal?: AbortSignal): void {
-    if (signal?.aborted) {
-        throw new Error('Verification cancelled');
-    }
+    return mergeLibraryTitleGroups(groups);
 }
 
 async function findTitleDirs(root: string): Promise<string[]> {
-    async function findTitleDirsInPath(
-        currentPath: string,
-        relative = ''
-    ): Promise<string[]> {
-        const found: string[] = [];
-        let entries: Dirent[];
-        try {
-            entries = await readdir(currentPath, { withFileTypes: true });
-        } catch (error) {
-            logger.warn(
-                'wii',
-                `skipping Wii directory ${currentPath}: ${formatLogError(error)}`
-            );
-            return found;
-        }
-
-        for (const entry of entries) {
-            if (
-                entry.isFile() &&
-                WII_DISC_IMAGE_EXTENSIONS.has(
-                    path.extname(entry.name).toLowerCase()
-                ) &&
-                !isWbfsSplitPart(entry.name)
-            ) {
-                found.push(path.join(relative, entry.name));
-            }
-        }
-
-        const childDirectories = entries.filter((entry) => entry.isDirectory());
-        const childResults = await mapConcurrent(
-            childDirectories,
-            LIBRARY_SCAN_CONCURRENCY,
-            async (entry) => {
-                const subRel = path.join(relative, entry.name);
-                const childPath = path.join(currentPath, entry.name);
-                return findTitleDirsInPath(childPath, subRel);
-            }
-        );
-        found.push(...childResults.flat());
-
-        return found;
-    }
-
-    return (await findTitleDirsInPath(root)).sort((a, b) => a.localeCompare(b));
+    return findLibraryItems(root, {
+        concurrency: LIBRARY_SCAN_CONCURRENCY,
+        logNamespace: 'wii',
+        logLabel: 'Wii',
+        includeFile: (entry) =>
+            WII_DISC_IMAGE_EXTENSIONS.has(
+                path.extname(entry.name).toLowerCase()
+            ) && !isWbfsSplitPart(entry.name),
+    });
 }
 
 async function readTitleEntry(
     root: string,
     dirname: string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    titleDatabase: Map<string, TitleDatabaseEntry> | null
+    titleDatabase: Map<string, TitleDatabaseEntry>
 ): Promise<LibraryCacheTitleEntry | null> {
     const filePath = path.join(root, dirname);
     let discInfo: DiscHeaderInfo | null = null;
@@ -480,16 +539,22 @@ async function readTitleEntry(
     }
 
     const filePaths = await getDiscFilePaths(filePath);
-    const titleUrls = getTitleMediaUrls(titleId);
+    const databaseEntry = titleDatabase.get(titleId) ?? null;
+    const productCode = databaseEntry?.productCode ?? titleId;
+    const titleUrls = getTitleMediaUrls(productCode);
+    const sidecarIconUrl = await cacheLocalTitleIcon(
+        'wii',
+        productCode,
+        filePath
+    );
 
     return {
         platform: 'wii',
         titleId,
-        name,
-        region: discInfo?.region ?? null,
-        iconUrl: titleUrls.iconUrl,
+        name: databaseEntry?.name ?? name,
+        region: databaseEntry?.region ?? discInfo?.region ?? null,
+        iconUrl: sidecarIconUrl ?? titleUrls.iconUrl,
         bannerUrl: titleUrls.bannerUrl,
-        discUrl: titleUrls.discUrl,
         version: discInfo?.version ?? null,
         kind: TitleKinds.Base,
         sizeBytes: await getDiscSizeBytes(filePaths),
@@ -501,24 +566,22 @@ async function readTitleEntry(
 }
 
 async function scanTitleEntries(
+    root: string,
+    titleDatabase: Map<string, TitleDatabaseEntry>
+): Promise<LibraryCacheTitleEntry[]> {
+    return scanCachedTitleEntries(root, {
+        concurrency: LIBRARY_SCAN_CONCURRENCY,
+        logNamespace: 'wii',
+        findItems: findTitleDirs,
+        readEntry: readTitleEntry,
+        context: titleDatabase,
+    });
+}
+
+async function scanTitleEntriesWithDatabase(
     root: string
 ): Promise<LibraryCacheTitleEntry[]> {
-    const cached = getTitleScanCacheEntries(root);
-    if (cached) {
-        return cached;
-    }
-
-    const directories = await findTitleDirs(root);
-    const scannedEntries = (
-        await mapConcurrent(
-            directories,
-            LIBRARY_SCAN_CONCURRENCY,
-            async (dirname) => readTitleEntry(root, dirname, null)
-        )
-    ).filter((entry): entry is LibraryCacheTitleEntry => entry !== null);
-
-    setTitleScanCacheEntries(root, scannedEntries);
-    return scannedEntries;
+    return scanTitleEntries(root, await readWiiTitleDatabase());
 }
 
 function getTitleInDatabase(): boolean {

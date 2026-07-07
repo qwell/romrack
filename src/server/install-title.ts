@@ -7,7 +7,7 @@ import {
     downloadContentToFile,
     downloadTicket,
     downloadTmd,
-    NUS_BASE_URL,
+    WII_U_NUS_BASE_URL,
 } from './download-title.js';
 import {
     assertExistingContentFileSize,
@@ -70,16 +70,14 @@ export async function generateTitleInstallFiles(
         signal?: AbortSignal;
     } = {}
 ): Promise<GeneratedTitleInstallFiles> {
-    const baseUrl = NUS_BASE_URL;
+    const baseUrl = WII_U_NUS_BASE_URL;
     const { titleId: downloadableTitleId, kind } =
         getDownloadableTitle(titleId);
     const commonKey = await readCommonKey();
     throwIfAborted(options.signal);
-    const tmdBytes = await downloadTmd(
-        baseUrl,
-        downloadableTitleId,
-        options.signal
-    );
+    const tmdBytes = await downloadTmd(baseUrl, downloadableTitleId, {
+        signal: options.signal,
+    });
     throwIfAborted(options.signal);
     const tmd = readTmdFromBuffer(Buffer.from(tmdBytes));
 
@@ -102,14 +100,12 @@ export async function generateTitleInstallFiles(
         baseUrl,
         downloadableTitleId,
         fstContent.id,
-        options.signal
+        { signal: options.signal }
     );
     throwIfAborted(options.signal);
-    const ticketBytes = await downloadTicket(
-        baseUrl,
-        downloadableTitleId,
-        options.signal
-    ).catch((error: unknown) => {
+    const ticketBytes = await downloadTicket(baseUrl, downloadableTitleId, {
+        signal: options.signal,
+    }).catch((error: unknown) => {
         if (isHttpErrorStatus(error, 404)) {
             return null;
         }
@@ -145,7 +141,7 @@ export async function generateTitleInstallFiles(
         titleKey,
         baseUrl,
         downloadableTitleId,
-        options.signal
+        { signal: options.signal }
     );
     const meta = metaXml ? readMetaXml(metaXml) : null;
     const directoryKind = formatInstallDirectoryKind(kind);
@@ -267,7 +263,7 @@ export async function generateTitleInstallFiles(
                 downloadableTitleId,
                 download.content.id,
                 h3File,
-                options.signal
+                { signal: options.signal }
             );
             download.h3Available = true;
             reportProgress(h3Name, h3SizeBytes, true);
@@ -287,7 +283,7 @@ export async function generateTitleInstallFiles(
                 downloadableTitleId,
                 download.content.id,
                 download.files.appFile,
-                options.signal
+                { signal: options.signal }
             );
             reportProgress(download.files.appName, download.appSizeBytes, true);
         }

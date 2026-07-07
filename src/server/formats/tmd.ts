@@ -52,6 +52,7 @@ type CertificateKeyType =
 
 type SystemType =
     | typeof SYSTEM_TYPE_WIIU
+    | typeof SYSTEM_TYPE_THREE_DS
     | typeof SYSTEM_TYPE_WII
     | typeof SYSTEM_TYPE_UNKNOWN;
 
@@ -71,6 +72,7 @@ const REGION_KOR_NAME = 'KOR';
 const REGION_UNK_NAME = 'UNK';
 
 const SYSTEM_TYPE_WIIU = 'wiiu';
+const SYSTEM_TYPE_THREE_DS = '3ds';
 const SYSTEM_TYPE_WII = 'wii';
 const SYSTEM_TYPE_UNKNOWN = 'unknown';
 
@@ -146,7 +148,7 @@ export function readTmdHeader(buffer: Buffer): TmdHeader | null {
         )
     );
     const systemType = getSystemType(titleId);
-    if (!isWiiU(systemType)) {
+    if (!isReadableTmdSystem(systemType)) {
         return null;
     }
     return {
@@ -334,12 +336,22 @@ function getSystemType(titleId: Uint8Array): SystemType {
     if (titleId[0] === 0x00 && titleId[1] === 0x05) {
         return SYSTEM_TYPE_WIIU;
     }
+    if (titleId[0] === 0x00 && titleId[1] === 0x04) {
+        return SYSTEM_TYPE_THREE_DS;
+    }
     if (titleId[0] === 0x00 && titleId[1] === 0x01) {
         return SYSTEM_TYPE_WII;
     }
     return SYSTEM_TYPE_UNKNOWN;
 }
 
-function isWiiU(systemType: SystemType): boolean {
-    return systemType === SYSTEM_TYPE_WIIU;
+function isReadableTmdSystem(systemType: SystemType): boolean {
+    switch (systemType) {
+        case SYSTEM_TYPE_THREE_DS:
+        case SYSTEM_TYPE_WIIU:
+            return true;
+        case SYSTEM_TYPE_WII:
+        case SYSTEM_TYPE_UNKNOWN:
+            return false;
+    }
 }

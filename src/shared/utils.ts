@@ -98,6 +98,8 @@ export function formatTitleDisplay(
     let kindText = '';
     if (title.kind) {
         switch (title.platform) {
+            case '3ds':
+                break;
             case 'wiiu':
                 kindText = ` [${title.kind}]`;
                 break;
@@ -141,4 +143,8 @@ export function safeDirectoryName(value: string): string {
             .replace(/\s+/g, ' ')
             .trim() || 'Unknown'
     );
+}
+
+export function latestVersion(versions: number[]): number[] {
+    return versions.length === 0 ? [] : [versions[versions.length - 1]];
 }

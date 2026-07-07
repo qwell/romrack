@@ -247,7 +247,7 @@ function getTitleMediaExtension(
             return '.jpg';
     }
 
-    const extension = path.extname(new URL(url).pathname).toLowerCase();
+    const extension = path.extname(safeUrlPathname(url) ?? url).toLowerCase();
     switch (extension) {
         case '.png':
             return '.png';
@@ -258,6 +258,14 @@ function getTitleMediaExtension(
             throw new Error(
                 `unsupported title media content type for ${url}: ${image.contentType}`
             );
+    }
+}
+
+function safeUrlPathname(url: string): string | null {
+    try {
+        return new URL(url).pathname;
+    } catch {
+        return null;
     }
 }
 
@@ -273,18 +281,14 @@ function getTitleMediaPath(
     );
 }
 
-async function readCachedTitleMedia(
+export async function readCachedTitleMedia(
     type: TitleMediaType,
     platform: TitlePlatform,
     productCode: string
 ): Promise<CachedImage | null> {
+    const mediaKey = getTitleMediaKey(productCode);
     for (const extension of MEDIA_EXTENSIONS) {
-        const filePath = getTitleMediaPath(
-            type,
-            platform,
-            productCode,
-            extension
-        );
+        const filePath = getTitleMediaPath(type, platform, mediaKey, extension);
         try {
             return {
                 body: await fs.readFile(filePath),
@@ -338,4 +342,18 @@ export async function readTitleMediaFromUrl(
         });
     mediaUrlReads.set(pendingKey, pending);
     return pending;
+}
+
+export async function cacheTitleMedia(
+    type: TitleMediaType,
+    platform: TitlePlatform,
+    productCode: string,
+    image: CachedImage
+): Promise<void> {
+    const mediaKey = getTitleMediaKey(productCode);
+    const extension = getTitleMediaExtension(image, `${mediaKey}.png`);
+    const filePath = getTitleMediaPath(type, platform, mediaKey, extension);
+
+    await fs.mkdir(getTitleMediaDir(type, platform), { recursive: true });
+    await writeFile(filePath, image.body);
 }

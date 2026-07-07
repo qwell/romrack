@@ -28,15 +28,15 @@ export async function readOptionalFile(
     try {
         return await readFile(filePath);
     } catch (error) {
-        if (
-            error instanceof Error &&
-            'code' in error &&
-            error.code === 'ENOENT'
-        ) {
+        if (isFileNotFoundError(error)) {
             return null;
         }
         throw error;
     }
+}
+
+export function isFileNotFoundError(error: unknown): boolean {
+    return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
 export function isSameOrNestedPath(left: string, right: string): boolean {

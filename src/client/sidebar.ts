@@ -440,6 +440,10 @@ function hasUsableLocalEntry(
         return false;
     }
 
+    if (group.platform === '3ds') {
+        return true;
+    }
+
     return localEntries.some((entry) => {
         const validation = titleValidations?.get(entry.titleId) ?? null;
 
@@ -521,7 +525,9 @@ function renderDownloadAvailabilityRow(
     }
 
     checkbox.disabled =
-        !entry.availableOnCdn || getBusyKinds(group).has(entry.kind);
+        group.platform === '3ds' ||
+        !entry.availableOnCdn ||
+        getBusyKinds(group).has(entry.kind);
     if (!entry.availableOnCdn) {
         row.classList.add('sidebar-download-row-unavailable');
     }
@@ -640,7 +646,8 @@ function renderLocalCopyRow(
     checkbox.value = entry.titleId;
     checkbox.dataset.titleId = entry.titleId;
     checkbox.dataset.copySizeBytes = String(entry.sizeBytes);
-    checkbox.disabled = getBusyKinds(group).has(entry.kind);
+    checkbox.disabled =
+        group.platform === '3ds' || getBusyKinds(group).has(entry.kind);
     if (downloadData) {
         checkbox.dataset.family = downloadData.group.family;
         checkbox.dataset.groupName = downloadData.group.name;
@@ -663,7 +670,8 @@ function renderLocalCopyRow(
 
     const slot = document.createElement('span');
     slot.className = 'sidebar-download-slot';
-    slot.textContent = downloadData?.label ?? formatTitleEntrySlot(entry);
+    slot.textContent =
+        downloadData?.label ?? formatTitleEntrySlot(group, entry);
 
     const titleId = document.createElement('span');
     titleId.className = 'sidebar-download-id';
@@ -696,7 +704,7 @@ function renderInvalidCopyRow(
 ): HTMLElement {
     return renderLocalCopyRow(group, entry, {
         group,
-        label: formatTitleEntrySlot(entry),
+        label: formatTitleEntrySlot(group, entry),
     });
 }
 
@@ -896,6 +904,11 @@ function renderAvailableActions(
     actions.className = 'sidebar-download-actions sidebar-available-actions';
 
     const spacer = document.createElement('div');
+    if (group.platform === '3ds') {
+        actions.append(spacer);
+        return actions;
+    }
+
     const downloadButton = document.createElement('button');
     downloadButton.className = 'sidebar-button';
     const busyKinds = getBusyKinds(group);
@@ -1037,10 +1050,16 @@ function renderDeleteOnlyActions(
     return actions;
 }
 
-function formatTitleEntrySlot(entry: TitleEntry): string {
-    return entry.version === null
-        ? entry.kind
-        : `${entry.kind} v${entry.version}`;
+function formatTitleEntrySlot(group: TitleGroup, entry: TitleEntry): string {
+    switch (group.platform) {
+        case '3ds':
+            return entry.kind;
+        case 'wii':
+        case 'wiiu':
+            return entry.version === null
+                ? entry.kind
+                : `${entry.kind} v${entry.version}`;
+    }
 }
 
 function formatVersions(versions: number[]): string {

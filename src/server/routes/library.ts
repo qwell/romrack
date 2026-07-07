@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 
 import { broadcastAppSocketEvent } from '../socket.js';
+import { scanThreeDSTitleRoots } from '../3ds.js';
 import { scanWiiUTitleRoots, verifyWiiUTitleRoots } from '../wiiu.js';
 import {
     clearTitleScanCache,
@@ -136,12 +137,13 @@ export function createLibraryRouter(): Router {
         }
         try {
             const config = getConfig();
-            const [wiiuGroups, wiiGroups] = await Promise.all([
+            const [threeDSGroups, wiiuGroups, wiiGroups] = await Promise.all([
+                scanThreeDSTitleRoots(config['3dsRoots']),
                 scanWiiUTitleRoots(config.wiiuRoots),
                 scanWiiTitleRoots(config.wiiRoots),
             ]);
-            const groups = [...wiiuGroups, ...wiiGroups].sort((a, b) =>
-                a.name.localeCompare(b.name)
+            const groups = [...threeDSGroups, ...wiiuGroups, ...wiiGroups].sort(
+                (a, b) => a.name.localeCompare(b.name)
             );
 
             setLibraryCacheGroups(groups);

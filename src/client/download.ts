@@ -325,7 +325,6 @@ function markDownloadComplete(
             region: group.region,
             iconUrl: group.iconUrl,
             bannerUrl: group.bannerUrl,
-            discUrl: group.discUrl,
             kind: item.kind,
             sizeBytes: installedSizeBytes,
             copyCount: 1,

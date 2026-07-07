@@ -19,7 +19,10 @@ async function copyFileIntoDist(relativePath: string) {
 
 async function copyFiles() {
     await copyFileIntoDist('titles/titles.json');
-    await copyFileIntoDist('titles/wiiutdb.json');
+
+    await copyFileIntoDist('titles/wii/tdb.xml');
+    await copyFileIntoDist('titles/wiiu/tdb.xml');
+    await copyFileIntoDist('titles/3ds/tdb.xml');
 }
 
 async function main() {

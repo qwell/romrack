@@ -150,7 +150,7 @@ yarn release
 yarn generate:titles
 ```
 
-`yarn generate:titles` only needs to be run when refreshing the checked-in title databases, updating `titles/titledb.csv`, rebuilding WiiUTDB data, or supplementing icons, and is only necessary in very specific cases. The WiiU Vault server must already be running because the generator calls the local metadata endpoints.
+`yarn generate:titles` only needs to be run when refreshing the checked-in title databases, updating title source files, rebuilding GameTDB data, or supplementing icons, and is only necessary in very specific cases. By default it reads cached NUS scan results from `titles/3ds/nus.json` and `titles/wiiu/nus.json`; pass `--refresh-nus` to refresh those files. If a NUS cache file is missing, the generator scans automatically. The WiiU Vault server must already be running when a NUS scan is needed because the generator calls the local metadata endpoints.
 
 ## API
 
@@ -205,9 +205,17 @@ Files in `titles/`:
 - `titles.json`: Generated primary title database.
 - `icons.json`: Generated title icon URLs.
 - `exclude.json`: Title IDs skipped by generation.
-- `titledb.csv`: Source CSV for supplemental title data from [WiiUBrew](https://wiiubrew.org/wiki/Title_database).
-- `wiiutdb.xml`: Source WiiUTDB XML from [GameTDB](https://gametdb.com).
-- `wiiutdb.json`: Generated WiiUTDB details used by the UI.
+
+- `wiiu/nus.json`: Cached Wii U NUS scan results.
+- `3ds/nus.json`: Cached 3DS NUS scan results.
+
+- `wii/tdb.xml`: Source Wii TDB XML from [GameTDB](https://www.gametdb.com/wiitdb.zip), used for Wii supplemental title data and UI details.
+- `wiiu/tdb.xml`: Source Wii U TDB XML from [GameTDB](https://www.gametdb.com/wiiutdb.zip), used by the UI for title details.
+- `3ds/tdb.xml`: Source 3DS TDB XML from [GameTDB](https://www.gametdb.com/3dstdb.zip), used by the UI for title details.
+
+- `wiiu/wiiubrew.csv`: Exported Wii U CSV for supplemental title data from [WiiUBrew](https://wiiubrew.org/wiki/Title_database).
+
+- `3ds/hshop.json`: Browser-exported 3DS supplemental hShop title data. See `titles/3ds/README.hshop.md` for details.
 
 ## Contributing
 

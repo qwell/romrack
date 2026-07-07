@@ -13,7 +13,7 @@ import {
 import { broadcastAppSocketEvent } from '../socket.js';
 import { findWiiTitleSourcePaths, readWiiTitleIdentity } from '../wii.js';
 import { findWiiUTitleSourcePaths, readWiiUTitleIdentity } from '../wiiu.js';
-import { getWbfsDiscFilePaths } from '../formats/disc.js';
+import { getWbfsDiscFilePaths } from '../formats/wbfs.js';
 import {
     clearTitleScanCache,
     getCachedTitleSourcePaths,
@@ -62,11 +62,18 @@ import {
 } from '../../shared/socket.js';
 import { markTitleCopiesValidating, revalidateTitleCopies } from './title.js';
 import { downloadNusBaseMetadata } from '../title.js';
+import { WII_U_NUS_BASE_URL } from '../download-title.js';
 
 type RouteResult<TBody> = {
     status: number;
     body: TBody;
 };
+
+function unsupportedStoragePlatform(
+    platform: TitleIdentity['platform']
+): never {
+    throw new Error(`Storage operations are not supported for ${platform}`);
+}
 
 export function createStorageRouter(): Router {
     const router = Router();
@@ -666,13 +673,18 @@ async function processStorageCopyQueue(): Promise<void> {
         });
 
         switch (nextItem.requestedPlatform) {
+            case '3ds':
+                break;
+
             case 'wii':
                 break;
 
             case 'wiiu':
                 if (resolvedTitleId) {
                     const copyId = nextItem.id;
-                    void downloadNusBaseMetadata(resolvedTitleId)
+                    void downloadNusBaseMetadata(resolvedTitleId, {
+                        baseUrl: WII_U_NUS_BASE_URL,
+                    })
                         .then((metadata) => {
                             if (
                                 !metadata?.name ||
@@ -947,6 +959,9 @@ async function findStorageCopySourcePaths(
     const config = getConfig();
 
     switch (item.requestedPlatform) {
+        case '3ds':
+            return unsupportedStoragePlatform(item.requestedPlatform);
+
         case 'wii':
             return findWiiTitleSourcePaths(
                 config.wiiRoots,
@@ -970,6 +985,9 @@ async function readStorageCopyTitleIdentity(
     kind: StorageCopyItem['titleKind'];
 } | null> {
     switch (item.requestedPlatform) {
+        case '3ds':
+            return unsupportedStoragePlatform(item.requestedPlatform);
+
         case 'wii':
             return readWiiTitleIdentity(sourcePath);
 
@@ -984,6 +1002,9 @@ async function getStorageCopyDestination(
     destinationRoot: string
 ): Promise<StreamCopyDestination> {
     switch (item.requestedPlatform) {
+        case '3ds':
+            return unsupportedStoragePlatform(item.requestedPlatform);
+
         case 'wii':
             return getWiiStorageCopyDestination(
                 item,
@@ -1084,6 +1105,9 @@ async function getSelectedStorageCopySourcePaths(
     sourcePath: string
 ): Promise<string[]> {
     switch (item.requestedPlatform) {
+        case '3ds':
+            return unsupportedStoragePlatform(item.requestedPlatform);
+
         case 'wii':
             return getWbfsDiscFilePaths(sourcePath);
 
@@ -1098,6 +1122,9 @@ async function getStorageCopyFileSizes(
     destinationPath: string
 ): Promise<StreamCopyFile[]> {
     switch (item.requestedPlatform) {
+        case '3ds':
+            return unsupportedStoragePlatform(item.requestedPlatform);
+
         case 'wii':
             return getWiiStorageCopyFileSizes(sourcePath, destinationPath);
 
@@ -1205,6 +1232,9 @@ function markStorageTitleCopiesValidating(
     titleId: string
 ): void {
     switch (platform) {
+        case '3ds':
+            break;
+
         case 'wii':
             break;
 
@@ -1220,6 +1250,9 @@ function revalidateStorageTitleCopies(
     sourcePaths: string[]
 ): void {
     switch (platform) {
+        case '3ds':
+            break;
+
         case 'wii':
             break;
 
@@ -1471,6 +1504,10 @@ async function processStorageDelete(
             const config = getConfig();
             let sourcePaths: string[];
             switch (title.platform) {
+                case '3ds':
+                    sourcePaths = unsupportedStoragePlatform(title.platform);
+                    break;
+
                 case 'wii':
                     sourcePaths = await findWiiTitleSourcePaths(
                         config.wiiRoots,
@@ -1497,6 +1534,10 @@ async function processStorageDelete(
 
             let titleIdentity: Awaited<ReturnType<typeof readWiiTitleIdentity>>;
             switch (title.platform) {
+                case '3ds':
+                    titleIdentity = unsupportedStoragePlatform(title.platform);
+                    break;
+
                 case 'wii':
                     titleIdentity = await readWiiTitleIdentity(
                         nextItem.sourcePaths[0]
@@ -1763,10 +1804,12 @@ export async function getSafeStorageDeletePaths(
 ): Promise<string[]> {
     const config = getConfig();
     const rootPaths = await Promise.all(
-        [...config.wiiuRoots, ...config.wiiRoots].map(async (root) => {
-            const readableRoot = await resolveReadablePath(root);
-            return realpath(readableRoot);
-        })
+        [...config['3dsRoots'], ...config.wiiuRoots, ...config.wiiRoots].map(
+            async (root) => {
+                const readableRoot = await resolveReadablePath(root);
+                return realpath(readableRoot);
+            }
+        )
     );
 
     const deletePaths: string[] = [];

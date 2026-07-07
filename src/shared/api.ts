@@ -111,17 +111,22 @@ export type StorageQueueResponse =
     | StorageDeleteQueuedResponse
     | ApiErrorResponse;
 
-export type TitleLookupWiiUResponse = {
+export type TitleLookupResponse = {
     titleId: string;
     name: string | null;
     region: string | null;
     productCode: string | null;
     companyCode: string | null;
     baseVersions: number[];
-    titleKey: string | null;
-    titleKeyPassword: string | null;
     updateVersions: number[];
     dlcVersions: number[];
+    iconUrl?: string | null;
+    availableOnCdn?: boolean;
+};
+
+export type TitleLookupWiiUResponse = TitleLookupResponse & {
+    titleKey: string | null;
+    titleKeyPassword: string | null;
 };
 
 export type TitleDownloadResponse = {

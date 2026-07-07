@@ -69,7 +69,6 @@ function verificationToAvailableEntry(
         region: null,
         iconUrl: null,
         bannerUrl: null,
-        discUrl: null,
         version: title.version ?? 0,
         kind: title.kind,
         sizeBytes: 0,
@@ -225,7 +224,7 @@ export function getChildBadgeState(
 
 export function syncGroupStatusFromSlots(group: TitleGroup): void {
     if (group.platform === 'wii') {
-        group.status = group.entries.length > 0 ? 'complete' : 'missing';
+        group.status = group.entries.length > 0 ? 'complete' : 'unavailable';
         return;
     }
 

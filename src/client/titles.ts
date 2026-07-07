@@ -2,8 +2,8 @@ import { type DownloadQueueItem } from '../shared/download.js';
 import { formatActionStateIcon } from '../shared/action.js';
 import { formatSize } from '../shared/utils.js';
 import {
+    getTitleId,
     getVirtualConsolePlatform,
-    PARENT_KINDS,
     type TitleGroup,
     type TitleGroupStatus,
     TitleKinds,
@@ -34,16 +34,31 @@ type TitlesOptions = {
     getSelectedDetailFamily: () => string | null;
     toggleDetailSidebar: (sidebar: HTMLElement, group: TitleGroup) => void;
 };
+const TITLE_GRID_MIN_COLUMN_WIDTH = 220;
+const TITLE_GRID_ROW_HEIGHT = 124;
+const TITLE_GRID_GAP = 8;
+const TITLE_LIST_ROW_HEIGHT = 30;
+const TITLE_LIST_GAP = 4;
+const TITLE_VIRTUAL_OVERSCAN_ROWS = 3;
+
+type VirtualTitleWindowState = {
+    startIndex: number;
+    endIndex: number;
+    startRow: number;
+    columns: number;
+    totalHeight: number;
+};
+
 let options: TitlesOptions | null = null;
 let showAllTitles = false;
 let currentGroups: TitleGroup[] = [];
+let virtualGroups: TitleGroup[] = [];
 let controlState: TitlesControlState = {
     region: 'all',
     status: 'all',
     vc: 'all',
     search: '',
 };
-let iconObserver: IntersectionObserver | null = null;
 let loading = false;
 let verifying = false;
 let titlesGrid: HTMLDivElement | null = null;
@@ -56,6 +71,9 @@ let searchInput: HTMLInputElement | null = null;
 let showAllInput: HTMLInputElement | null = null;
 let refreshButton: HTMLButtonElement | null = null;
 let verifyButton: HTMLButtonElement | null = null;
+let virtualRenderFrame: number | null = null;
+let virtualWindowState: VirtualTitleWindowState | null = null;
+let titlesResizeObserver: ResizeObserver | null = null;
 
 export const titleSearchHaystacks = new WeakMap<TitleGroup, string>();
 
@@ -66,6 +84,10 @@ export function setupTitles(nextOptions: TitlesOptions): void {
 export function mountTitles(root: HTMLElement): void {
     titlesGrid = document.createElement('div');
     titlesGrid.className = 'library-grid';
+    titlesGrid.addEventListener('scroll', scheduleVirtualTitleRender);
+    titlesResizeObserver?.disconnect();
+    titlesResizeObserver = new ResizeObserver(scheduleVirtualTitleRender);
+    titlesResizeObserver.observe(titlesGrid);
     titlesSidebar =
         options?.buildDetailSidebar() ?? document.createElement('aside');
     const controls = buildControls(titlesGrid, titlesSidebar);
@@ -91,7 +113,6 @@ export function renderTitles(groups: TitleGroup[]): void {
 
 export function renderTitlesError(message: string): void {
     currentGroups = [];
-    resetIconObserver();
     updateTitlesControls();
     updateTitleActionButtons();
 
@@ -133,14 +154,6 @@ function filterVisibleTitleGroups(groups: TitleGroup[]): TitleGroup[] {
     );
 }
 
-function observeTitleIcon(image: HTMLImageElement, src: string): void {
-    if (iconObserver) {
-        iconObserver.observe(image);
-    } else {
-        image.src = src;
-    }
-}
-
 export function setTitlesStatus(next: {
     loading?: boolean;
     verifying?: boolean;
@@ -151,11 +164,36 @@ export function setTitlesStatus(next: {
         loadingLine.textContent = loading ? 'Loading...' : '';
     }
     if (next.loading === true) {
-        resetIconObserver();
         titlesGrid?.replaceChildren();
     }
     updateTitlesControls();
     updateTitleActionButtons();
+}
+
+function buildTitleIconPlaceholder(): HTMLDivElement {
+    const placeholder = document.createElement('div');
+    placeholder.className = 'title-icon-placeholder';
+    return placeholder;
+}
+
+function buildTitleIcon(src: string, alt: string): HTMLDivElement {
+    const placeholder = buildTitleIconPlaceholder();
+    const image = document.createElement('img');
+    image.className = 'title-icon title-icon-loading';
+    image.alt = alt;
+    image.loading = 'lazy';
+    image.decoding = 'async';
+    image.addEventListener('load', () => {
+        image.classList.remove('title-icon-loading');
+        placeholder.replaceWith(image);
+    });
+    image.addEventListener('error', () => {
+        image.remove();
+    });
+    image.src = src;
+
+    placeholder.append(image);
+    return placeholder;
 }
 
 function formatRegion(region: string | null): {
@@ -164,14 +202,23 @@ function formatRegion(region: string | null): {
     class?: string;
 } {
     const regions: Record<string, { flag: string; class?: string }> = {
-        USA: { flag: '🇺🇸', class: 'distress' },
+        AUS: { flag: '🇦🇺' },
+        CAN: { flag: '🇨🇦' },
+        CHN: { flag: '🇨🇳' },
+        CHT: { flag: '🇹🇼' },
         EUR: { flag: '🇪🇺' },
-        JPN: { flag: '🇯🇵' },
         FRA: { flag: '🇫🇷' },
         GER: { flag: '🇩🇪' },
         ITA: { flag: '🇮🇹' },
+        JPN: { flag: '🇯🇵' },
+        KOR: { flag: '🇰🇷' },
+        MDE: { flag: '🌍' },
+        RUS: { flag: '🇷🇺' },
         SPA: { flag: '🇪🇸' },
+        TWN: { flag: '🇹🇼' },
+        UKV: { flag: '🇬🇧' },
         UNK: { flag: '🏴‍☠️', class: 'arrr' },
+        USA: { flag: '🇺🇸', class: 'distress' },
         ALL: { flag: '🌐' },
     };
     return {
@@ -182,23 +229,68 @@ function formatRegion(region: string | null): {
 }
 
 function formatTooltip(group: TitleGroup): string {
-    if (group.platform === 'wii') {
-        const entry = getEntry(group, TitleKinds.Base);
-        return `Disc image: ${
-            entry ? `${formatSize(entry.sizeBytes)} (${entry.titleId})` : '-'
-        }`;
+    const entry = getEntry(group, TitleKinds.Base);
+    const lines = [
+        `Title: ${getTitleId(group.platform, group.family, TitleKinds.Base)}`,
+        `Product Code: ${group.productCode ?? '-'}`,
+    ];
+
+    switch (group.platform) {
+        case 'wii': {
+            lines.push(
+                `Disc image: ${entry ? formatSize(entry.sizeBytes) : '-'}`
+            );
+            break;
+        }
+
+        case '3ds':
+        case 'wiiu': {
+            lines.push(...formatTitleContentTooltip(group));
+            break;
+        }
     }
 
-    const parent = getEntry(group, PARENT_KINDS);
-    const update = getEntry(group, TitleKinds.Update);
-    const dlc = getEntry(group, TitleKinds.DLC);
-    const line = (label: string, entry: typeof parent): string =>
-        `${label}: ${entry ? `${formatSize(entry.sizeBytes)} (${entry.titleId})` : '-'}`;
-    return [
-        line('Game', parent),
-        line('Update', update),
-        line('DLC', dlc),
-    ].join('\n');
+    return lines.join('\n');
+}
+
+function formatTitleContentTooltip(group: TitleGroup): string[] {
+    const parent = getEntry(group, TitleKinds.Base);
+    const slots: Array<{
+        label: string;
+        kind: TitleKinds;
+        entry: typeof parent;
+    }> = [
+        {
+            label: 'Base',
+            kind: TitleKinds.Base,
+            entry: parent,
+        },
+        {
+            label: 'Update',
+            kind: TitleKinds.Update,
+            entry: getEntry(group, TitleKinds.Update),
+        },
+        {
+            label: 'DLC',
+            kind: TitleKinds.DLC,
+            entry: getEntry(group, TitleKinds.DLC),
+        },
+    ];
+    const slotLines = slots
+        .filter(
+            ({ kind, entry }) =>
+                entry ||
+                group.availableEntries.some(
+                    (available) =>
+                        available.kind === kind && available.availableOnCdn
+                )
+        )
+        .map(
+            ({ label, entry }) =>
+                `${label}: ${entry ? formatSize(entry.sizeBytes) : '-'}`
+        );
+
+    return slotLines;
 }
 
 function getDownloadState(group: TitleGroup, kind: TitleKinds) {
@@ -242,6 +334,9 @@ function renderPlatformBadge(group: TitleGroup): HTMLElement {
     badge.dataset.platform = group.platform;
 
     switch (group.platform) {
+        case '3ds':
+            badge.textContent = '3DS';
+            break;
         case 'wii':
             badge.textContent = 'Wii';
             break;
@@ -308,18 +403,9 @@ function renderGroup(
     root.toggleAttribute('data-selected', group.family === selectedFamily);
 
     if (group.iconUrl) {
-        const image = document.createElement('img');
-        image.className = 'title-icon';
-        image.dataset.src = group.iconUrl;
-        image.alt = group.name;
-        image.loading = 'lazy';
-        image.decoding = 'async';
-        root.append(image);
-        observeTitleIcon(image, group.iconUrl);
+        root.append(buildTitleIcon(group.iconUrl, group.name));
     } else {
-        const placeholder = document.createElement('div');
-        placeholder.className = 'title-icon-placeholder';
-        root.append(placeholder);
+        root.append(buildTitleIconPlaceholder());
     }
 
     const header = document.createElement('div');
@@ -334,6 +420,7 @@ function renderGroup(
         badgeList.append(wudBadge);
     }
     switch (group.platform) {
+        case '3ds':
         case 'wiiu':
             badgeList.append(
                 renderSlotBadge(
@@ -364,19 +451,17 @@ function renderGroup(
         renderPlatformBadge(group)
     );
 
-    if (group.region) {
-        const formatted = formatRegion(group.region);
-        const region = document.createElement('div');
-        region.className = 'title-metadata-badge title-region';
-        const flag = document.createElement('span');
-        flag.className = formatted.class ?? '';
-        flag.textContent = formatted.flag;
-        const text = document.createElement('span');
-        text.className = 'region';
-        text.textContent = formatted.text;
-        region.append(flag, text);
-        rightBadges.append(region);
-    }
+    const formatted = formatRegion(group.region ?? 'UNK');
+    const region = document.createElement('div');
+    region.className = 'title-metadata-badge title-region';
+    const flag = document.createElement('span');
+    flag.className = formatted.class ?? '';
+    flag.textContent = formatted.flag;
+    const text = document.createElement('span');
+    text.className = 'region';
+    text.textContent = formatted.text;
+    region.append(flag, text);
+    rightBadges.append(region);
     badges.append(rightBadges);
 
     root.append(header, badges);
@@ -418,34 +503,11 @@ export function refreshRenderedTitleGroup(group: TitleGroup): void {
 
     if (element) {
         element.replaceWith(replacement);
+        options?.renderDownloadMarkers();
         return;
     }
 
     renderGroups(currentGroups, titlesGrid, titlesSidebar);
-}
-
-function resetIconObserver(): void {
-    iconObserver?.disconnect();
-    iconObserver = new IntersectionObserver(
-        (entries) => {
-            for (const entry of entries) {
-                if (!entry.isIntersecting) {
-                    continue;
-                }
-                const image = entry.target;
-                if (!(image instanceof HTMLImageElement)) {
-                    continue;
-                }
-                const src = image.dataset.src;
-                if (src) {
-                    image.src = src;
-                    delete image.dataset.src;
-                }
-                iconObserver?.unobserve(image);
-            }
-        },
-        { rootMargin: '256px' }
-    );
 }
 
 function normalizeSearch(value: string | null | undefined): string {
@@ -573,57 +635,179 @@ function renderGroups(
     sidebar: HTMLElement
 ): void {
     currentGroups = groups;
-    const filtered = groups.filter(isGroupVisible);
+    const filtered = groups.filter(
+        (group) => group.name.length > 0 && isGroupVisible(group)
+    );
     updateVirtualConsoleBadgeWidth(groups, grid);
+    virtualGroups = filtered;
+    virtualWindowState = null;
 
     grid.replaceChildren();
-    resetIconObserver();
+    const spacer = document.createElement('div');
+    spacer.className = 'title-virtual-spacer';
+    const viewport = document.createElement('div');
+    viewport.className = 'title-virtual-window';
+    spacer.append(viewport);
+    grid.append(spacer);
 
-    let renderedCount = 0;
-    const batchSize = 50;
-    const sentinel = document.createElement('div');
+    renderVirtualTitleWindow(grid, sidebar);
+}
 
-    const appendBatch = (): void => {
-        const fragment = document.createDocumentFragment();
-        for (const group of filtered.slice(
-            renderedCount,
-            renderedCount + batchSize
-        )) {
-            const element = renderGroup(
-                group,
-                (selected) => options?.toggleDetailSidebar(sidebar, selected),
-                options?.getSelectedDetailFamily() ?? null
-            );
-            if (element) {
-                fragment.append(element);
-            }
+function scheduleVirtualTitleRender(): void {
+    if (virtualRenderFrame !== null) {
+        cancelAnimationFrame(virtualRenderFrame);
+    }
+    virtualRenderFrame = requestAnimationFrame(() => {
+        virtualRenderFrame = null;
+        if (titlesGrid && titlesSidebar) {
+            renderVirtualTitleWindow(titlesGrid, titlesSidebar);
         }
-        grid.insertBefore(fragment, sentinel);
-        renderedCount += batchSize;
-        options?.renderDownloadMarkers();
-    };
+    });
+}
 
-    grid.append(sentinel);
-    appendBatch();
-    if (renderedCount >= filtered.length) {
-        sentinel.remove();
+function getVirtualTitleLayout(grid: HTMLDivElement): {
+    columns: number;
+    gap: number;
+    rowHeight: number;
+    rowStride: number;
+} {
+    const listView = grid.dataset.view === 'list';
+    const gap = listView ? TITLE_LIST_GAP : TITLE_GRID_GAP;
+    const rowHeight = listView ? TITLE_LIST_ROW_HEIGHT : TITLE_GRID_ROW_HEIGHT;
+    const columns = listView
+        ? 1
+        : Math.max(
+              1,
+              Math.floor(
+                  (grid.clientWidth + gap) / (TITLE_GRID_MIN_COLUMN_WIDTH + gap)
+              )
+          );
+
+    return {
+        columns,
+        gap,
+        rowHeight,
+        rowStride: rowHeight + gap,
+    };
+}
+
+function renderVirtualTitleWindow(
+    grid: HTMLDivElement,
+    sidebar: HTMLElement
+): void {
+    const spacer = grid.querySelector<HTMLDivElement>(
+        ':scope > .title-virtual-spacer'
+    );
+    const viewport = spacer?.querySelector<HTMLDivElement>(
+        ':scope > .title-virtual-window'
+    );
+
+    if (!spacer || !viewport) {
         return;
     }
 
-    const observer = new IntersectionObserver(
-        (entries) => {
-            if (!entries.some((entry) => entry.isIntersecting)) {
-                return;
-            }
-            appendBatch();
-            if (renderedCount >= filtered.length) {
-                observer.disconnect();
-                sentinel.remove();
-            }
-        },
-        { rootMargin: '400px' }
+    const layout = getVirtualTitleLayout(grid);
+    const totalRows = Math.ceil(virtualGroups.length / layout.columns);
+    const totalHeight =
+        totalRows === 0
+            ? 0
+            : totalRows * layout.rowHeight + (totalRows - 1) * layout.gap;
+    const startRow = Math.max(
+        0,
+        Math.floor(grid.scrollTop / layout.rowStride) -
+            TITLE_VIRTUAL_OVERSCAN_ROWS
     );
-    observer.observe(sentinel);
+    const endRow = Math.min(
+        totalRows,
+        Math.ceil((grid.scrollTop + grid.clientHeight) / layout.rowStride) +
+            TITLE_VIRTUAL_OVERSCAN_ROWS
+    );
+    const startIndex = startRow * layout.columns;
+    const endIndex = Math.min(virtualGroups.length, endRow * layout.columns);
+    const selectedFamily = options?.getSelectedDetailFamily() ?? null;
+    const nextState = {
+        startIndex,
+        endIndex,
+        startRow,
+        columns: layout.columns,
+        totalHeight,
+    };
+
+    spacer.style.height = `${totalHeight}px`;
+    viewport.style.transform = `translateY(${startRow * layout.rowStride}px)`;
+    viewport.style.gridTemplateColumns = `repeat(${layout.columns}, minmax(0, 1fr))`;
+    syncVirtualTitleSelection(viewport, selectedFamily);
+
+    if (isSameVirtualTitleWindow(virtualWindowState, nextState)) {
+        return;
+    }
+
+    virtualWindowState = nextState;
+    const existingElements = getVirtualTitleElements(viewport);
+    const fragment = document.createDocumentFragment();
+
+    for (const group of virtualGroups.slice(startIndex, endIndex)) {
+        const element =
+            existingElements.get(group.family) ??
+            renderGroup(
+                group,
+                (selected) => options?.toggleDetailSidebar(sidebar, selected),
+                selectedFamily
+            );
+        if (element) {
+            element.toggleAttribute(
+                'data-selected',
+                group.family === selectedFamily
+            );
+            fragment.append(element);
+        }
+    }
+
+    viewport.replaceChildren(fragment);
+    options?.renderDownloadMarkers();
+}
+
+function getVirtualTitleElements(
+    viewport: HTMLDivElement
+): Map<string, HTMLElement> {
+    const elements = new Map<string, HTMLElement>();
+
+    for (const child of viewport.children) {
+        if (!(child instanceof HTMLElement) || !child.dataset.family) {
+            continue;
+        }
+        elements.set(child.dataset.family, child);
+    }
+
+    return elements;
+}
+
+function syncVirtualTitleSelection(
+    viewport: HTMLDivElement,
+    selectedFamily: string | null
+): void {
+    for (const child of viewport.children) {
+        if (child instanceof HTMLElement) {
+            child.toggleAttribute(
+                'data-selected',
+                child.dataset.family === selectedFamily
+            );
+        }
+    }
+}
+
+function isSameVirtualTitleWindow(
+    a: VirtualTitleWindowState | null,
+    b: VirtualTitleWindowState
+): boolean {
+    return (
+        a !== null &&
+        a.startIndex === b.startIndex &&
+        a.endIndex === b.endIndex &&
+        a.startRow === b.startRow &&
+        a.columns === b.columns &&
+        a.totalHeight === b.totalHeight
+    );
 }
 
 function appendOptions(
@@ -672,6 +856,9 @@ function buildViewControl(grid: HTMLDivElement): HTMLElement {
         }
         if (save) {
             localStorage.setItem('libraryViewMode', mode);
+            if (titlesSidebar) {
+                renderGroups(currentGroups, grid, titlesSidebar);
+            }
         }
     };
     apply(

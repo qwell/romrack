@@ -1,7 +1,6 @@
 import { createDecipheriv } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdir, open, readdir, writeFile } from 'node:fs/promises';
-import type { FileHandle } from 'node:fs/promises';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
@@ -29,6 +28,32 @@ import {
     type Tmd,
 } from './formats/tmd.js';
 import {
+    isWudImagePath,
+    openWudImage,
+    readWudImageRange,
+    WUD_AES_BLOCK_SIZE,
+    WUD_CLUSTER_SIZE,
+    WUD_DECRYPTED_AREA_OFFSET,
+    WUD_DECRYPTED_AREA_SIGNATURE,
+    WUD_H3_HASH_CLUSTER_SPAN,
+    WUD_H3_HASH_ENTRY_SIZE,
+    WUD_IV_FILE_OFFSET_SHIFT,
+    WUD_PARTITION_HEADER_FST_SIZE_OFFSET,
+    WUD_PARTITION_HEADER_HASH_COUNT_OFFSET,
+    WUD_PARTITION_HEADER_HASH_POINTER_SIZE,
+    WUD_PARTITION_HEADER_HASH_TABLE_OFFSET,
+    WUD_PARTITION_HEADER_META_SIZE,
+    WUD_PARTITION_HEADER_SIZE_OFFSET,
+    WUD_PARTITION_START_SIGNATURE,
+    WUD_PARTITION_TOC_COUNT_OFFSET,
+    WUD_PARTITION_TOC_ENTRY_SIZE,
+    WUD_PARTITION_TOC_NAME_SIZE,
+    WUD_PARTITION_TOC_OFFSET,
+    WUD_PARTITION_TOC_SECTOR_OFFSET,
+    WUD_SECTOR_SIZE,
+    type WudImage,
+} from './formats/wud.js';
+import {
     type GeneratedTitleInstallFiles,
     TIK_TITLE_FILE,
     CERT_TITLE_FILE,
@@ -49,19 +74,6 @@ import { getImmediatePathSizeBytes, readOptionalFile } from '../shared/file.js';
 import { findReadablePath } from '../shared/os.js';
 import { safeDirectoryName } from '../shared/utils.js';
 import logger from '../shared/logger.js';
-
-type WuxInfo = {
-    sectorSize: number;
-    uncompressedSize: bigint;
-    offsetSectorArray: bigint;
-    indexTable: number[];
-};
-
-type WudImage = {
-    filePath: string;
-    file: FileHandle;
-    compressed: WuxInfo | null;
-};
 
 type WudPartitionReference = {
     name: string;
@@ -100,37 +112,7 @@ export type LibraryWudConvertResult = {
     converted: ConvertedWudImage[];
 };
 
-const WUD_FILE_EXTENSIONS = new Set(['.wud', '.wux']);
 const DISC_KEY_SIZE = 0x10;
-
-const WUD_DECRYPTED_AREA_OFFSET = 0x18000n;
-const WUD_SECTOR_SIZE = 0x8000;
-const WUD_CLUSTER_SIZE = 0x10000;
-const WUX_HEADER_SIZE = 0x20;
-const WUX_MAGIC_0 = 0x30585557;
-const WUX_MAGIC_1 = 0x1099d02e;
-const WUX_SECTOR_SIZE_OFFSET = 0x08;
-const WUX_UNCOMPRESSED_SIZE_OFFSET = 0x10;
-const WUX_INDEX_TABLE_ENTRY_SIZE = 0x04;
-
-const PARTITION_TOC_ENTRY_SIZE = 0x80;
-const PARTITION_TOC_OFFSET = 0x800;
-const PARTITION_TOC_COUNT_OFFSET = 0x1c;
-const PARTITION_TOC_NAME_SIZE = 0x19;
-const PARTITION_TOC_SECTOR_OFFSET = 0x20;
-const PARTITION_HEADER_META_SIZE = 0x20;
-const PARTITION_HEADER_SIZE_OFFSET = 0x04;
-const PARTITION_HEADER_FST_SIZE_OFFSET = 0x14;
-const PARTITION_HEADER_HASH_COUNT_OFFSET = 0x10;
-const PARTITION_HEADER_HASH_TABLE_OFFSET = 0x40;
-const PARTITION_HEADER_HASH_POINTER_SIZE = 0x04;
-const PARTITION_START_SIGNATURE = 0xcc93a4f5;
-const DECRYPTED_AREA_SIGNATURE = 0xcca6e67b;
-
-const H3_HASH_ENTRY_SIZE = 0x14;
-const H3_HASH_CLUSTER_SPAN = 0x1000;
-const AES_BLOCK_SIZE = 0x10;
-const IV_FILE_OFFSET_SHIFT = 16n;
 
 export async function findWudImagePaths(roots: string[]): Promise<string[]> {
     const found = new Set<string>();
@@ -320,35 +302,12 @@ async function findWudImagePathsInRoot(root: string): Promise<string[]> {
             continue;
         }
 
-        if (
-            entry.isFile() &&
-            WUD_FILE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
-        ) {
+        if (entry.isFile() && isWudImagePath(entry.name)) {
             found.push(entryPath);
         }
     }
 
     return found;
-}
-
-async function openWudImage(filePath: string): Promise<WudImage> {
-    const file = await open(filePath, 'r');
-
-    try {
-        const header = await readFileRange(file, 0n, WUX_HEADER_SIZE);
-        const compressed = parseWuxInfo(header);
-
-        return {
-            filePath,
-            file,
-            compressed: compressed
-                ? await readWuxIndexTable(file, compressed)
-                : null,
-        };
-    } catch (error) {
-        await file.close();
-        throw error;
-    }
 }
 
 async function readWudDiscKey(imagePath: string): Promise<Uint8Array | null> {
@@ -402,58 +361,6 @@ function parseDiscKeyBytes(
     return new Uint8Array(Buffer.from(hex, 'hex'));
 }
 
-function parseWuxInfo(header: Buffer): Omit<WuxInfo, 'indexTable'> | null {
-    if (
-        header.length < WUX_HEADER_SIZE ||
-        header.readUInt32LE(0) !== WUX_MAGIC_0 ||
-        header.readUInt32LE(4) !== WUX_MAGIC_1
-    ) {
-        return null;
-    }
-
-    const sectorSize = header.readUInt32LE(WUX_SECTOR_SIZE_OFFSET);
-    const uncompressedSize = header.readBigUInt64LE(
-        WUX_UNCOMPRESSED_SIZE_OFFSET
-    );
-    const indexTableEntryCount =
-        (uncompressedSize + BigInt(sectorSize) - 1n) / BigInt(sectorSize);
-    let offsetSectorArray =
-        BigInt(WUX_HEADER_SIZE) +
-        indexTableEntryCount * BigInt(WUX_INDEX_TABLE_ENTRY_SIZE);
-    offsetSectorArray += BigInt(sectorSize - 1);
-    offsetSectorArray -= offsetSectorArray % BigInt(sectorSize);
-
-    return {
-        sectorSize,
-        uncompressedSize,
-        offsetSectorArray,
-    };
-}
-
-async function readWuxIndexTable(
-    file: FileHandle,
-    info: Omit<WuxInfo, 'indexTable'>
-): Promise<WuxInfo> {
-    const entryCount =
-        (info.uncompressedSize + BigInt(info.sectorSize) - 1n) /
-        BigInt(info.sectorSize);
-    const table = await readFileRange(
-        file,
-        BigInt(WUX_HEADER_SIZE),
-        Number(entryCount * BigInt(WUX_INDEX_TABLE_ENTRY_SIZE))
-    );
-    const indexTable: number[] = [];
-
-    for (let offset = 0; offset < table.length; offset += 4) {
-        indexTable.push(table.readUInt32LE(offset));
-    }
-
-    return {
-        ...info,
-        indexTable,
-    };
-}
-
 async function readWudGamePartitions(
     image: WudImage,
     discKey: Uint8Array,
@@ -470,7 +377,7 @@ async function readWudGamePartitions(
         true
     );
 
-    if (partitionTocBlock.readUInt32BE(0) !== DECRYPTED_AREA_SIGNATURE) {
+    if (partitionTocBlock.readUInt32BE(0) !== WUD_DECRYPTED_AREA_SIGNATURE) {
         logger.warn(
             'wud',
             `failed to decrypt partition table for ${image.filePath}`
@@ -621,16 +528,17 @@ async function readWudGamePartitionChild(
 }
 
 function readPartitionReferences(buffer: Buffer): WudPartitionReference[] {
-    const count = buffer.readUInt32BE(PARTITION_TOC_COUNT_OFFSET);
+    const count = buffer.readUInt32BE(WUD_PARTITION_TOC_COUNT_OFFSET);
     const partitions: WudPartitionReference[] = [];
 
     for (let index = 0; index < count; index += 1) {
-        const offset = PARTITION_TOC_OFFSET + index * PARTITION_TOC_ENTRY_SIZE;
+        const offset =
+            WUD_PARTITION_TOC_OFFSET + index * WUD_PARTITION_TOC_ENTRY_SIZE;
         const name = buffer
-            .toString('ascii', offset, offset + PARTITION_TOC_NAME_SIZE)
+            .toString('ascii', offset, offset + WUD_PARTITION_TOC_NAME_SIZE)
             .replace(/\0.*$/, '');
         const sector = buffer.readUInt32BE(
-            offset + PARTITION_TOC_SECTOR_OFFSET
+            offset + WUD_PARTITION_TOC_SECTOR_OFFSET
         );
 
         partitions.push({
@@ -656,17 +564,19 @@ async function readDataPartition(
     const headerMeta = await readEncryptedRange(
         image,
         partition.offset,
-        PARTITION_HEADER_META_SIZE
+        WUD_PARTITION_HEADER_META_SIZE
     );
 
-    if (headerMeta.readUInt32BE(0) !== PARTITION_START_SIGNATURE) {
+    if (headerMeta.readUInt32BE(0) !== WUD_PARTITION_START_SIGNATURE) {
         return null;
     }
 
     const headerSize = BigInt(
-        headerMeta.readUInt32BE(PARTITION_HEADER_SIZE_OFFSET)
+        headerMeta.readUInt32BE(WUD_PARTITION_HEADER_SIZE_OFFSET)
     );
-    const fstSize = headerMeta.readUInt32BE(PARTITION_HEADER_FST_SIZE_OFFSET);
+    const fstSize = headerMeta.readUInt32BE(
+        WUD_PARTITION_HEADER_FST_SIZE_OFFSET
+    );
     const fst = await readDecryptedRange(
         image,
         partition.offset + headerSize,
@@ -701,15 +611,15 @@ async function readGamePartition(
     const headerMeta = await readEncryptedRange(
         image,
         partition.offset,
-        PARTITION_HEADER_META_SIZE
+        WUD_PARTITION_HEADER_META_SIZE
     );
 
-    if (headerMeta.readUInt32BE(0) !== PARTITION_START_SIGNATURE) {
+    if (headerMeta.readUInt32BE(0) !== WUD_PARTITION_START_SIGNATURE) {
         return null;
     }
 
     const headerSize = BigInt(
-        headerMeta.readUInt32BE(PARTITION_HEADER_SIZE_OFFSET)
+        headerMeta.readUInt32BE(WUD_PARTITION_HEADER_SIZE_OFFSET)
     );
     const header = await readEncryptedRange(
         image,
@@ -995,10 +905,10 @@ function readPartitionH3(
             (Math.floor(
                 Number(getEncryptedContentFileSize(content)) /
                     WUD_CLUSTER_SIZE /
-                    H3_HASH_CLUSTER_SPAN
+                    WUD_H3_HASH_CLUSTER_SPAN
             ) +
                 1) *
-            H3_HASH_ENTRY_SIZE;
+            WUD_H3_HASH_ENTRY_SIZE;
 
         if (content.index === contentIndex) {
             return partition.header.subarray(
@@ -1018,10 +928,10 @@ function readPartitionH3(
 }
 
 function readPartitionHeaderHashStart(header: Buffer): number {
-    const count = header.readUInt32BE(PARTITION_HEADER_HASH_COUNT_OFFSET);
+    const count = header.readUInt32BE(WUD_PARTITION_HEADER_HASH_COUNT_OFFSET);
     return (
-        PARTITION_HEADER_HASH_TABLE_OFFSET +
-        count * PARTITION_HEADER_HASH_POINTER_SIZE
+        WUD_PARTITION_HEADER_HASH_TABLE_OFFSET +
+        count * WUD_PARTITION_HEADER_HASH_POINTER_SIZE
     );
 }
 
@@ -1097,45 +1007,7 @@ async function readEncryptedRange(
     offset: bigint,
     size: number | bigint
 ): Promise<Buffer> {
-    const length = typeof size === 'bigint' ? Number(size) : size;
-
-    if (!image.compressed) {
-        return readFileRange(image.file, offset, length);
-    }
-
-    const output = Buffer.alloc(length);
-    let outputOffset = 0;
-    let usedOffset = offset;
-    let remaining = length;
-
-    while (remaining > 0) {
-        const sectorSize = BigInt(image.compressed.sectorSize);
-        const sectorOffset = usedOffset % sectorSize;
-        const sectorIndex = Number(usedOffset / sectorSize);
-        const realSectorIndex = image.compressed.indexTable[sectorIndex];
-        const bytesToRead = Math.min(
-            Number(sectorSize - sectorOffset),
-            remaining
-        );
-
-        if (realSectorIndex === undefined) {
-            throw new Error(`Missing WUX sector ${sectorIndex}`);
-        }
-
-        const chunk = await readFileRange(
-            image.file,
-            image.compressed.offsetSectorArray +
-                BigInt(realSectorIndex) * sectorSize +
-                sectorOffset,
-            bytesToRead
-        );
-        chunk.copy(output, outputOffset);
-        outputOffset += chunk.length;
-        usedOffset += BigInt(chunk.length);
-        remaining -= chunk.length;
-    }
-
-    return output;
+    return readWudImageRange(image, offset, size);
 }
 
 async function readDecryptedRange(
@@ -1177,22 +1049,6 @@ async function readDecryptedRange(
     return output;
 }
 
-async function readFileRange(
-    file: FileHandle,
-    offset: bigint,
-    size: number
-): Promise<Buffer> {
-    const buffer = Buffer.alloc(size);
-    const { bytesRead } = await file.read(buffer, 0, size, offset);
-    if (bytesRead !== size) {
-        throw new Error(
-            `Unexpected end of WUD/WUX at offset ${offset.toString()}: expected ${size} bytes, read ${bytesRead}`
-        );
-    }
-
-    return buffer;
-}
-
 function decryptContent(
     encrypted: Uint8Array,
     key: Uint8Array,
@@ -1207,16 +1063,16 @@ function decryptContent(
 }
 
 function createContentIv(contentIndex: number): Uint8Array {
-    const iv = new Uint8Array(AES_BLOCK_SIZE);
+    const iv = new Uint8Array(WUD_AES_BLOCK_SIZE);
     new DataView(iv.buffer).setUint16(0, contentIndex, false);
     return iv;
 }
 
 function createFileOffsetIv(fileOffset: bigint): Uint8Array {
-    const iv = new Uint8Array(AES_BLOCK_SIZE);
+    const iv = new Uint8Array(WUD_AES_BLOCK_SIZE);
     new DataView(iv.buffer).setBigUint64(
-        AES_BLOCK_SIZE / 2,
-        fileOffset >> IV_FILE_OFFSET_SHIFT,
+        WUD_AES_BLOCK_SIZE / 2,
+        fileOffset >> WUD_IV_FILE_OFFSET_SHIFT,
         false
     );
     return iv;

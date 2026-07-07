@@ -16,7 +16,7 @@ let settingsLoading = false;
 let settingsSaving = false;
 let settingsCheckingRoot = false;
 
-type RootConfigKey = 'wiiRoots' | 'wiiuRoots';
+type RootConfigKey = '3dsRoots' | 'wiiRoots' | 'wiiuRoots';
 
 export function isSettingsOpen(): boolean {
     return document.body.hasAttribute('data-settings-open');
@@ -111,6 +111,7 @@ function readSettingsForm(sidebar: HTMLElement): AppConfig {
         host: hostInput?.value.trim() ?? '',
         port: Number(portInput?.value ?? 0),
         openBrowser: openBrowserInput?.checked ?? false,
+        '3dsRoots': roots('3dsRoots'),
         wiiRoots: roots('wiiRoots'),
         wiiuRoots: roots('wiiuRoots'),
     };
@@ -142,10 +143,12 @@ async function saveSettingsConfig(sidebar: HTMLElement): Promise<void> {
 
     const nextConfig = readSettingsForm(sidebar);
     const previousRoots = JSON.stringify({
+        '3dsRoots': settingsConfig?.['3dsRoots'] ?? [],
         wiiRoots: settingsConfig?.wiiRoots ?? [],
         wiiuRoots: settingsConfig?.wiiuRoots ?? [],
     });
     const nextRoots = JSON.stringify({
+        '3dsRoots': nextConfig['3dsRoots'],
         wiiRoots: nextConfig.wiiRoots,
         wiiuRoots: nextConfig.wiiuRoots,
     });
@@ -382,6 +385,12 @@ export function renderSettingsSidebar(preserveDraft = true): void {
                 help: 'Add one or more Wii library roots. These are saved for upcoming Wii library support.',
                 roots: settingsConfig.wiiRoots,
                 configKey: 'wiiRoots',
+            }),
+            buildSettingsRootsSection({
+                title: '3DS Roots',
+                help: 'Add one or more 3DS library roots.',
+                roots: settingsConfig['3dsRoots'],
+                configKey: '3dsRoots',
             }),
             buildSettingsFooter(sidebar)
         );

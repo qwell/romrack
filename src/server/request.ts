@@ -5,6 +5,7 @@ import {
     identifyWiiUTitle,
     type TitleIdentity,
 } from '../shared/titles.js';
+import { formatLogError } from '../shared/utils.js';
 
 type TitleQueryResult =
     | {
@@ -142,7 +143,7 @@ export function sendServerError(
     };
 
     if (options.includeDetails) {
-        body.message = error instanceof Error ? error.message : String(error);
+        body.message = formatLogError(error);
         body.stage = getErrorStage(error);
     }
 
