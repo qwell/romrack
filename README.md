@@ -232,6 +232,6 @@ ROM Rack is licensed under the [GNU General Public License v3.0](https://www.gnu
 
 ## Acknowledgements
 
-Huge thanks to [GameTDB](https://gametdb.com/) for the supplemental title databases, icons, and banner images.
+Thanks to [GameTDB](https://gametdb.com/) for the supplemental title databases, icons, and banner images.
 
 Thanks to [hShop](https://hshop.erista.me/) for the supplemental 3DS title database.
