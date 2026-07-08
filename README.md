@@ -1,4 +1,4 @@
-# ROM Rack
+# [ROM Rack](https://romrack.com/)
 
 ROM Rack is a web-based application that allows users to manage and organize their Wii U game library. It provides features such as game categorization, search and filter functionality, the ability to track title statuses (e.g., complete, incomplete, etc.), download homebrew and other titles, and copy titles to an SD card. The application is built using TypeScript and Node.js, with the aim to be cross-platform.
 
@@ -232,4 +232,6 @@ ROM Rack is licensed under the [GNU General Public License v3.0](https://www.gnu
 
 ## Acknowledgements
 
-Hi.
+Huge thanks to [GameTDB](https://gametdb.com/) for the supplemental title databases, icons, and banner images.
+
+Thanks to [hShop](https://hshop.erista.me/) for the supplemental 3DS title database.
