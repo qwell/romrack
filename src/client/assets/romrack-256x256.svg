@@ -1,30 +1,21 @@
-<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="back" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#5cbcff"/>
-      <stop offset="100%" stop-color="#2a90e6"/>
-    </linearGradient>
-    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#3fa4f5"/>
-      <stop offset="100%" stop-color="#166fc2"/>
-    </linearGradient>
-  </defs>
-
-  <!-- folder back panel (tab + body) -->
-  <path d="M20,212 L20,50 A10,10 0 0 1 30,40 L100,40 L131,70 L236,70 L236,212 A4,4 0 0 1 232,216 L24,216 A4,4 0 0 1 20,212 Z" fill="url(#back)"/>
-
-  <!-- left document, tucked inside -->
-  <path d="M52,54 Q52,43 62,43 L96,43 L110,58 L110,160 Q110,170 100,170 L62,170 Q52,170 52,160 Z" fill="#ffc94d"/>
-  <path d="M96,43 L110,58 L96,58 Z" fill="#e0a52e"/>
-
-  <!-- right document, tucked inside -->
-  <path d="M146,54 Q146,43 156,43 L189,43 L204,58 L204,160 Q204,170 194,170 L156,170 Q146,170 146,160 Z" fill="#ff7aa8"/>
-  <path d="M189,43 L204,58 L189,58 Z" fill="#e0537f"/>
-
-  <!-- center document, peeks highest -->
-  <path d="M93,39 Q93,29 103,29 L143,29 L157,43 L157,146 Q157,156 147,156 L103,156 Q93,156 93,146 Z" fill="#3ddbb0"/>
-  <path d="M143,29 L157,43 L143,43 Z" fill="#22b391"/>
-
-  <!-- folder front flap/pocket, covers the lower part of the documents -->
-  <path d="M20,70 L236,70 L236,212 A4,4 0 0 1 232,216 L24,216 A4,4 0 0 1 20,212 L20,70 Z" fill="url(#front)"/>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" version="1.1" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+ <defs>
+  <linearGradient id="back" x2="0" y2="1">
+   <stop stop-color="#5cbcff" offset="0"/>
+   <stop stop-color="#2a90e6" offset="1"/>
+  </linearGradient>
+  <linearGradient id="front" x2="0" y2="1">
+   <stop stop-color="#3fa4f5" offset="0"/>
+   <stop stop-color="#166fc2" offset="1"/>
+  </linearGradient>
+ </defs>
+ <path d="m20 212v-162a10 10 0 0 1 10-10h70l31 30h105v142a4 4 0 0 1-4 4h-208a4 4 0 0 1-4-4z" fill="url(#back)"/>
+ <path d="m52 54q0-11 10-11h34l14 15v102q0 10-10 10h-38q-10 0-10-10z" fill="#ffc94d"/>
+ <path d="m96 43 14 15h-14z" fill="#e0a52e"/>
+ <path d="m146 54q0-11 10-11h33l15 15v102q0 10-10 10h-38q-10 0-10-10z" fill="#ff7aa8"/>
+ <path d="m189 43 15 15h-15z" fill="#e0537f"/>
+ <path d="m93 39q0-10 10-10h40l14 14v103q0 10-10 10h-44q-10 0-10-10z" fill="#3ddbb0"/>
+ <path d="m143 29 14 14h-14z" fill="#22b391"/>
+ <path d="m20 70h216v142a4 4 0 0 1-4 4h-208a4 4 0 0 1-4-4v-142z" fill="url(#front)"/>
 </svg>
