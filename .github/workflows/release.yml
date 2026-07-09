@@ -87,7 +87,11 @@ jobs:
                     count == 2 { exit }
                   ' CHANGELOG.md > RELEASE_NOTES.md
 
-                  gh release create "${GITHUB_REF_NAME}" ./release/romrack-*.zip \
+                  gh release create "${GITHUB_REF_NAME}" \
                     --title "${GITHUB_REF_NAME}" \
                     --notes-file RELEASE_NOTES.md \
-                    --verify-tag
+                    --verify-tag \
+                    --latest
+
+                  gh release upload "${GITHUB_REF_NAME}" ./release/romrack-*.zip \
+                    --clobber
