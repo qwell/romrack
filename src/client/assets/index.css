@@ -878,6 +878,7 @@ footer {
     background-color: var(--footer);
     color: var(--fg);
     font-size: 10px;
+    align-items: baseline;
 }
 
 footer > div:last-child {
