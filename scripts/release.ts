@@ -3,7 +3,6 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import AdmZip from 'adm-zip';
-import { readAppVersion } from '../src/shared/scripts.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -85,11 +84,8 @@ function getTargetOutputDir(target: ReleaseTarget): string {
     return path.join(RELEASE_ROOT, `${RELEASE_NAME}-${target.name}`);
 }
 
-function getTargetZipPath(version: string, target: ReleaseTarget): string {
-    return path.join(
-        RELEASE_ROOT,
-        `${RELEASE_NAME}-${version}-${target.name}.zip`
-    );
+function getTargetZipPath(target: ReleaseTarget): string {
+    return path.join(RELEASE_ROOT, `${RELEASE_NAME}-${target.name}.zip`);
 }
 
 async function copyAppFiles(outputDir: string): Promise<void> {
@@ -177,12 +173,9 @@ async function stageTargetRelease(target: ReleaseTarget): Promise<void> {
     console.log(`[release] staged ${outputDir}`);
 }
 
-async function zipTargetRelease(
-    version: string,
-    target: ReleaseTarget
-): Promise<void> {
+async function zipTargetRelease(target: ReleaseTarget): Promise<void> {
     const outputDir = getTargetOutputDir(target);
-    const zipPath = getTargetZipPath(version, target);
+    const zipPath = getTargetZipPath(target);
 
     const launcherPath = path.join(outputDir, target.launcherFileName);
 
@@ -205,17 +198,16 @@ async function stageRelease(): Promise<void> {
     }
 }
 
-async function zipRelease(version: string): Promise<void> {
+async function zipRelease(): Promise<void> {
     await fs.mkdir(RELEASE_ROOT, { recursive: true });
 
     for (const target of RELEASE_TARGETS) {
-        await zipTargetRelease(version, target);
+        await zipTargetRelease(target);
     }
 }
 
 async function main(): Promise<void> {
     const mode = readReleaseMode();
-    const version = await readAppVersion(ROOT_DIR);
 
     if (mode === 'stage') {
         await stageRelease();
@@ -223,12 +215,12 @@ async function main(): Promise<void> {
     }
 
     if (mode === 'zip') {
-        await zipRelease(version);
+        await zipRelease();
         return;
     }
 
     await stageRelease();
-    await zipRelease(version);
+    await zipRelease();
 }
 
 main().catch((error) => {
