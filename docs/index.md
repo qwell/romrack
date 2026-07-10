@@ -1,6 +1,6 @@
 # ROM Rack
 
-ROM Rack is a multi-platform open source Wii U ROM manager.
+ROM Rack is a multi-platform open source Wii U, Wii, and 3DS ROM manager.
 
 ## Download
 
@@ -8,7 +8,7 @@ ROM Rack is a multi-platform open source Wii U ROM manager.
 
 ## Features
 
-- Manage and organize a Wii U game library
+- Manage and organize game libraries
 - Search and filter titles
 - Track title status
 - Download and verify title metadata
