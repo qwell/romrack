@@ -62,7 +62,7 @@ import {
 declare const __APP_VERSION__: string;
 const SOCKET_RECONNECT_MS = 2000;
 
-let fat32ListPromise: Promise<StorageFat32ListResponse> | null = null;
+let fat32Devices: StorageFat32ListResponse | null = null;
 const libraryVerifications: LibraryVerifyEvent[] = [];
 const libraryConversions: LibraryConvertItem[] = [];
 let verifyingLibrary = false;
@@ -155,28 +155,24 @@ function formatFat32VolumeOption(
     return `${label}${volume.source}${size}`;
 }
 
-async function getFat32Devices(): Promise<StorageFat32ListResponse> {
-    if (fat32ListPromise) {
-        return fat32ListPromise;
-    }
-
-    const request = listFat32Volumes();
-    fat32ListPromise = request;
+async function refreshFat32Devices(): Promise<void> {
     try {
-        return await request;
-    } finally {
-        if (fat32ListPromise === request) {
-            fat32ListPromise = null;
-        }
+        fat32Devices = await listFat32Volumes();
+    } catch (error) {
+        console.error(error);
+        fat32Devices = null;
     }
 }
 
-async function populateFat32DeviceSelect(
+function populateFat32DeviceSelect(
     select: HTMLSelectElement,
     button: HTMLButtonElement
 ): Promise<StorageFat32ListResponse | null> {
     try {
-        const response = await getFat32Devices();
+        if (!fat32Devices) {
+            throw new Error('FAT32 devices have not been loaded');
+        }
+        const response = fat32Devices;
 
         select.replaceChildren();
         for (const volume of response.volumes) {
@@ -215,7 +211,7 @@ async function populateFat32DeviceSelect(
             select.append(option);
         }
 
-        return response;
+        return Promise.resolve(response);
     } catch {
         select.replaceChildren();
         const option = document.createElement('option');
@@ -223,7 +219,7 @@ async function populateFat32DeviceSelect(
         select.append(option);
         select.disabled = true;
         button.disabled = true;
-        return null;
+        return Promise.resolve(null);
     }
 }
 
@@ -314,7 +310,7 @@ async function verifyLibraryContent(): Promise<void> {
 async function refreshLibrary(
     options: { clearScanCache?: boolean } = {}
 ): Promise<void> {
-    await loadLibrary(options);
+    await Promise.all([loadLibrary(options), refreshFat32Devices()]);
 }
 
 function setupVersion(): void {
@@ -333,7 +329,7 @@ function hideServerGoneModal(): void {
 }
 
 async function loadInitialData(): Promise<void> {
-    await Promise.all([getFat32Devices(), refreshLibrary()]);
+    await refreshLibrary();
 }
 
 function reconcileRemovedTitles(titleIds: string[]): void {
