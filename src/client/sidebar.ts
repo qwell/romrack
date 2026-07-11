@@ -7,7 +7,6 @@ import {
     type TitleEntry,
     type TitleGroup,
     type TitleInputControl,
-    type TitlePlatform,
     TitleKinds,
 } from '../shared/titles.js';
 type SidebarOptions = {
