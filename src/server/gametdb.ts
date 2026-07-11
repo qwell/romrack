@@ -45,13 +45,23 @@ type GameTdbMediaStep = {
     region: GameTdbRegion;
 };
 
-type WantedMedia = Map<TitlePlatform, Map<GameTdbMediaType, Set<string>>>;
+type WantedMediaItem = {
+    productCode: string;
+    region: string | null;
+    name: string;
+};
+
+type WantedMediaItems = Map<string, WantedMediaItem[]>;
+
+type WantedMedia = Map<TitlePlatform, Map<GameTdbMediaType, WantedMediaItems>>;
 
 type GameTdbArchiveProductCodes = {
+    zipFilename: string | null;
     productCodes: Set<string>;
 };
 
 type GameTdbArchiveProductCodesJson = {
+    zipFilename?: string | null;
     productCodes: string[];
 };
 
@@ -66,6 +76,7 @@ type GameTdbDownloadedArchive = {
 
 type GameTdbArchiveExtraction = {
     mediaKeys: Set<string>;
+    mediaItems: WantedMediaItems;
     pending: Promise<void>;
 };
 
@@ -282,11 +293,21 @@ const platforms: Record<TitlePlatform, GameTdbPlatformConfig> = {
 const downloadUrl = 'https://www.gametdb.com/download.php';
 const mediaCacheRoot = path.join(getUserAppRoot(), '.cache');
 const DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
+const STALE_TEMP_ARCHIVE_MS = DOWNLOAD_TIMEOUT_MS;
 const ZIP_CACHE_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000;
 const MEDIA_KEY_LENGTH = 4;
+const ZIP_EOCD_MIN_SIZE = 22;
+const ZIP_EOCD_MAX_COMMENT_SIZE = 0xffff;
+const ZIP_EOCD_SEARCH_SIZE = ZIP_EOCD_MIN_SIZE + ZIP_EOCD_MAX_COMMENT_SIZE;
+const ZIP_EOCD_SIGNATURE = 0x06054b50;
+const ZIP_CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
 const mediaArchives = new Map<string, Promise<GameTdbDownloadedArchive>>();
 const mediaExtractions = new Map<string, GameTdbArchiveExtraction>();
 const downloadsPageCache = new Map<TitlePlatform, Promise<string>>();
+const remoteArchiveIndexes = new Map<
+    string,
+    Promise<GameTdbArchiveProductCodes>
+>();
 const archiveProductCodes = new Map<string, GameTdbArchiveProductCodes>();
 const missingMediaArchives = new Set<string>();
 let cacheFileLoaded = false;
@@ -296,7 +317,7 @@ async function readDownloadsPage(platform: TitlePlatform): Promise<string> {
     let pending = downloadsPageCache.get(platform);
     if (!pending) {
         logger.log(
-            'assets',
+            'gametdb',
             `loading GameTDB downloads page for ${platform}: ${platforms[platform].downloadsPage}`
         );
         pending = downloadBuffer(platforms[platform].downloadsPage).then(
@@ -376,14 +397,52 @@ function getMediaKey(id: string): string {
     return id.slice(0, MEDIA_KEY_LENGTH).toUpperCase();
 }
 
-function formatWantedTitleCount(wantedCount: number | null): string {
-    if (wantedCount === null) {
-        return '';
-    }
+function formatFileCount(count: number): string {
+    return `${count.toString()} file${count === 1 ? '' : 's'}`;
+}
 
-    return ` (looking for ${wantedCount.toString()} title${
-        wantedCount === 1 ? '' : 's'
-    })`;
+function formatArchiveLabel(
+    platform: TitlePlatform,
+    type: GameTdbMediaType,
+    region?: GameTdbRegion | null
+): string {
+    return `GameTDB for ${platform} ${type}${region ? ` [${region}]` : ''} zip`;
+}
+
+function formatStepArchiveLabel(step: GameTdbMediaStep): string {
+    return formatArchiveLabel(step.platform, step.type, step.region);
+}
+
+function formatWantedMediaItem(item: WantedMediaItem): string {
+    return `${item.productCode} [${item.region ?? 'unknown'}] ${item.name}`;
+}
+
+function countWantedMediaItems(items: WantedMediaItems): number {
+    return [...items.values()].reduce(
+        (total, mediaItems) => total + mediaItems.length,
+        0
+    );
+}
+
+function logWantedMediaItems(prefix: string, items: WantedMediaItems): void {
+    logger.log('gametdb', `${prefix}:`);
+    for (const item of [...items.values()].flat()) {
+        logger.log('gametdb', `  ${formatWantedMediaItem(item)}`);
+    }
+}
+
+function mergeWantedMediaItems(
+    target: WantedMediaItems,
+    source?: WantedMediaItems | null
+): void {
+    for (const [mediaKey, items] of source ?? []) {
+        const targetItems = target.get(mediaKey);
+        if (targetItems) {
+            targetItems.push(...items);
+        } else {
+            target.set(mediaKey, [...items]);
+        }
+    }
 }
 
 async function readCacheFile(): Promise<void> {
@@ -398,6 +457,7 @@ async function readCacheFile(): Promise<void> {
         const parsed = JSON.parse(text) as GameTdbCacheJson;
         for (const [key, archive] of Object.entries(parsed.archives ?? {})) {
             archiveProductCodes.set(key, {
+                zipFilename: archive.zipFilename ?? null,
                 productCodes: new Set(archive.productCodes),
             });
         }
@@ -407,7 +467,7 @@ async function readCacheFile(): Promise<void> {
         }
 
         logger.warn(
-            'assets',
+            'gametdb',
             `failed to read GameTDB cache: ${formatLogError(error)}`
         );
     }
@@ -418,6 +478,7 @@ async function writeCacheFile(): Promise<void> {
 
     for (const [key, archive] of archiveProductCodes) {
         archives[key] = {
+            zipFilename: archive.zipFilename,
             productCodes: [...archive.productCodes].sort(),
         };
     }
@@ -458,6 +519,158 @@ async function downloadBuffer(url: string): Promise<Buffer> {
     return Buffer.from(await response.arrayBuffer());
 }
 
+async function fetchGameTdb(url: string, init: RequestInit): Promise<Response> {
+    try {
+        return await fetch(url, {
+            ...init,
+            signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+        });
+    } catch (error) {
+        if (
+            error instanceof Error &&
+            (error.name === 'AbortError' || error.name === 'TimeoutError')
+        ) {
+            throw new Error(
+                `GameTDB download timed out after ${(DOWNLOAD_TIMEOUT_MS / 1000).toString()}s: ${url}`,
+                { cause: error }
+            );
+        }
+
+        throw error;
+    }
+}
+
+async function readRemoteFileSize(url: string): Promise<number> {
+    const response = await fetchGameTdb(url, {
+        method: 'HEAD',
+        headers: {
+            Range: 'bytes=0-0',
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error(
+            `GameTDB archive HEAD failed: ${url} (${response.status.toString()})`
+        );
+    }
+
+    const contentType = response.headers.get('content-type') ?? '';
+    if (contentType.toLowerCase().includes('text/html')) {
+        throw new Error(`GameTDB archive HEAD returned HTML: ${url}`);
+    }
+
+    const contentRange = response.headers.get('content-range');
+    const rangeSize = contentRange?.match(/\/(\d+)$/)?.[1];
+    const size = Number(rangeSize ?? response.headers.get('content-length'));
+
+    if (!Number.isSafeInteger(size) || size < ZIP_EOCD_MIN_SIZE) {
+        throw new Error(`GameTDB archive size was not available: ${url}`);
+    }
+
+    return size;
+}
+
+async function downloadRange(
+    url: string,
+    start: number,
+    end: number
+): Promise<Buffer> {
+    const response = await fetchGameTdb(url, {
+        headers: {
+            Range: `bytes=${start.toString()}-${end.toString()}`,
+        },
+    });
+
+    if (response.status !== 206) {
+        throw new Error(
+            `GameTDB archive range download failed: ${url} (${response.status.toString()})`
+        );
+    }
+
+    const body = Buffer.from(await response.arrayBuffer());
+    if (body.length === 0) {
+        throw new Error(`GameTDB archive range download was empty: ${url}`);
+    }
+    return body;
+}
+
+function findZipEndOfCentralDirectory(buffer: Buffer): number {
+    for (
+        let offset = buffer.length - ZIP_EOCD_MIN_SIZE;
+        offset >= 0;
+        offset -= 1
+    ) {
+        if (buffer.readUInt32LE(offset) === ZIP_EOCD_SIGNATURE) {
+            return offset;
+        }
+    }
+
+    return -1;
+}
+
+function readCentralDirectoryFilenames(directory: Buffer): string[] {
+    const filenames: string[] = [];
+    let offset = 0;
+
+    while (
+        offset + 46 <= directory.length &&
+        directory.readUInt32LE(offset) === ZIP_CENTRAL_DIRECTORY_SIGNATURE
+    ) {
+        const filenameLength = directory.readUInt16LE(offset + 28);
+        const extraLength = directory.readUInt16LE(offset + 30);
+        const commentLength = directory.readUInt16LE(offset + 32);
+        const filenameStart = offset + 46;
+        const filenameEnd = filenameStart + filenameLength;
+
+        if (filenameEnd > directory.length) {
+            break;
+        }
+
+        filenames.push(
+            directory.subarray(filenameStart, filenameEnd).toString('utf8')
+        );
+        offset = filenameEnd + extraLength + commentLength;
+    }
+
+    return filenames;
+}
+
+async function readRemoteArchiveProductCodes(
+    filename: string
+): Promise<Set<string>> {
+    const url = getZipUrl(filename);
+    const fileSize = await readRemoteFileSize(url);
+    const tailStart = Math.max(0, fileSize - ZIP_EOCD_SEARCH_SIZE);
+    const tail = await downloadRange(url, tailStart, fileSize - 1);
+    const eocdOffset = findZipEndOfCentralDirectory(tail);
+    if (eocdOffset < 0) {
+        throw new Error(
+            `GameTDB archive central directory was not found: ${url}`
+        );
+    }
+
+    const directorySize = tail.readUInt32LE(eocdOffset + 12);
+    const directoryOffset = tail.readUInt32LE(eocdOffset + 16);
+    const directoryEnd = directoryOffset + directorySize - 1;
+    const directory =
+        directoryOffset >= tailStart && directoryEnd < fileSize
+            ? tail.subarray(
+                  directoryOffset - tailStart,
+                  directoryOffset - tailStart + directorySize
+              )
+            : await downloadRange(url, directoryOffset, directoryEnd);
+    const productCodes = new Set<string>();
+
+    for (const entryName of readCentralDirectoryFilenames(directory)) {
+        const filename = getMediaCacheFilename(entryName);
+        if (filename) {
+            productCodes.add(filename.mediaKey);
+        }
+    }
+
+    return productCodes;
+}
+
 async function findZipFilename(
     platform: TitlePlatform,
     type: GameTdbMediaType,
@@ -485,7 +698,7 @@ function getZipFilenamePrefix(
     return media ? `GameTDB-${platform}_${media.archiveName}-${region}-` : null;
 }
 
-async function downloadFile(url: string, filePath: string): Promise<void> {
+async function downloadFile(url: string, filePath: string): Promise<number> {
     let response: Response;
     try {
         response = await fetch(url, {
@@ -511,6 +724,18 @@ async function downloadFile(url: string, filePath: string): Promise<void> {
         );
     }
 
+    const contentType = response.headers.get('content-type') ?? '';
+    if (contentType.toLowerCase().includes('text/html')) {
+        throw new Error(
+            `GameTDB download returned HTML instead of ZIP: ${url}`
+        );
+    }
+
+    const contentLength = Number(response.headers.get('content-length'));
+    if (Number.isSafeInteger(contentLength) && contentLength <= 0) {
+        throw new Error(`GameTDB download was empty: ${url}`);
+    }
+
     if (!response.body) {
         throw new Error(`GameTDB download failed: empty response body: ${url}`);
     }
@@ -520,6 +745,65 @@ async function downloadFile(url: string, filePath: string): Promise<void> {
         Readable.fromWeb(response.body),
         createWriteStream(filePath)
     );
+
+    const stats = await fs.stat(filePath);
+    if (stats.size === 0) {
+        throw new Error(`GameTDB download wrote an empty file: ${url}`);
+    }
+    return stats.size;
+}
+
+async function removeStaleTemporaryArchiveFiles(
+    archivePath: string
+): Promise<void> {
+    const directory = path.dirname(archivePath);
+    const prefix = `${path.basename(archivePath)}.`;
+    const suffix = '.tmp';
+    let entries;
+
+    try {
+        entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch (error) {
+        if (isFileNotFoundError(error)) {
+            return;
+        }
+
+        throw error;
+    }
+
+    for (const entry of entries) {
+        if (
+            !entry.isFile() ||
+            !entry.name.startsWith(prefix) ||
+            !entry.name.endsWith(suffix)
+        ) {
+            continue;
+        }
+
+        const temporaryPath = path.join(directory, entry.name);
+        let stats;
+        try {
+            stats = await fs.stat(temporaryPath);
+        } catch (error) {
+            if (isFileNotFoundError(error)) {
+                continue;
+            }
+
+            throw error;
+        }
+        if (Date.now() - stats.mtimeMs < STALE_TEMP_ARCHIVE_MS) {
+            continue;
+        }
+
+        await fs.unlink(temporaryPath).catch((error: unknown) => {
+            if (!isFileNotFoundError(error)) {
+                logger.warn(
+                    'gametdb',
+                    `failed to remove stale temporary GameTDB archive ${temporaryPath}: ${formatLogError(error)}`
+                );
+            }
+        });
+    }
 }
 
 async function downloadArchive(
@@ -534,7 +818,10 @@ async function downloadArchive(
         try {
             const info = await fs.stat(archivePath);
             if (info.isFile()) {
-                return archivePath;
+                if (info.size > 0) {
+                    return archivePath;
+                }
+                await fs.unlink(archivePath);
             }
         } catch (error) {
             if (!isFileNotFoundError(error)) {
@@ -555,21 +842,20 @@ async function downloadArchive(
     }
 
     logger.log(
-        'assets',
-        `downloading ${filename} for ${platform} ${type} ${region}${formatWantedTitleCount(
-            wantedCount
-        )}`
+        'gametdb',
+        `downloading ${formatArchiveLabel(platform, type, region)}`
     );
 
     const temporaryPath = `${archivePath}.${process.pid.toString()}.${Date.now().toString()}.tmp`;
     try {
+        await removeStaleTemporaryArchiveFiles(archivePath);
         await downloadFile(getZipUrl(filename), temporaryPath);
         await fs.rename(temporaryPath, archivePath);
     } catch (error) {
         await fs.unlink(temporaryPath).catch((unlinkError: unknown) => {
             if (!isFileNotFoundError(unlinkError)) {
                 logger.warn(
-                    'assets',
+                    'gametdb',
                     `failed to remove temporary GameTDB archive ${temporaryPath}: ${formatLogError(unlinkError)}`
                 );
             }
@@ -581,7 +867,15 @@ async function downloadArchive(
 
 function readArchiveProductCodes(archivePath: string): Set<string> {
     const productCodes = new Set<string>();
-    const zip = new AdmZip(archivePath);
+    let zip;
+
+    try {
+        zip = new AdmZip(archivePath);
+    } catch (error) {
+        throw new Error(`GameTDB archive could not be opened: ${archivePath}`, {
+            cause: error,
+        });
+    }
 
     for (const entry of zip.getEntries()) {
         if (entry.isDirectory) {
@@ -595,6 +889,59 @@ function readArchiveProductCodes(archivePath: string): Set<string> {
     }
 
     return productCodes;
+}
+
+async function readRemoteArchiveIndex(
+    step: GameTdbMediaStep
+): Promise<GameTdbArchiveProductCodes | null> {
+    await readCacheFile();
+
+    const key = getArchiveIndexKey(step.platform, step.type, step.region);
+    const cached = archiveProductCodes.get(key);
+    const filename = await findZipFilename(
+        step.platform,
+        step.type,
+        step.region
+    );
+    if (!filename) {
+        missingMediaArchives.add(key);
+        return null;
+    }
+
+    if (cached?.zipFilename === filename) {
+        logger.log(
+            'gametdb',
+            `using cached index for ${formatStepArchiveLabel(step)} (${formatFileCount(cached.productCodes.size)})`
+        );
+        return cached;
+    }
+
+    const existing = remoteArchiveIndexes.get(key);
+    if (existing) {
+        return existing;
+    }
+
+    const pending = (async () => {
+        logger.log('gametdb', `probing ${formatStepArchiveLabel(step)}`);
+        const productCodes = await readRemoteArchiveProductCodes(filename);
+        logger.log(
+            'gametdb',
+            `${formatStepArchiveLabel(step)} contains ${formatFileCount(productCodes.size)}`
+        );
+        const index = {
+            zipFilename: filename,
+            productCodes,
+        };
+        archiveProductCodes.set(key, index);
+        await writeCacheFile();
+        return index;
+    })().catch((error: unknown) => {
+        remoteArchiveIndexes.delete(key);
+        throw error;
+    });
+
+    remoteArchiveIndexes.set(key, pending);
+    return pending;
 }
 
 async function readDownloadedArchive(
@@ -620,8 +967,25 @@ async function readDownloadedArchive(
             wantedCount,
             force
         );
-        const productCodes = readArchiveProductCodes(archivePath);
+        let productCodes;
+        try {
+            productCodes = readArchiveProductCodes(archivePath);
+        } catch (error) {
+            await fs.unlink(archivePath).catch((unlinkError: unknown) => {
+                if (!isFileNotFoundError(unlinkError)) {
+                    logger.warn(
+                        'gametdb',
+                        `failed to remove invalid GameTDB archive ${archivePath}: ${formatLogError(unlinkError)}`
+                    );
+                }
+            });
+            throw error;
+        }
         archiveProductCodes.set(key, {
+            zipFilename:
+                (await findZipFilename(platform, type, region)) ??
+                archiveProductCodes.get(key)?.zipFilename ??
+                null,
             productCodes,
         });
         await writeCacheFile();
@@ -666,6 +1030,7 @@ async function extractArchive(
     region: GameTdbRegion,
     archivePath: string,
     mediaKeys: ReadonlySet<string> | null = null,
+    mediaItems: WantedMediaItems | null = null,
     overwrite = false
 ): Promise<Set<string>> {
     const outputDir = getMediaCacheDir(type, platform);
@@ -698,10 +1063,21 @@ async function extractArchive(
         extracted += 1;
     }
 
-    logger.log(
-        'assets',
-        `extracted ${platform} ${type} ${region} (${extracted.toString()} file(s))`
-    );
+    if (mediaItems?.size) {
+        logWantedMediaItems(
+            `${formatArchiveLabel(platform, type, region)} extracted title(s)`,
+            mediaItems
+        );
+    } else {
+        logger.log(
+            'gametdb',
+            `extracted ${formatArchiveLabel(
+                platform,
+                type,
+                region
+            )} (${extracted.toString()} file(s))`
+        );
+    }
     return productCodes;
 }
 
@@ -763,7 +1139,8 @@ async function cacheMediaArchive(
     platform: TitlePlatform,
     type: GameTdbMediaType,
     region: GameTdbRegion,
-    mediaKeys: ReadonlySet<string> | null = null
+    mediaKeys: ReadonlySet<string> | null = null,
+    wantedItems: WantedMediaItems | null = null
 ): Promise<void> {
     const key = getArchiveIndexKey(platform, type, region);
     const existing = mediaExtractions.get(key);
@@ -771,13 +1148,16 @@ async function cacheMediaArchive(
         for (const mediaKey of mediaKeys ?? []) {
             existing.mediaKeys.add(mediaKey);
         }
+        mergeWantedMediaItems(existing.mediaItems, wantedItems);
         return existing.pending;
     }
 
     const extraction: GameTdbArchiveExtraction = {
         mediaKeys: new Set(mediaKeys ?? []),
+        mediaItems: new Map(),
         pending: Promise.resolve(),
     };
+    mergeWantedMediaItems(extraction.mediaItems, wantedItems);
     mediaExtractions.set(key, extraction);
 
     extraction.pending = (async () => {
@@ -787,19 +1167,24 @@ async function cacheMediaArchive(
             platform,
             type,
             region,
-            extraction.mediaKeys.size > 0 ? extraction.mediaKeys.size : null
+            extraction.mediaItems.size > 0
+                ? countWantedMediaItems(extraction.mediaItems)
+                : extraction.mediaKeys.size > 0
+                  ? extraction.mediaKeys.size
+                  : null
         );
         await extractArchive(
             platform,
             type,
             region,
             archive.archivePath,
-            extraction.mediaKeys.size > 0 ? extraction.mediaKeys : null
+            extraction.mediaKeys.size > 0 ? extraction.mediaKeys : null,
+            extraction.mediaItems.size > 0 ? extraction.mediaItems : null
         );
     })().catch((error: unknown) => {
         mediaExtractions.delete(key);
         logger.warn(
-            'assets',
+            'gametdb',
             `failed to cache ${platform} ${type} ${region}: ${formatLogError(error)}`
         );
         throw error;
@@ -890,7 +1275,11 @@ function addWantedMedia(
     wanted: WantedMedia,
     platform: TitlePlatform,
     type: GameTdbMediaType,
-    productCode: string
+    productCode: string,
+    item: Omit<WantedMediaItem, 'productCode'> = {
+        region: null,
+        name: productCode,
+    }
 ): void {
     let platformMedia = wanted.get(platform);
     if (!platformMedia) {
@@ -900,17 +1289,24 @@ function addWantedMedia(
 
     let productCodes = platformMedia.get(type);
     if (!productCodes) {
-        productCodes = new Set();
+        productCodes = new Map();
         platformMedia.set(type, productCodes);
     }
 
-    productCodes.add(getMediaKey(productCode));
+    const mediaKey = getMediaKey(productCode);
+    const items = productCodes.get(mediaKey);
+    const wantedItem = { ...item, productCode };
+    if (items) {
+        items.push(wantedItem);
+    } else {
+        productCodes.set(mediaKey, [wantedItem]);
+    }
 }
 
 function getMissingMedia(
     wanted: WantedMedia,
     step: GameTdbMediaStep
-): Set<string> | null {
+): WantedMediaItems | null {
     return wanted.get(step.platform)?.get(step.type) ?? null;
 }
 
@@ -923,20 +1319,20 @@ function isWantedMediaComplete(wanted: WantedMedia): boolean {
 async function removeCachedMedia(
     wanted: WantedMedia,
     step: GameTdbMediaStep
-): Promise<Set<string> | null> {
+): Promise<WantedMediaItems | null> {
     const missing = getMissingMedia(wanted, step);
     if (!missing?.size) {
         return null;
     }
 
-    for (const productCode of [...missing]) {
+    for (const mediaKey of [...missing.keys()]) {
         const mediaPath = await findCachedMediaPath(
             step.platform,
             step.type,
-            productCode
+            mediaKey
         );
         if (mediaPath) {
-            missing.delete(productCode);
+            missing.delete(mediaKey);
         }
     }
 
@@ -945,23 +1341,26 @@ async function removeCachedMedia(
 
 async function getKnownArchiveMatches(
     step: GameTdbMediaStep,
-    missing: ReadonlySet<string>
-): Promise<Set<string> | null> {
+    missing: WantedMediaItems
+): Promise<WantedMediaItems | null> {
     await readCacheFile();
 
-    const index = archiveProductCodes.get(
-        getArchiveIndexKey(step.platform, step.type, step.region)
-    );
+    const key = getArchiveIndexKey(step.platform, step.type, step.region);
+    let index = archiveProductCodes.get(key);
     if (!index) {
-        return null;
+        index = (await readRemoteArchiveIndex(step)) ?? undefined;
     }
 
-    const matches = new Set(
-        [...missing].filter((productCode) =>
+    if (!index) {
+        return new Map();
+    }
+
+    const matches = new Map(
+        [...missing].filter(([productCode]) =>
             index.productCodes.has(productCode)
         )
     );
-    return matches.size > 0 ? matches : new Set();
+    return matches.size > 0 ? matches : new Map();
 }
 
 async function cacheMissingMedia(wanted: WantedMedia): Promise<void> {
@@ -984,11 +1383,13 @@ async function cacheMissingMedia(wanted: WantedMedia): Promise<void> {
             continue;
         }
 
+        const mediaToCache = knownMatches ?? missing;
         await cacheMediaArchive(
             step.platform,
             step.type,
             step.region,
-            knownMatches ?? missing
+            new Set(mediaToCache.keys()),
+            mediaToCache
         ).catch(() => undefined);
 
         await removeCachedMedia(wanted, step);
@@ -1014,8 +1415,8 @@ async function refreshStaleMediaArchive(
     }
 
     logger.log(
-        'assets',
-        `refreshing stale GameTDB ${step.platform} ${step.type} ${step.region} archive`
+        'gametdb',
+        `refreshing stale ${formatStepArchiveLabel(step)} archive`
     );
 
     const archive = await readDownloadedArchive(
@@ -1031,6 +1432,7 @@ async function refreshStaleMediaArchive(
         step.region,
         archive.archivePath,
         mediaKeys,
+        null,
         true
     );
 }
@@ -1053,7 +1455,7 @@ async function refreshStaleExtractedMedia(): Promise<void> {
         await refreshStaleMediaArchive(step, stepMediaKeys).catch(
             (error: unknown) => {
                 logger.warn(
-                    'assets',
+                    'gametdb',
                     `failed to refresh GameTDB ${step.platform} ${step.type} ${step.region}: ${formatLogError(error)}`
                 );
             }
@@ -1064,7 +1466,8 @@ async function refreshStaleExtractedMedia(): Promise<void> {
 async function findOrCacheMediaPath(
     platform: TitlePlatform,
     type: GameTdbMediaType,
-    productCode: string
+    productCode: string,
+    item?: Omit<WantedMediaItem, 'productCode'>
 ): Promise<string | null> {
     const cachedPath = await findCachedMediaPath(platform, type, productCode);
     if (cachedPath) {
@@ -1072,7 +1475,7 @@ async function findOrCacheMediaPath(
     }
 
     const wanted: WantedMedia = new Map();
-    addWantedMedia(wanted, platform, type, productCode);
+    addWantedMedia(wanted, platform, type, productCode, item);
     await cacheMissingMedia(wanted);
 
     return findCachedMediaPath(platform, type, productCode);
@@ -1086,30 +1489,6 @@ function isMediaType(value: string): value is GameTdbMediaType {
     return GAME_TDB_MEDIA_TYPES.includes(value as GameTdbMediaType);
 }
 
-function hasGameTdbMediaUrl(
-    group: TitleGroup,
-    type: GameTdbMediaType
-): boolean {
-    const url = type === 'icons' ? group.iconUrl : group.bannerUrl;
-    return url?.startsWith(`/api/media/${type}/${group.platform}/`) === true;
-}
-
-function shouldCacheGameTdbMediaForGroup(
-    group: TitleGroup,
-    type: GameTdbMediaType
-): boolean {
-    switch (group.platform) {
-        case '3ds':
-            return false;
-
-        case 'wii':
-            return type === 'icons' && hasGameTdbMediaUrl(group, type);
-
-        case 'wiiu':
-            return false;
-    }
-}
-
 export function cacheAllGameTdbMedia(): void {
     if (startupUpdateStarted) {
         return;
@@ -1118,44 +1497,32 @@ export function cacheAllGameTdbMedia(): void {
     startupUpdateStarted = true;
     void refreshStaleExtractedMedia().catch((error: unknown) => {
         logger.warn(
-            'assets',
+            'gametdb',
             `failed to refresh stale GameTDB media: ${formatLogError(error)}`
         );
     });
 }
 
 export function cacheGameTdbMediaForGroups(groups: TitleGroup[]): void {
-    const wanted: WantedMedia = new Map();
-
-    for (const group of groups) {
-        if (!group.productCode) {
-            continue;
-        }
-
-        for (const type of GAME_TDB_MEDIA_TYPES) {
-            if (shouldCacheGameTdbMediaForGroup(group, type)) {
-                addWantedMedia(wanted, group.platform, type, group.productCode);
-            }
-        }
-    }
-
-    if (isWantedMediaComplete(wanted)) {
-        return;
-    }
-
-    void cacheMissingMedia(wanted).catch(() => undefined);
+    void groups;
 }
 
 export async function readGameTdbMedia(
     type: string,
     platform: TitlePlatform,
-    productCode: string
+    productCode: string,
+    item?: Omit<WantedMediaItem, 'productCode'>
 ): Promise<CachedImage | null> {
     if (!isMediaType(type) || !isMediaPlatform(platform)) {
         return null;
     }
 
-    const mediaPath = await findOrCacheMediaPath(platform, type, productCode);
+    const mediaPath = await findOrCacheMediaPath(
+        platform,
+        type,
+        productCode,
+        item
+    );
     if (!mediaPath) {
         return null;
     }

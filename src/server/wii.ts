@@ -33,7 +33,7 @@ import {
     type GameTdbGame,
     readGameTdbMedia,
 } from './gametdb.js';
-import { type CachedImage } from './image-cache.js';
+import { readCachedTitleMedia, type CachedImage } from './image-cache.js';
 import {
     type DiscHeaderLocation,
     readDiscHeaderText,
@@ -127,7 +127,7 @@ async function scanWiiTitles(root: string): Promise<TitleGroup[]> {
             (entry) => entry.kind === TitleKinds.Base
         );
         const productCode = databaseEntry?.productCode ?? group.family;
-        const titleUrls = getTitleMediaUrls(productCode);
+        const titleUrls = getTitleMediaUrls(databaseEntry);
         const gameTdbDetails = gameTdb.get(productCode) ?? null;
         const gameTdbRegion = normalizeRegion(
             gameTdbDetails?.tvFormat ?? null,
@@ -344,12 +344,29 @@ export async function readWiiTitleMedia(
                     return entry?.bannerUrl ?? null;
             }
         },
-        fallback: (type, platform, productCode) => {
+        fallback: async (type, platform, productCode, entry) => {
             switch (type) {
                 case 'icons':
-                    return readGameTdbMedia('icons', platform, productCode);
+                    return (
+                        (await readCachedTitleMedia(
+                            type,
+                            platform,
+                            productCode
+                        )) ??
+                        (entry
+                            ? readGameTdbMedia('icons', platform, productCode, {
+                                  region: entry.region,
+                                  name: entry.name,
+                              })
+                            : null)
+                    );
                 case 'covers':
-                    return readGameTdbMedia(type, platform, productCode);
+                    return entry
+                        ? readGameTdbMedia(type, platform, productCode, {
+                              region: entry.region,
+                              name: entry.name,
+                          })
+                        : null;
             }
         },
         logLabel: 'Wii',
@@ -380,7 +397,6 @@ function createGroup(
     entry?: LibraryCacheTitleEntry
 ): TitleGroup {
     const productCode = entry?.titleId ?? family;
-    const titleUrls = getTitleMediaUrls(productCode);
 
     return {
         ...createEmptyTitleGroup(
@@ -390,9 +406,9 @@ function createGroup(
             entry?.region ?? null
         ),
         productCode,
-        iconUrl: titleUrls.iconUrl,
-        bannerUrl: titleUrls.bannerUrl,
-        titleInDatabase: getTitleInDatabase(),
+        iconUrl: null,
+        bannerUrl: null,
+        titleInDatabase: false,
         status: 'complete',
     };
 }
@@ -474,16 +490,11 @@ function parseGameTdbDetails(game: GameTdbGame): TitleDetails {
     };
 }
 
-function getTitleAvailableOnCdn(titleId = ''): boolean {
-    void titleId;
-    return false;
-}
-
-function getTitleMediaUrls(productCode: string | null): {
+function getTitleMediaUrls(entry: TitleDatabaseEntry | null): {
     iconUrl: string | null;
     bannerUrl: string | null;
 } {
-    if (!productCode) {
+    if (!entry?.productCode) {
         return {
             iconUrl: null,
             bannerUrl: null,
@@ -491,8 +502,8 @@ function getTitleMediaUrls(productCode: string | null): {
     }
 
     return {
-        iconUrl: getTitleMediaUrl('icons', 'wii', productCode),
-        bannerUrl: getTitleMediaUrl('covers', 'wii', productCode),
+        iconUrl: getTitleMediaUrl('icons', 'wii', entry.productCode),
+        bannerUrl: getTitleMediaUrl('covers', 'wii', entry.productCode),
     };
 }
 
@@ -541,7 +552,7 @@ async function readTitleEntry(
     const filePaths = await getDiscFilePaths(filePath);
     const databaseEntry = titleDatabase.get(titleId) ?? null;
     const productCode = databaseEntry?.productCode ?? titleId;
-    const titleUrls = getTitleMediaUrls(productCode);
+    const titleUrls = getTitleMediaUrls(databaseEntry);
     const sidecarIconUrl = await cacheLocalTitleIcon(
         'wii',
         productCode,
@@ -582,10 +593,6 @@ async function scanTitleEntriesWithDatabase(
     root: string
 ): Promise<LibraryCacheTitleEntry[]> {
     return scanTitleEntries(root, await readWiiTitleDatabase());
-}
-
-function getTitleInDatabase(): boolean {
-    return !getTitleAvailableOnCdn();
 }
 
 type DiscImageVerifyProgress = {

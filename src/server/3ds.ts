@@ -121,7 +121,7 @@ function getTitleMediaUrls(entry: TitleDatabaseEntry | null): {
     iconUrl: string | null;
     bannerUrl: string | null;
 } {
-    if (!entry) {
+    if (!entry?.productCode) {
         return {
             iconUrl: null,
             bannerUrl: null,
@@ -129,12 +129,8 @@ function getTitleMediaUrls(entry: TitleDatabaseEntry | null): {
     }
 
     return {
-        iconUrl:
-            entry.iconUrl ??
-            getTitleMediaUrl('icons', '3ds', entry.productCode),
-        bannerUrl:
-            entry.bannerUrl ??
-            getTitleMediaUrl('covers', '3ds', entry.productCode),
+        iconUrl: getTitleMediaUrl('icons', '3ds', entry.productCode),
+        bannerUrl: getTitleMediaUrl('covers', '3ds', entry.productCode),
     };
 }
 
@@ -690,7 +686,7 @@ async function readTitleEntry(
         iconUrl: sidecarIconUrl ?? titleUrls.iconUrl ?? localIconUrl,
         bannerUrl:
             titleUrls.bannerUrl ??
-            (productCode
+            (databaseEntry && productCode
                 ? getTitleMediaUrl('covers', '3ds', productCode)
                 : null),
 
@@ -1047,7 +1043,7 @@ export async function readThreeDSTitleMedia(
                     return entry?.bannerUrl ?? null;
             }
         },
-        fallback: async (type, platform, productCode) => {
+        fallback: async (type, platform, productCode, entry) => {
             switch (type) {
                 case 'icons':
                     return (
@@ -1055,10 +1051,21 @@ export async function readThreeDSTitleMedia(
                             type,
                             platform,
                             productCode
-                        )) ?? readGameTdbMedia('icons', platform, productCode)
+                        )) ??
+                        (entry
+                            ? readGameTdbMedia('icons', platform, productCode, {
+                                  region: entry.region,
+                                  name: entry.name,
+                              })
+                            : null)
                     );
                 case 'covers':
-                    return readGameTdbMedia(type, platform, productCode);
+                    return entry
+                        ? readGameTdbMedia(type, platform, productCode, {
+                              region: entry.region,
+                              name: entry.name,
+                          })
+                        : null;
             }
         },
         logLabel: '3DS',

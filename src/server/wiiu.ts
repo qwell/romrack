@@ -61,7 +61,7 @@ import {
     GameTdbGame,
     readGameTdbMedia,
 } from './gametdb.js';
-import { type CachedImage } from './image-cache.js';
+import { readCachedTitleMedia, type CachedImage } from './image-cache.js';
 
 const LIBRARY_SCAN_CONCURRENCY = 8;
 const availableOnCdnByTitleId = new Map<string, boolean>();
@@ -358,12 +358,29 @@ export async function readWiiUTitleMedia(
                     return entry?.bannerUrl ?? null;
             }
         },
-        fallback: (type, platform, productCode) => {
+        fallback: async (type, platform, productCode, entry) => {
             switch (type) {
                 case 'icons':
-                    return readGameTdbMedia('icons', platform, productCode);
+                    return (
+                        (await readCachedTitleMedia(
+                            type,
+                            platform,
+                            productCode
+                        )) ??
+                        (entry
+                            ? readGameTdbMedia('icons', platform, productCode, {
+                                  region: entry.region,
+                                  name: entry.name,
+                              })
+                            : null)
+                    );
                 case 'covers':
-                    return readGameTdbMedia(type, platform, productCode);
+                    return entry
+                        ? readGameTdbMedia(type, platform, productCode, {
+                              region: entry.region,
+                              name: entry.name,
+                          })
+                        : null;
             }
         },
         logLabel: 'Wii U',
@@ -571,7 +588,7 @@ function getTitleMediaUrls(entry: TitleDatabaseEntry | null): {
     iconUrl: string | null;
     bannerUrl: string | null;
 } {
-    if (!entry) {
+    if (!entry?.productCode) {
         return {
             iconUrl: null,
             bannerUrl: null,
@@ -580,9 +597,7 @@ function getTitleMediaUrls(entry: TitleDatabaseEntry | null): {
 
     return {
         iconUrl: getTitleMediaUrl('icons', 'wiiu', entry.productCode),
-        bannerUrl:
-            entry.bannerUrl ??
-            getTitleMediaUrl('covers', 'wiiu', entry.productCode),
+        bannerUrl: getTitleMediaUrl('covers', 'wiiu', entry.productCode),
     };
 }
 

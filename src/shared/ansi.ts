@@ -7,6 +7,7 @@ export type Subsystems =
     | 'wiiu'
     | 'wud'
     | 'download'
+    | 'gametdb'
     | 'assets';
 
 export const ansi = {
@@ -61,6 +62,7 @@ export const SubsystemColors: Record<Subsystems, string> = {
 
     metadata: magenta,
     download: yellow,
+    gametdb: lightGreen,
     assets: lightGreen,
 
     '3ds': lightYellow,
