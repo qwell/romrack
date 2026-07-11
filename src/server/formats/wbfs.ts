@@ -1,6 +1,7 @@
 import { createDecipheriv, createHash } from 'node:crypto';
 import { open, stat, type FileHandle } from 'node:fs/promises';
 import path from 'node:path';
+import { scheduler } from 'node:timers/promises';
 
 import { type DiscHeaderLocation } from './disc.js';
 
@@ -62,6 +63,7 @@ const WII_DISABLE_ENCRYPTION_OFFSET = 0x61;
 const WII_CLUSTER_SIZE = 0x8000;
 const WII_CLUSTER_HASH_SIZE = 0x400;
 const WII_CLUSTER_DATA_SIZE = 0x7c00;
+const WII_VERIFY_YIELD_CLUSTER_INTERVAL = 32;
 const WII_H3_TABLE_SIZE = 0x18000;
 const WII_MAX_DISC_SIZE = 0x230480000;
 
@@ -337,6 +339,9 @@ async function verifyPartition(
         let firstFailure: string | null = null;
         for (let cluster = 0; cluster < clusters; cluster += 1) {
             signal?.throwIfAborted();
+            if (cluster % WII_VERIFY_YIELD_CLUSTER_INTERVAL === 0) {
+                await scheduler.yield();
+            }
             const raw = await reader.read(
                 partition.offset + dataOffset + cluster * WII_CLUSTER_SIZE,
                 WII_CLUSTER_SIZE
