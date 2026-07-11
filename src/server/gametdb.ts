@@ -437,13 +437,6 @@ function formatWantedMediaItem(item: WantedMediaItem): string {
     return `${item.productCode} [${item.region ?? 'unknown'}] ${item.name}`;
 }
 
-function countWantedMediaItems(items: WantedMediaItems): number {
-    return [...items.values()].reduce(
-        (total, mediaItems) => total + mediaItems.length,
-        0
-    );
-}
-
 function logWantedMediaItems(prefix: string, items: WantedMediaItems): void {
     logger.log('gametdb', `${prefix}:`);
     for (const item of [...items.values()].flat()) {
@@ -830,7 +823,6 @@ async function downloadArchive(
     platform: TitlePlatform,
     type: GameTdbMediaType,
     region: GameTdbRegion,
-    wantedCount: number | null = null,
     force = false
 ): Promise<string> {
     const archivePath = getMediaArchivePath(platform, type, region);
@@ -968,7 +960,6 @@ async function readDownloadedArchive(
     platform: TitlePlatform,
     type: GameTdbMediaType,
     region: GameTdbRegion,
-    wantedCount: number | null = null,
     force = false
 ): Promise<GameTdbDownloadedArchive> {
     await readCacheFile();
@@ -984,7 +975,6 @@ async function readDownloadedArchive(
             platform,
             type,
             region,
-            wantedCount,
             force
         );
         let productCodes;
@@ -1002,10 +992,7 @@ async function readDownloadedArchive(
             throw error;
         }
         archiveProductCodes.set(key, {
-            zipFilename:
-                (await findZipFilename(platform, type, region)) ??
-                archiveProductCodes.get(key)?.zipFilename ??
-                null,
+            zipFilename: path.basename(archivePath),
             productCodes,
         });
         await writeCacheFile();
@@ -1183,16 +1170,7 @@ async function cacheMediaArchive(
     extraction.pending = (async () => {
         await waitForExtractionBatch();
 
-        const archive = await readDownloadedArchive(
-            platform,
-            type,
-            region,
-            extraction.mediaItems.size > 0
-                ? countWantedMediaItems(extraction.mediaItems)
-                : extraction.mediaKeys.size > 0
-                  ? extraction.mediaKeys.size
-                  : null
-        );
+        const archive = await readDownloadedArchive(platform, type, region);
         await extractArchive(
             platform,
             type,
@@ -1368,6 +1346,28 @@ async function getKnownArchiveMatches(
     const key = getArchiveIndexKey(step.platform, step.type, step.region);
     let index = archiveProductCodes.get(key);
     if (!index) {
+        try {
+            const archivePath = getMediaArchivePath(
+                step.platform,
+                step.type,
+                step.region
+            );
+            const info = await fs.stat(archivePath);
+            if (info.isFile() && info.size > 0) {
+                await readDownloadedArchive(
+                    step.platform,
+                    step.type,
+                    step.region
+                );
+                index = archiveProductCodes.get(key);
+            }
+        } catch (error) {
+            if (!isFileNotFoundError(error)) {
+                throw error;
+            }
+        }
+    }
+    if (!index) {
         index = (await readRemoteArchiveIndex(step)) ?? undefined;
     }
 
@@ -1443,7 +1443,6 @@ async function refreshStaleMediaArchive(
         step.platform,
         step.type,
         step.region,
-        mediaKeys.size,
         true
     );
     await extractArchive(
