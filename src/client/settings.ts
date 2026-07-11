@@ -1,4 +1,5 @@
 import { type AppConfig } from '../shared/config.js';
+import { TitlePlatform } from '../shared/titles.js';
 import { getConfig, saveConfig, validateConfigRoot } from './api.js';
 
 type SettingsStatusTone = 'info' | 'success' | 'error';
@@ -375,20 +376,20 @@ export function renderSettingsSidebar(preserveDraft = true): void {
         form.append(
             buildSettingsServerSection(settingsConfig),
             buildSettingsRootsSection({
-                title: 'Wii U Roots',
-                help: 'Add one or more Wii U installable title roots. Check verifies that a path exists and is readable.',
+                title: `${TitlePlatform['wiiu']} Roots`,
+                help: `Add one or more ${TitlePlatform['wiiu']} installable title roots. Check verifies that a path exists and is readable.`,
                 roots: settingsConfig.wiiuRoots,
                 configKey: 'wiiuRoots',
             }),
             buildSettingsRootsSection({
-                title: 'Wii Roots',
-                help: 'Add one or more Wii library roots. These are saved for upcoming Wii library support.',
+                title: `${TitlePlatform['wii']} Roots`,
+                help: `Add one or more ${TitlePlatform['wii']} library roots. These are saved for upcoming Wii library support.`,
                 roots: settingsConfig.wiiRoots,
                 configKey: 'wiiRoots',
             }),
             buildSettingsRootsSection({
-                title: '3DS Roots',
-                help: 'Add one or more 3DS library roots.',
+                title: `${TitlePlatform['3ds']} Roots`,
+                help: `Add one or more ${TitlePlatform['3ds']} library roots.`,
                 roots: settingsConfig['3dsRoots'],
                 configKey: '3dsRoots',
             }),

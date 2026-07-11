@@ -4,6 +4,7 @@ import { formatSize } from '../shared/utils.js';
 import {
     getTitleId,
     getVirtualConsolePlatform,
+    TitlePlatform,
     type TitleGroup,
     type TitleGroupStatus,
     TitleKinds,
@@ -333,20 +334,7 @@ function renderPlatformBadge(group: TitleGroup): HTMLElement {
     badge.dataset.family = group.family;
     badge.dataset.platform = group.platform;
 
-    switch (group.platform) {
-        case '3ds':
-            badge.textContent = '3DS';
-            break;
-        case 'wii':
-            badge.textContent = 'Wii';
-            break;
-        case 'wiiu':
-            badge.textContent = 'Wii U';
-            break;
-        default:
-            badge.textContent = group.platform;
-            break;
-    }
+    badge.textContent = TitlePlatform[group.platform];
 
     return badge;
 }
@@ -360,7 +348,7 @@ function renderVirtualConsoleBadge(group: TitleGroup): HTMLElement {
     badge.className = 'title-metadata-badge title-vc';
 
     if (platform) {
-        badge.textContent = platform.toString();
+        badge.textContent = platform;
         badge.title = 'Virtual Console';
     } else {
         badge.classList.add('title-metadata-badge-placeholder');
@@ -551,9 +539,7 @@ function collectVcPlatforms(groups: TitleGroup[]): VirtualConsolePlatform[] {
         return platform ? [platform] : [];
     });
     return [...new Set(platforms)].sort((a, b) =>
-        a.toString().localeCompare(b.toString(), undefined, {
-            sensitivity: 'base',
-        })
+        a.localeCompare(b, undefined, { sensitivity: 'base' })
     );
 }
 
@@ -569,7 +555,8 @@ function updateVirtualConsoleBadgeWidth(
     }
 
     const label = platforms.reduce((longest, platform) => {
-        return platform.length > longest.length ? platform : longest;
+        const label = platform;
+        return label.length > longest.length ? label : longest;
     }, '');
     grid.style.setProperty('--title-vc-badge-width', `${label.length + 2}ch`);
 }
@@ -620,7 +607,7 @@ function isGroupVisible(group: TitleGroup): boolean {
         controlState.vc !== 'all' &&
         controlState.vc !== 'vc' &&
         controlState.vc !== 'non-vc' &&
-        controlState.vc !== platform?.toString()
+        controlState.vc !== platform
     ) {
         return false;
     }
@@ -1017,8 +1004,8 @@ function updateTitlesControls(): void {
             { value: 'vc', label: 'VC only' },
             { value: 'non-vc', label: 'Non-VC' },
             ...collectVcPlatforms(visibleGroups).map((value) => ({
-                value: value.toString(),
-                label: value.toString(),
+                value,
+                label: value,
             })),
         ]);
         vcSelect.value = controlState.vc;

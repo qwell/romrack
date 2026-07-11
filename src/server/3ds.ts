@@ -615,7 +615,7 @@ async function findTitleFiles(root: string): Promise<string[]> {
     return findLibraryItems(root, {
         concurrency: LIBRARY_SCAN_CONCURRENCY,
         logNamespace: '3ds',
-        logLabel: '3DS',
+        platform: '3ds',
         includeFile: (entry) =>
             THREE_DS_IMAGE_EXTENSIONS.has(
                 path.extname(entry.name).toLowerCase()
@@ -813,7 +813,7 @@ export async function scanThreeDSTitleRoots(
     roots: string[]
 ): Promise<TitleGroup[]> {
     return scanTitleRoots(roots, {
-        platformLabel: '3DS',
+        platform: '3ds',
         logNamespace: '3ds',
         scanTitles: scanThreeDSTitles,
         mergeTitleGroups,
@@ -1065,7 +1065,6 @@ export async function readThreeDSTitleMedia(
                         : null;
             }
         },
-        logLabel: '3DS',
     });
 }
 
@@ -1080,14 +1079,14 @@ export async function findThreeDSTitleSourcePaths(
         titleId,
         (readableRoot) => scanTitleEntries(readableRoot, titleDatabase),
         '3ds',
-        '3DS'
+        '3ds'
     );
 }
 
 export async function findFirstReadableThreeDSRoot(
     roots: string[]
 ): Promise<string> {
-    return findFirstReadableTitleRoot(roots, '3DS');
+    return findFirstReadableTitleRoot(roots, '3ds');
 }
 
 function getTitleAvailableOnCdn(titleId: string): boolean {

@@ -75,9 +75,16 @@ export type TitleGroupStatus =
     | 'unavailable'
     | 'unknown';
 
-export const TITLE_PLATFORMS = ['3ds', 'wii', 'wiiu'] as const;
+export const TitlePlatform = {
+    '3ds': '3DS',
+    wii: 'Wii',
+    wiiu: 'Wii U',
+} as const;
+export type TitlePlatform = keyof typeof TitlePlatform;
+
+export const TITLE_PLATFORM_IDS = Object.keys(TitlePlatform) as TitlePlatform[];
+
 export const TITLE_MEDIA_TYPES = ['icons', 'covers'] as const;
-export type TitlePlatform = (typeof TITLE_PLATFORMS)[number];
 export type TitleMediaType = (typeof TITLE_MEDIA_TYPES)[number];
 
 export type TitleIdentity = {
@@ -456,7 +463,7 @@ export function identifyWiiTitle(titleId: string): TitleIdentity | null {
 }
 
 export function isTitlePlatform(value: string): value is TitlePlatform {
-    return TITLE_PLATFORMS.includes(value as TitlePlatform);
+    return Object.hasOwn(TitlePlatform, value);
 }
 
 export function isTitleMediaType(value: string): value is TitleMediaType {

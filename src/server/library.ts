@@ -24,6 +24,7 @@ import {
     TitleKinds as TitleKindValues,
     type TitleMediaType,
     type TitlePlatform,
+    TitlePlatform,
 } from '../shared/titles.js';
 import { assertReadableDirectory, readOptionalFile } from '../shared/file.js';
 import { resolveReadablePath } from '../shared/os.js';
@@ -79,7 +80,7 @@ type TitleDatabaseFileCacheEntry = {
 export type LibraryFindItemOptions = {
     concurrency: number;
     logNamespace: Subsystems;
-    logLabel: string;
+    platform: TitlePlatform;
     includeDirectory?: (entries: Dirent[]) => boolean;
     includeFile?: (entry: Dirent) => boolean;
 };
@@ -123,7 +124,7 @@ export type TitleGroupMergeOptions = {
 };
 
 export type ScanTitleRootsOptions = {
-    platformLabel: string;
+    platform: TitlePlatform;
     logNamespace: Subsystems;
     scanTitles: (root: string) => Promise<TitleGroup[]>;
     mergeTitleGroups: (groups: TitleGroup[]) => TitleGroup[];
@@ -134,7 +135,7 @@ export type VerifyTitleRootsOptions = {
     roots: string[];
     onProgress?: (progress: LibraryVerifyProgress) => void;
     signal?: AbortSignal;
-    platformLabel: string;
+    platform: TitlePlatform;
     logNamespace: Subsystems;
     findItems: (root: string) => Promise<string[]>;
     verifyTitles: (
@@ -170,7 +171,6 @@ export type ReadTitleMediaOptions = {
         productCode: string,
         entry: TitleDatabaseEntry | null
     ) => Promise<CachedImage | null> | CachedImage | null;
-    logLabel: string;
 };
 
 export function setLibraryCacheGroups(groups: TitleGroup[]): void {
@@ -311,7 +311,7 @@ export async function readTitleMedia(
 
             logger.warn(
                 'assets',
-                `failed to load ${options.logLabel} icon media from URL for ${options.productCode}: ${formatLogError(error)}`
+                `failed to load ${TitlePlatform[options.platform]} icon media from URL for ${options.productCode}: ${formatLogError(error)}`
             );
         }
     }
@@ -345,7 +345,7 @@ export async function findTitleSourcePathsInRoots(
     titleId: string,
     scanTitleEntries: ScanTitleEntries,
     logNamespace: Subsystems,
-    rootLabel: string
+    platform: TitlePlatform
 ): Promise<string[]> {
     const sourcePaths: string[] = [];
 
@@ -364,7 +364,10 @@ export async function findTitleSourcePathsInRoots(
                     ])
             );
         } catch {
-            logger.warn(logNamespace, `skipping ${rootLabel} root ${root}`);
+            logger.warn(
+                logNamespace,
+                `skipping ${TitlePlatform[platform]} root ${root}`
+            );
         }
     }
 
@@ -380,7 +383,7 @@ export async function scanTitleRoots(
     for (const root of roots) {
         logger.log(
             options.logNamespace,
-            `scanning ${options.platformLabel} root: ${root}`
+            `scanning ${TitlePlatform[options.platform]} root: ${root}`
         );
         try {
             const readableRoot = await resolveReadablePath(root);
@@ -389,7 +392,7 @@ export async function scanTitleRoots(
         } catch {
             logger.warn(
                 options.logNamespace,
-                `skipping ${options.platformLabel} root ${root}`
+                `skipping ${TitlePlatform[options.platform]} root ${root}`
             );
         }
     }
@@ -397,7 +400,7 @@ export async function scanTitleRoots(
     const groups = options.mergeTitleGroups(scannedGroups);
     logger.log(
         options.logNamespace,
-        `finished scanning ${options.platformLabel} roots: ${groups.length} ${options.resultLabel}`
+        `finished scanning ${TitlePlatform[options.platform]} roots: ${groups.length} ${options.resultLabel}`
     );
     return groups;
 }
@@ -421,7 +424,7 @@ export async function verifyTitleRoots(
         } catch {
             logger.warn(
                 options.logNamespace,
-                `skipping ${options.platformLabel} root ${root}`
+                `skipping ${TitlePlatform[options.platform]} root ${root}`
             );
         }
     }
@@ -461,7 +464,7 @@ export function throwIfLibraryVerifyCancelled(signal?: AbortSignal): void {
 
 export async function findFirstReadableTitleRoot(
     roots: string[],
-    rootLabel: string
+    platform: TitlePlatform
 ): Promise<string> {
     const errors: string[] = [];
 
@@ -478,7 +481,7 @@ export async function findFirstReadableTitleRoot(
     }
 
     throw new Error(
-        `No readable ${rootLabel} roots found. ${errors.join('; ')}`
+        `No readable ${TitlePlatform[platform]} roots found. ${errors.join('; ')}`
     );
 }
 
@@ -497,7 +500,7 @@ export async function findLibraryItems(
         } catch (error) {
             logger.warn(
                 options.logNamespace,
-                `skipping ${options.logLabel} directory ${currentPath}: ${formatLogError(error)}`
+                `skipping ${TitlePlatform[options.platform]} directory ${currentPath}: ${formatLogError(error)}`
             );
             return found;
         }

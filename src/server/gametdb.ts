@@ -10,7 +10,7 @@ import * as cheerio from 'cheerio';
 import logger from '../shared/logger.js';
 import { isFileNotFoundError } from '../shared/file.js';
 import {
-    TITLE_PLATFORMS,
+    TITLE_PLATFORM_IDS,
     type TitleGroup,
     type TitlePlatform,
 } from '../shared/titles.js';
@@ -1215,7 +1215,7 @@ function getMediaStep(
 
 function getMediaSteps(): GameTdbMediaStep[] {
     const maxRegionCount = Math.max(
-        ...TITLE_PLATFORMS.flatMap((platform) =>
+        ...TITLE_PLATFORM_IDS.flatMap((platform) =>
             GAME_TDB_MEDIA_TYPES.map(
                 (type) => getMediaRegions(platform, type).length
             )
@@ -1459,7 +1459,7 @@ async function refreshStaleMediaArchive(
 async function refreshStaleExtractedMedia(): Promise<void> {
     const mediaKeys = new Map<string, Set<string>>();
 
-    for (const platform of TITLE_PLATFORMS) {
+    for (const platform of TITLE_PLATFORM_IDS) {
         for (const type of GAME_TDB_MEDIA_TYPES) {
             mediaKeys.set(
                 `${platform}:${type}`,
@@ -1501,7 +1501,7 @@ async function findOrCacheMediaPath(
 }
 
 function isMediaPlatform(value: string): value is TitlePlatform {
-    return TITLE_PLATFORMS.includes(value as TitlePlatform);
+    return TITLE_PLATFORM_IDS.includes(value as TitlePlatform);
 }
 
 function isMediaType(value: string): value is GameTdbMediaType {

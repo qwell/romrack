@@ -139,7 +139,7 @@ export async function scanWiiUTitleRoots(
     roots: string[]
 ): Promise<TitleGroup[]> {
     const groups = await scanTitleRoots(roots, {
-        platformLabel: 'Wii U',
+        platform: 'wiiu',
         logNamespace: 'wiiu',
         scanTitles: scanWiiUTitles,
         mergeTitleGroups,
@@ -298,7 +298,7 @@ export async function verifyWiiUTitleRoots(
         roots,
         onProgress,
         signal,
-        platformLabel: 'Wii U',
+        platform: 'wiiu',
         logNamespace: 'wiiu',
         findItems: findTitleDirs,
         verifyTitles: verifyWiiUTitles,
@@ -382,7 +382,6 @@ export async function readWiiUTitleMedia(
                         : null;
             }
         },
-        logLabel: 'Wii U',
     });
 }
 
@@ -396,14 +395,14 @@ export async function findWiiUTitleSourcePaths(
         titleId,
         (readableRoot) => scanTitleEntries(readableRoot, titleDatabase),
         'wiiu',
-        'Wii U'
+        'wiiu'
     );
 }
 
 export async function findFirstReadableWiiURoot(
     roots: string[]
 ): Promise<string> {
-    return findFirstReadableTitleRoot(roots, 'Wii U');
+    return findFirstReadableTitleRoot(roots, 'wiiu');
 }
 
 function createGroup(
@@ -435,7 +434,7 @@ async function findTitleDirs(root: string): Promise<string[]> {
     return findLibraryItems(root, {
         concurrency: LIBRARY_SCAN_CONCURRENCY,
         logNamespace: 'wiiu',
-        logLabel: 'Wii U',
+        platform: 'wiiu',
         includeDirectory: (entries) =>
             entries.some(
                 (entry) => entry.isFile() && entry.name === TMD_TITLE_FILE

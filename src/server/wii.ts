@@ -160,7 +160,7 @@ export async function scanWiiTitleRoots(
     roots: string[]
 ): Promise<TitleGroup[]> {
     return scanTitleRoots(roots, {
-        platformLabel: 'Wii',
+        platform: 'wii',
         logNamespace: 'wii',
         scanTitles: scanWiiTitles,
         mergeTitleGroups,
@@ -296,7 +296,7 @@ export async function verifyWiiTitleRoots(
         roots,
         onProgress,
         signal,
-        platformLabel: 'Wii',
+        platform: 'wii',
         logNamespace: 'wii',
         findItems: findTitleDirs,
         verifyTitles: verifyWiiTitles,
@@ -369,7 +369,6 @@ export async function readWiiTitleMedia(
                         : null;
             }
         },
-        logLabel: 'Wii',
     });
 }
 
@@ -382,14 +381,14 @@ export async function findWiiTitleSourcePaths(
         titleId,
         scanTitleEntriesWithDatabase,
         'wii',
-        'Wii'
+        'wii'
     );
 }
 
 export async function findFirstReadableWiiRoot(
     roots: string[]
 ): Promise<string> {
-    return findFirstReadableTitleRoot(roots, 'Wii');
+    return findFirstReadableTitleRoot(roots, 'wii');
 }
 
 function createGroup(
@@ -513,7 +512,7 @@ async function findTitleDirs(root: string): Promise<string[]> {
     return findLibraryItems(root, {
         concurrency: LIBRARY_SCAN_CONCURRENCY,
         logNamespace: 'wii',
-        logLabel: 'Wii',
+        platform: 'wii',
         includeFile: (entry) =>
             WII_DISC_IMAGE_EXTENSIONS.has(
                 path.extname(entry.name).toLowerCase()
