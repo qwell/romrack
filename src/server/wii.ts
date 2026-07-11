@@ -42,6 +42,7 @@ import {
     getWbfsDiscFilePaths,
     isWbfsSplitPart,
     readWbfsDiscHeader,
+    verifyWiiDisc,
 } from './formats/wbfs.js';
 import {
     cacheLocalTitleIcon,
@@ -729,11 +730,7 @@ async function verifyDiscImage(
             };
         }
 
-        return {
-            status: 'ok',
-            error: null,
-            verification: [],
-        };
+        return await verifyWiiDisc(filePath, signal);
     } catch (error) {
         return {
             status: 'failed',
