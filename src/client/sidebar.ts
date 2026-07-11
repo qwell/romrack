@@ -66,53 +66,33 @@ function getSidebarBannerUrl(group: TitleGroup): string | null {
     return group.bannerUrl ?? group.iconUrl;
 }
 
-const SIDEBAR_COVER_SIZES: Record<
-    TitlePlatform,
-    { width: number; height: number }
-> = {
-    '3ds': { width: 400, height: 352 },
-    wiiu: { width: 350, height: 500 },
-    wii: { width: 160, height: 224 },
-};
-
 function buildSidebarImage(group: TitleGroup, src: string): HTMLElement {
     const placeholder = document.createElement('div');
-    placeholder.className = 'sidebar-thumbnail-placeholder';
-
-    const size = SIDEBAR_COVER_SIZES[group.platform];
-    placeholder.style.aspectRatio = `${size.width.toString()} / ${size.height.toString()}`;
+    const platformClass = `platform-${group.platform}`;
+    placeholder.className = `sidebar-thumbnail-placeholder ${platformClass}`;
 
     const image = document.createElement('img');
-    image.className = 'sidebar-thumbnail-image-loading';
+    image.className = `sidebar-thumbnail-image-loading ${platformClass}`;
     image.alt = group.name;
     image.decoding = 'async';
     image.addEventListener('load', () => {
         image.classList.remove('sidebar-thumbnail-image-loading');
         placeholder.replaceWith(image);
     });
-    addSidebarImageFallback(image, group, src);
+    image.addEventListener('error', () => {
+        image.remove();
+        placeholder.classList.add('sidebar-thumbnail-placeholder-error');
+        placeholder.textContent = '⊗';
+        placeholder.setAttribute('role', 'img');
+        placeholder.setAttribute(
+            'aria-label',
+            `${group.name} image unavailable`
+        );
+    });
     image.src = src;
 
     placeholder.append(image);
     return placeholder;
-}
-
-function addSidebarImageFallback(
-    image: HTMLImageElement,
-    group: TitleGroup,
-    src: string
-): void {
-    let usedFallback = false;
-
-    image.addEventListener('error', () => {
-        if (!usedFallback && group.iconUrl && src !== group.iconUrl) {
-            usedFallback = true;
-            image.src = group.iconUrl;
-            return;
-        }
-
-        image.remove();
-    });
 }
 
 export function setupSidebar(nextOptions: SidebarOptions): void {
