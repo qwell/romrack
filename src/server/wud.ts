@@ -438,17 +438,17 @@ async function readWudGamePartitionChild(
         const rawTicket = await readFstFile(
             image,
             si,
-            `${child}/title.tik`,
+            `${child}/${TIK_TITLE_FILE}`,
             discKey
         );
         if (!rawTicket) {
-            logger.warn('wud', `skipping ${child}: missing title.tik`);
+            logger.warn('wud', `skipping ${child}: missing ${TIK_TITLE_FILE}`);
             return null;
         }
 
         const ticket = readTikFromBuffer(Buffer.from(rawTicket));
         if (!ticket) {
-            logger.warn('wud', `skipping ${child}: invalid title.tik`);
+            logger.warn('wud', `skipping ${child}: invalid ${TIK_TITLE_FILE}`);
             return null;
         }
 
@@ -467,22 +467,26 @@ async function readWudGamePartitionChild(
         const rawTmd = await readFstFile(
             image,
             si,
-            `${child}/title.tmd`,
+            `${child}/${TMD_TITLE_FILE}`,
             discKey
         );
         if (!rawTmd) {
-            logger.warn('wud', `skipping ${child}: missing title.tmd`);
+            logger.warn('wud', `skipping ${child}: missing ${TMD_TITLE_FILE}`);
             return null;
         }
 
         const tmd = readTmdFromBuffer(Buffer.from(rawTmd));
         if (!tmd) {
-            logger.warn('wud', `skipping ${child}: invalid title.tmd`);
+            logger.warn('wud', `skipping ${child}: invalid ${TMD_TITLE_FILE}`);
             return null;
         }
         const rawCert =
-            (await readFstFile(image, si, `${child}/title.cert`, discKey)) ??
-            new Uint8Array();
+            (await readFstFile(
+                image,
+                si,
+                `${child}/${CERT_TITLE_FILE}`,
+                discKey
+            )) ?? new Uint8Array();
         const partitionName = `GM${titleId}`.toLowerCase();
         const partitionReference = partitions.find((partition) =>
             partition.name.toLowerCase().startsWith(partitionName)
