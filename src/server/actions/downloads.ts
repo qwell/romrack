@@ -1,6 +1,6 @@
 import { type DownloadQueueItem } from '../../shared/download.js';
 import { type TitleDownloadResponse } from '../../shared/api.js';
-import { getConfig } from './config.js';
+import { getConfig } from '../routes/config.js';
 import logger from '../../shared/logger.js';
 import { formatLogError } from '../../shared/utils.js';
 import { isTerminalActionState } from '../../shared/action.js';
@@ -14,7 +14,7 @@ import { TitleDownloadProgress } from '../title.js';
 import { generateTitleInstallFiles } from '../install-title.js';
 import { clearTitleScanCache } from '../library.js';
 import { findFirstReadableWiiURoot } from '../wiiu.js';
-import { markTitleCopiesValidating, revalidateTitleCopies } from './title.js';
+import { markTitleCopiesValidating, revalidateTitleCopies } from './titles.js';
 
 let downloadQueue: DownloadQueueItem[] = [];
 

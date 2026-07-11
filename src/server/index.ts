@@ -20,25 +20,31 @@ import {
     TITLE_VALIDATE_SOCKET_COMMAND,
     isSocketCommand,
 } from '../shared/socket.js';
+import { createConfigRouter } from './routes/config.js';
+import { createLibraryRouter } from './routes/library.js';
+import { createMediaRouter } from './routes/media.js';
+import { createStorageRouter } from './routes/storage.js';
+import { createTitleRouter } from './routes/title.js';
 import {
-    createConfigRouter,
-    createStorageRouter,
     getStorageCopies,
     getStorageDeletes,
     handleStorageCopySocketCommand,
     handleStorageDeleteSocketCommand,
-    createLibraryRouter,
+} from './actions/storage.js';
+import {
     getLibraryConversions,
     getLibraryVerifyEvents,
     handleLibraryConvertSocketCommand,
     handleLibraryVerifySocketCommand,
-    createTitleRouter,
-    handleTitleValidationSocketCommand,
+} from './actions/library.js';
+import {
     getTitleValidationResults,
+    handleTitleValidationSocketCommand,
+} from './actions/titles.js';
+import {
     getDownloadQueue,
     handleDownloadSocketCommand,
-    createMediaRouter,
-} from './routes.js';
+} from './actions/downloads.js';
 
 const config = getConfig();
 cacheAllGameTdbMedia();
