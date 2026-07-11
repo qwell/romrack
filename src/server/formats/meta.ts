@@ -12,6 +12,8 @@ export type NUSTitleInformation = {
     titleVersion: number | null;
 };
 
+export const META_XML_FILES = ['meta/meta.xml', 'meta.xml'] as const;
+
 const META_XML_PARSER = new XMLParser({
     ignoreAttributes: true,
     parseTagValue: false,

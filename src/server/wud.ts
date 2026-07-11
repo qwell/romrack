@@ -20,7 +20,11 @@ import {
     readFstContentInfos,
     parseTitleFstEntries,
 } from './formats/fst.js';
-import { findXmlStartByte, readMetaXml } from './formats/meta.js';
+import {
+    META_XML_FILES,
+    findXmlStartByte,
+    readMetaXml,
+} from './formats/meta.js';
 import {
     getTitleIdHex,
     readTmdFromBuffer,
@@ -843,9 +847,9 @@ async function extractMetaXmlFromPartition(
 ): Promise<Uint8Array | null> {
     const entries = parseTitleFstEntries(partition.fst, partition.tmd);
     const entry =
-        entries.find((candidate) => candidate.fullPath === 'meta/meta.xml') ??
-        entries.find((candidate) => candidate.name === 'meta.xml') ??
-        null;
+        entries.find((candidate) =>
+            META_XML_FILES.some((file) => file === candidate.fullPath)
+        ) ?? null;
     if (!entry) {
         return null;
     }

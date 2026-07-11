@@ -40,6 +40,7 @@ import {
     type TitleFstEntry,
 } from './formats/fst.js';
 import {
+    META_XML_FILES,
     findXmlStartByte,
     readMetaXml,
     readMetaXmlJson,
@@ -1319,10 +1320,65 @@ export async function extractMetaXmlFromTitle(
     titleId: string,
     downloadOptions?: DownloadOptions
 ): Promise<Uint8Array | null> {
+    return extractMetaXmlFromContentReader(
+        decryptedFst,
+        tmd,
+        titleKey,
+        titleId,
+        (content) =>
+            downloadContent(baseUrl, titleId, content.id, downloadOptions)
+    );
+}
+
+export async function readInstalledWiiUMeta(
+    dirPath: string,
+    tmd: Tmd
+): Promise<NUSTitleInformation | null> {
+    const fstContent = tmd.contents[0];
+    if (!fstContent) {
+        return null;
+    }
+
+    const encryptedFst = await readOptionalFile(
+        getContentInstallFiles(dirPath, fstContent).appFile
+    );
+    if (!encryptedFst) {
+        return null;
+    }
+
+    const ticket = await readTikHeader(dirPath);
+    const titleId = getTitleIdHex(tmd.header.titleId);
+    const { titleKey, decryptedFst } = resolveTitleKey({
+        commonKey: await readCommonKey(),
+        encryptedFst,
+        normalizedTitleId: titleId,
+        ticket,
+        tmd,
+    });
+    const metaXml = await extractMetaXmlFromContentReader(
+        decryptedFst,
+        tmd,
+        titleKey,
+        titleId,
+        async (content) =>
+            readOptionalFile(getContentInstallFiles(dirPath, content).appFile)
+    );
+
+    return metaXml ? readMetaXml(metaXml) : null;
+}
+
+async function extractMetaXmlFromContentReader(
+    decryptedFst: Uint8Array,
+    tmd: Tmd,
+    titleKey: Uint8Array,
+    titleId: string,
+    readEncryptedContent: (content: TmdContent) => Promise<Uint8Array | null>
+): Promise<Uint8Array | null> {
     const entries = parseFstEntries(decryptedFst, tmd);
     const metaEntry =
-        entries.find((entry) => entry.fullPath === 'meta/meta.xml') ??
-        entries.find((entry) => entry.name === 'meta.xml');
+        entries.find((entry) =>
+            META_XML_FILES.some((file) => file === entry.fullPath)
+        ) ?? null;
 
     if (!metaEntry || metaEntry.isDirectory) {
         return null;
@@ -1332,12 +1388,11 @@ export async function extractMetaXmlFromTitle(
         return null;
     }
 
-    const encryptedContent = await downloadContent(
-        baseUrl,
-        titleId,
-        content.id,
-        downloadOptions
-    );
+    const encryptedContent = await readEncryptedContent(content);
+    if (!encryptedContent) {
+        return null;
+    }
+
     const decryptedContent = decryptTitleContent(
         encryptedContent,
         titleKey,

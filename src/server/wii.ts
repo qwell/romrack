@@ -455,7 +455,7 @@ function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
         .filter((entry): entry is TitleDatabaseEntry => entry !== null);
 }
 
-async function readWiiTitleDatabase(): Promise<
+export async function readWiiTitleDatabase(): Promise<
     Map<string, TitleDatabaseEntry>
 > {
     return readTitleDatabase({
@@ -465,7 +465,7 @@ async function readWiiTitleDatabase(): Promise<
     });
 }
 
-async function readWiiGameTdb(): Promise<Map<string, TitleDetails>> {
+export async function readWiiGameTdb(): Promise<Map<string, TitleDetails>> {
     return readGameTdb<GameTdbGame>({
         fileName: 'wii/tdb.xml',
         logNamespace: 'wii',

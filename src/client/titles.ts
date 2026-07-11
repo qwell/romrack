@@ -152,15 +152,6 @@ export function compareTitleGroups(a: TitleGroup, b: TitleGroup): number {
     );
 }
 
-function filterVisibleTitleGroups(groups: TitleGroup[]): TitleGroup[] {
-    return groups.filter(
-        (group) =>
-            showAllTitles ||
-            group.entries.length > 0 ||
-            group.wudEntries.length > 0
-    );
-}
-
 export function setTitlesStatus(next: {
     loading?: boolean;
     verifying?: boolean;
