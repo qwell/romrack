@@ -278,13 +278,9 @@ async function validateLibraryRoot(
 }
 
 function getConfigPathCandidates(): string[] {
-    return [
-        path.join(process.cwd(), 'config.json'),
-        path.join(getAppRoot(), 'config.json'),
-        path.join(getUserAppRoot(), 'config.json'),
-    ].filter((candidate, index, candidates) => {
-        return candidates.indexOf(candidate) === index;
-    });
+    const roots = [process.cwd(), getAppRoot(), getUserAppRoot()];
+
+    return [...new Set(roots.map((root) => path.join(root, 'config.json')))];
 }
 
 function resolveConfigPath(): string {
