@@ -5,6 +5,30 @@ import {
 } from './titles.js';
 import { type ActionState } from './action.js';
 
+export type StoragePathTemplate = {
+    root: string;
+    directory: string | null;
+    filename: string | null;
+};
+
+export const STORAGE_PATHS: Record<TitlePlatform, StoragePathTemplate> = {
+    '3ds': {
+        root: '/cias/',
+        directory: null,
+        filename: '{titleName} [{titleId}].cia',
+    },
+    wii: {
+        root: '/wbfs/',
+        directory: '{titleName} [{titleId}]',
+        filename: '{titleId}{extension}',
+    },
+    wiiu: {
+        root: '/install/',
+        directory: '{titleName} [{titleId}]',
+        filename: null,
+    },
+};
+
 export type StorageCopyOperation = 'copy' | 'move';
 export type StorageCopyItem = {
     id: string;

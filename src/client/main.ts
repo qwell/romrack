@@ -143,16 +143,13 @@ function formatFat32VolumeOption(
     volume: Fat32Volume,
     runtimeOs: RuntimeOs
 ): string {
-    if (isWindowsOnlyFat32Volume(volume, runtimeOs)) {
-        return `${volume.source} (Windows only)`;
-    }
-
     const label = volume.label ? `${volume.label} - ` : '';
-    const size =
-        volume.freeBytes === null
-            ? ''
-            : ` (${formatSize(volume.freeBytes)} free)`;
-    return `${label}${volume.source}${size}`;
+    const subLabel = isWindowsOnlyFat32Volume(volume, runtimeOs)
+        ? ' (Windows only) '
+        : volume.freeBytes === null
+          ? ''
+          : ` (${formatSize(volume.freeBytes)} free)`;
+    return `${label}${volume.source}${subLabel}`;
 }
 
 async function refreshFat32Devices(): Promise<void> {
@@ -181,7 +178,7 @@ function populateFat32DeviceSelect(
                 response.runtimeOs
             );
             const option = document.createElement('option');
-            option.value = isWindowsOnly ? '' : volume.source;
+            option.value = volume.source;
             option.textContent = formatFat32VolumeOption(
                 volume,
                 response.runtimeOs

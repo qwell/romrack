@@ -23,7 +23,6 @@ import {
     type TitleKinds,
     TitleKinds as TitleKindValues,
     type TitleMediaType,
-    type TitlePlatform,
     TitlePlatform,
 } from '../shared/titles.js';
 import { assertReadableDirectory, readOptionalFile } from '../shared/file.js';
@@ -180,6 +179,7 @@ export function setLibraryCacheGroups(groups: TitleGroup[]): void {
 export function getLibraryCacheEntry(titleId: string): {
     platform: TitlePlatform;
     name: string;
+    productCode: string | null;
     version: number | null;
     kind: TitleKinds | null;
 } | null {
@@ -213,6 +213,7 @@ export function getLibraryCacheEntry(titleId: string): {
     return {
         platform: group.platform,
         name: group.name,
+        productCode: group.productCode,
         version: entry?.version ?? null,
         kind: entry?.kind ?? null,
     };

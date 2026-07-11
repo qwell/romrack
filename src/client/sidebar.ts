@@ -1,5 +1,6 @@
 import { type StorageFat32ListResponse } from '../shared/api.js';
 import { type Fat32Volume } from '../shared/os/types.js';
+import { STORAGE_PATHS } from '../shared/storage.js';
 import { type TitleValidationSocketEvent } from '../shared/socket.js';
 import { formatSize } from '../shared/utils.js';
 import {
@@ -1011,52 +1012,6 @@ function renderInvalidActions(
     return actions;
 }
 
-function renderDeleteOnlyActions(
-    list: HTMLElement,
-    entries: TitleEntry[],
-    label: string
-): HTMLElement {
-    const actions = document.createElement('div');
-    actions.className = 'sidebar-download-actions sidebar-storage-copy-actions';
-
-    const spacer = document.createElement('div');
-    const deleteButton = document.createElement('button');
-    deleteButton.className = 'sidebar-button';
-    deleteButton.type = 'button';
-
-    const updateButton = (): void => {
-        const checkedCount = list.querySelectorAll(
-            '.sidebar-storage-copy-checkbox:checked'
-        ).length;
-        deleteButton.textContent =
-            checkedCount === 0 ? 'Delete all' : 'Delete selected';
-        deleteButton.disabled = entries.length === 0;
-    };
-
-    updateButton();
-    list.addEventListener('change', updateButton);
-
-    deleteButton.addEventListener('click', () => {
-        void (async () => {
-            const hasSelection =
-                list.querySelectorAll('.sidebar-storage-copy-checkbox:checked')
-                    .length > 0;
-            const titleIds = getSelectedDownloadedTitleIds(list, hasSelection);
-
-            await options?.confirmAndQueueStorageDeletes(
-                titleIds,
-                entries,
-                deleteButton,
-                label
-            );
-            updateButton();
-        })();
-    });
-
-    actions.append(spacer, deleteButton);
-    return actions;
-}
-
 function formatTitleEntrySlot(group: TitleGroup, entry: TitleEntry): string {
     switch (group.platform) {
         case '3ds':
@@ -1075,7 +1030,7 @@ function formatVersions(versions: number[]): string {
         : '';
 }
 
-export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
+function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
     const detailOptions = options;
     const fragment = document.createDocumentFragment();
     const summary = document.createElement('div');
@@ -1129,20 +1084,7 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
             localList.append(renderDownloadedCopyRow(group, entry));
         }
 
-        if (group.platform === 'wii') {
-            const downloadedContent = document.createElement('div');
-            downloadedContent.className =
-                'sidebar-download-content sidebar-storage-copy-content';
-            downloadedContent.append(
-                localList,
-                renderDeleteOnlyActions(localList, localEntries, 'disc image')
-            );
-
-            availability.append(
-                renderDetailSection('Disc Images'),
-                downloadedContent
-            );
-        } else {
+        {
             const actions = document.createElement('div');
             actions.className =
                 'sidebar-download-actions sidebar-storage-copy-actions';
@@ -1227,6 +1169,11 @@ export function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
                     .populateFat32DeviceSelect(destinationSelect, copyButton)
                     .then((response) => {
                         fat32Response = response;
+                        for (const option of destinationSelect.options) {
+                            if (option.value) {
+                                option.textContent = `${option.textContent} → ${STORAGE_PATHS[group.platform].root}`;
+                            }
+                        }
                         updateDownloadedButtons();
                     });
             }
