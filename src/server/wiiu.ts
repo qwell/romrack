@@ -55,9 +55,8 @@ import {
 import { TMD_TITLE_FILE } from './formats/tmd.js';
 import { scanWudTitleEntries } from './wud.js';
 import {
-    getGameTdbLocale,
     getGameTdbLocales,
-    getGameTdbSynopsis,
+    getPreferredGameTdbSynopsis,
     GameTdbGame,
     readGameTdbMedia,
 } from './gametdb.js';
@@ -613,9 +612,7 @@ function parseGameTdbDetails(game: GameTdbGame): TitleDetails {
     return {
         tvFormat: game.region ?? null,
         languages: splitGameTdbList(game.languages),
-        synopsis: getGameTdbSynopsis(
-            getGameTdbLocale(getGameTdbLocales(game), 'EN')
-        ),
+        synopsis: getPreferredGameTdbSynopsis(getGameTdbLocales(game)),
         developer: game.developer?.trim() || null,
         genre: splitGameTdbList(game.genre),
         inputPlayers: parseGameTdbNumber(game.input?.['@players']),

@@ -27,9 +27,8 @@ import {
 } from '../shared/api.js';
 import { ansi } from '../shared/ansi.js';
 import {
-    getGameTdbLocale,
     getGameTdbLocales,
-    getGameTdbSynopsis,
+    getPreferredGameTdbSynopsis,
     type GameTdbGame,
     readGameTdbMedia,
 } from './gametdb.js';
@@ -479,9 +478,7 @@ function parseGameTdbDetails(game: GameTdbGame): TitleDetails {
     return {
         tvFormat: game.region ?? null,
         languages: splitGameTdbList(game.languages),
-        synopsis: getGameTdbSynopsis(
-            getGameTdbLocale(getGameTdbLocales(game), 'EN')
-        ),
+        synopsis: getPreferredGameTdbSynopsis(getGameTdbLocales(game)),
         developer: game.developer?.trim() || null,
         genre: splitGameTdbList(game.genre),
         inputPlayers: parseGameTdbNumber(game.input?.['@players']),

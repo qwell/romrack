@@ -248,6 +248,26 @@ export function getGameTdbSynopsis(
     return locale?.synopsis?.trim() || null;
 }
 
+export function getPreferredGameTdbSynopsis(
+    locales: GameTdbLocale[]
+): string | null {
+    const englishSynopsis = getGameTdbSynopsis(
+        getGameTdbLocale(locales, DEFAULT_LOCALE)
+    );
+    if (englishSynopsis) {
+        return englishSynopsis;
+    }
+
+    for (const locale of locales) {
+        const synopsis = getGameTdbSynopsis(locale);
+        if (synopsis) {
+            return synopsis;
+        }
+    }
+
+    return null;
+}
+
 const platforms: Record<TitlePlatform, GameTdbPlatformConfig> = {
     '3ds': {
         downloadsPage: 'https://www.gametdb.com/3DS/Downloads',

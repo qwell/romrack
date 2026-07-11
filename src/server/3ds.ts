@@ -18,9 +18,8 @@ import {
     TitlePlatform,
 } from '../shared/titles.js';
 import {
-    getGameTdbLocale,
     getGameTdbLocales,
-    getGameTdbSynopsis,
+    getPreferredGameTdbSynopsis,
     type GameTdbGame,
     readGameTdbMedia,
 } from './gametdb.js';
@@ -216,9 +215,7 @@ function parseGameTdbDetails(game: ThreeDSTdbGame): TitleDetails {
     return {
         tvFormat: game.region ?? null,
         languages: splitGameTdbList(game.languages),
-        synopsis: getGameTdbSynopsis(
-            getGameTdbLocale(getGameTdbLocales(game), 'EN')
-        ),
+        synopsis: getPreferredGameTdbSynopsis(getGameTdbLocales(game)),
         developer: (game.developer ?? game.publisher)?.trim() || null,
         genre: splitGameTdbList(game.genre),
         inputPlayers: parseGameTdbNumber(game.input?.['@players']),
