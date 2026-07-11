@@ -1,7 +1,15 @@
 import { ansi, SubsystemColors, Subsystems } from './ansi.js';
 
+export const longestSubsystem = Math.max(
+    ...Subsystems.map((subsystem) => subsystem.length)
+);
+
+export function padSubsystem(subsystem: Subsystems): string {
+    return subsystem.padEnd(longestSubsystem);
+}
+
 function prefix(subsystem: Subsystems): string {
-    return `${SubsystemColors[subsystem]}[${subsystem}]${ansi.reset}`;
+    return `${SubsystemColors[subsystem]}[${padSubsystem(subsystem)}]${ansi.reset}`;
 }
 
 function message(color: string | string[], args: string[]): string {

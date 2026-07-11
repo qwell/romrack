@@ -1,14 +1,17 @@
-export type Subsystems =
-    | 'server'
-    | 'client'
-    | 'metadata'
-    | '3ds'
-    | 'wii'
-    | 'wiiu'
-    | 'wud'
-    | 'download'
-    | 'gametdb'
-    | 'assets';
+export const Subsystems = [
+    'server',
+    'client',
+    'metadata',
+    '3ds',
+    'wii',
+    'wiiu',
+    'wud',
+    'download',
+    'gametdb',
+    'assets',
+] as const;
+
+export type Subsystems = (typeof Subsystems)[number];
 
 export const ansi = {
     reset: '\x1b[0m',
