@@ -54,8 +54,8 @@ function getDefaultConfig(): AppConfig {
         host: DEFAULT_SERVER_HOST,
         port: DEFAULT_SERVER_PORT,
         openBrowser: DEFAULT_BROWSER_OPEN,
-        '3dsRoots': [],
-        wiiRoots: [],
+        '3dsRoots': [DEFAULT_ROM_DIR],
+        wiiRoots: [DEFAULT_ROM_DIR],
         wiiuRoots: [DEFAULT_ROM_DIR],
     };
 }
@@ -339,8 +339,8 @@ function loadConfig(): AppConfig {
             typeof readConfigValue(parsed, 'openBrowser') === 'boolean'
                 ? (readConfigValue(parsed, 'openBrowser') as boolean)
                 : DEFAULT_BROWSER_OPEN,
-        '3dsRoots': readThreeDSRoots(parsed),
-        wiiRoots: readWiiRoots(parsed),
+        '3dsRoots': readThreeDSRoots(parsed, { defaultRoot: DEFAULT_ROM_DIR }),
+        wiiRoots: readWiiRoots(parsed, { defaultRoot: DEFAULT_ROM_DIR }),
         wiiuRoots: readWiiURoots(parsed, { defaultRoot: DEFAULT_ROM_DIR }),
     };
 }
