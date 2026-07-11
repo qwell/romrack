@@ -1,51 +1,107 @@
-export function parseRegion(value: string): string {
+export const RegionNames = [
+    'JPN',
+    'USA',
+    'EUR',
+    'KOR',
+    'AUS',
+    'CHN',
+    'FRA',
+    'GER',
+    'ITA',
+    'RUS',
+    'SPA',
+    'TWN',
+    'ALL',
+    'UNK',
+] as const;
+export type RegionNames = (typeof RegionNames)[number];
+
+export const Region = Object.fromEntries(
+    RegionNames.map((region) => [region, region])
+) as Record<RegionNames, RegionNames>;
+
+const RegionCountries: Record<RegionNames, string> = {
+    AUS: 'Australia',
+    CHN: 'China',
+    EUR: 'Europe',
+    FRA: 'France',
+    GER: 'Germany',
+    ITA: 'Italy',
+    JPN: 'Japan',
+    KOR: 'Korea',
+    RUS: 'Russia',
+    SPA: 'Spain',
+    TWN: 'Taiwan',
+    USA: 'USA',
+    ALL: 'World',
+    UNK: 'Unknown',
+};
+
+const RegionAliases: Record<string, RegionNames> = {
+    'NTSC-J': Region.JPN,
+    'NTSC-U': Region.USA,
+    PAL: Region.EUR,
+};
+
+const RegionMasks: Record<number, RegionNames> = {
+    0x01: Region.JPN,
+    0x02: Region.USA,
+    0x04: Region.EUR,
+    0x08: Region.AUS,
+    0x10: Region.CHN,
+    0x20: Region.KOR,
+    0x40: Region.TWN,
+    0x7fffffff: Region.ALL,
+};
+
+const ProductCodeRegions: Record<string, RegionNames> = {
+    A: Region.ALL,
+    C: Region.CHN,
+    D: Region.GER,
+    E: Region.USA,
+    F: Region.FRA,
+    H: Region.EUR,
+    I: Region.ITA,
+    J: Region.JPN,
+    K: Region.KOR,
+    P: Region.EUR,
+    R: Region.RUS,
+    S: Region.SPA,
+    V: Region.ITA,
+    W: Region.TWN,
+    X: Region.EUR,
+    Y: Region.EUR,
+    Z: Region.EUR,
+};
+
+export function isRegionName(value: string): value is RegionNames {
+    return RegionNames.includes(value as RegionNames);
+}
+
+export function parseRegion(value: string): RegionNames | '' {
     if (!value) {
         return '';
     }
 
     const normalized = value.toUpperCase();
-
-    switch (normalized) {
-        case 'NTSC-J':
-            return 'JPN';
-        case 'NTSC-U':
-            return 'USA';
-        case 'PAL':
-            return 'EUR';
+    const aliasedRegion = RegionAliases[normalized];
+    if (aliasedRegion) {
+        return aliasedRegion;
     }
 
-    if (normalized.length === 3) {
+    if (isRegionName(normalized)) {
         return normalized;
     }
 
     const regionMask = Number.parseInt(normalized, 16);
     if (!Number.isFinite(regionMask)) {
-        return 'UNK';
+        return Region.UNK;
     }
 
-    switch (regionMask) {
-        case 0x01:
-            return 'JPN';
-        case 0x02:
-            return 'USA';
-        case 0x04:
-            return 'EUR';
-        case 0x08:
-            return 'AUS';
-        case 0x10:
-            return 'CHN';
-        case 0x20:
-            return 'KOR';
-        case 0x40:
-            return 'TWN';
-        case 0x7fffffff:
-            return 'ALL';
-        default:
-            return 'UNK';
-    }
+    return RegionMasks[regionMask] ?? Region.UNK;
 }
 
-function getProductCodeRegion(productCode: string): string | null {
+function getProductCodeRegion(productCode: string): RegionNames | null {
     const code = productCode ?? '';
     const fullCodeMatch =
         /^(?:WUP|CTR|KTR)-[A-Z0-9]+-[A-Z0-9]{3}([A-Z0-9])(?:-\d{2})?$/i.exec(
@@ -54,53 +110,20 @@ function getProductCodeRegion(productCode: string): string | null {
     const shortCodeMatch = /^[A-Z0-9]{3}([A-Z0-9])$/i.exec(code);
     const suffix = (fullCodeMatch ?? shortCodeMatch)?.[1]?.toUpperCase();
 
-    switch (suffix) {
-        case 'A':
-            return 'ALL';
-        case 'C':
-            return 'CHN';
-        case 'D':
-            return 'GER';
-        case 'E':
-            return 'USA';
-        case 'F':
-            return 'FRA';
-        case 'H':
-            return 'EUR';
-        case 'K':
-            return 'KOR';
-        case 'I':
-            return 'ITA';
-        case 'J':
-            return 'JPN';
-        case 'P':
-            return 'EUR';
-        case 'R':
-            return 'RUS';
-        case 'S':
-            return 'SPA';
-        case 'V':
-            return 'ITA';
-        case 'W':
-            return 'TWN';
-        case 'X':
-            return 'EUR';
-        case 'Y':
-            return 'EUR';
-        case 'Z':
-            return 'EUR';
-        default:
-            return null;
-    }
+    return suffix ? (ProductCodeRegions[suffix] ?? null) : null;
+}
+
+export function getRegionCountry(region: RegionNames): string | null {
+    return isRegionName(region) ? RegionCountries[region] : null;
 }
 
 export function normalizeRegion(
     region: string | null,
     productCode: string | null
-): string {
+): RegionNames | '' {
     if (region) {
         const parsedRegion = parseRegion(region);
-        if (parsedRegion && parsedRegion !== 'UNK') {
+        if (parsedRegion && parsedRegion !== Region.UNK) {
             return parsedRegion;
         }
     }

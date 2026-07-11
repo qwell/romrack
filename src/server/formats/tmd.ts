@@ -1,3 +1,6 @@
+import { Region, RegionNames } from '../../shared/regions.js';
+import { type TitlePlatform } from '../../shared/titles.js';
+
 export type Tmd = {
     header: TmdHeader;
     contents: TmdContent[];
@@ -50,30 +53,10 @@ type CertificateKeyType =
     | typeof CERT_KEY_RSA_2048
     | typeof CERT_KEY_ECC;
 
-type SystemType =
-    | typeof SYSTEM_TYPE_WIIU
-    | typeof SYSTEM_TYPE_THREE_DS
-    | typeof SYSTEM_TYPE_WII
-    | typeof SYSTEM_TYPE_UNKNOWN;
+type SystemType = TitlePlatform | typeof SYSTEM_TYPE_UNKNOWN;
 
 export const TMD_TITLE_FILE = 'title.tmd';
 
-const REGION_JPN = 0;
-const REGION_USA = 1;
-const REGION_EUR = 2;
-const REGION_ALL = 3;
-const REGION_KOR = 4;
-
-const REGION_JPN_NAME = 'JPN';
-const REGION_USA_NAME = 'USA';
-const REGION_EUR_NAME = 'EUR';
-const REGION_ALL_NAME = 'ALL';
-const REGION_KOR_NAME = 'KOR';
-const REGION_UNK_NAME = 'UNK';
-
-const SYSTEM_TYPE_WIIU = 'wiiu';
-const SYSTEM_TYPE_THREE_DS = '3ds';
-const SYSTEM_TYPE_WII = 'wii';
 const SYSTEM_TYPE_UNKNOWN = 'unknown';
 
 const CERT_SIGNATURE_RSA_4096 = 0x00010000;
@@ -313,20 +296,7 @@ function isCertificateKeyType(value: number): value is CertificateKeyType {
 }
 
 function getRegionName(region: number): string {
-    switch (region) {
-        case REGION_JPN:
-            return REGION_JPN_NAME;
-        case REGION_USA:
-            return REGION_USA_NAME;
-        case REGION_EUR:
-            return REGION_EUR_NAME;
-        case REGION_ALL:
-            return REGION_ALL_NAME;
-        case REGION_KOR:
-            return REGION_KOR_NAME;
-        default:
-            return REGION_UNK_NAME;
-    }
+    return RegionNames[region] ?? Region.UNK;
 }
 
 function getSystemType(titleId: Uint8Array): SystemType {
@@ -334,23 +304,23 @@ function getSystemType(titleId: Uint8Array): SystemType {
         return SYSTEM_TYPE_UNKNOWN;
     }
     if (titleId[0] === 0x00 && titleId[1] === 0x05) {
-        return SYSTEM_TYPE_WIIU;
+        return 'wiiu';
     }
     if (titleId[0] === 0x00 && titleId[1] === 0x04) {
-        return SYSTEM_TYPE_THREE_DS;
+        return '3ds';
     }
     if (titleId[0] === 0x00 && titleId[1] === 0x01) {
-        return SYSTEM_TYPE_WII;
+        return 'wii';
     }
     return SYSTEM_TYPE_UNKNOWN;
 }
 
 function isReadableTmdSystem(systemType: SystemType): boolean {
     switch (systemType) {
-        case SYSTEM_TYPE_THREE_DS:
-        case SYSTEM_TYPE_WIIU:
+        case '3ds':
+        case 'wiiu':
             return true;
-        case SYSTEM_TYPE_WII:
+        case 'wii':
         case SYSTEM_TYPE_UNKNOWN:
             return false;
     }

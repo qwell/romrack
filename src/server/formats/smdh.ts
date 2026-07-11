@@ -1,6 +1,10 @@
 import { deflateSync } from 'node:zlib';
 
-import { normalizeRegion } from '../../shared/regions.js';
+import {
+    Region,
+    type RegionNames,
+    normalizeRegion,
+} from '../../shared/regions.js';
 
 export type SmdhMetadata = {
     name: string | null;
@@ -41,14 +45,14 @@ const SMDH_RGB565_BYTES_PER_PIXEL = 2;
 
 const SMDH_TITLE_ENGLISH = 1;
 
-const SMDH_REGION_BITS: Array<[number, string]> = [
-    [0x01, 'JPN'],
-    [0x02, 'USA'],
-    [0x04, 'EUR'],
-    [0x08, 'AUS'],
-    [0x10, 'KOR'],
-    [0x20, 'TWN'],
-    [0x40, 'CHN'],
+const SMDH_REGION_BITS: Array<[number, RegionNames]> = [
+    [0x01, Region.JPN],
+    [0x02, Region.USA],
+    [0x04, Region.EUR],
+    [0x08, Region.AUS],
+    [0x10, Region.KOR],
+    [0x20, Region.TWN],
+    [0x40, Region.CHN],
 ];
 
 export function readSmdhMetadata(

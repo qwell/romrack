@@ -1,5 +1,11 @@
 import { type DownloadQueueItem } from '../shared/download.js';
 import { formatActionStateIcon } from '../shared/action.js';
+import {
+    getRegionCountry,
+    isRegionName,
+    Region,
+    RegionNames,
+} from '../shared/regions.js';
 import { formatSize } from '../shared/utils.js';
 import {
     getTitleId,
@@ -18,10 +24,10 @@ import {
 } from './library.js';
 
 type TitlesViewMode = 'table' | 'list';
-type TitlesVcFilter = 'all' | 'vc' | 'non-vc' | VirtualConsolePlatform;
+type TitlesVcFilter = '-' | 'vc' | 'non-vc' | VirtualConsolePlatform;
 type TitlesControlState = {
-    region: string;
-    status: TitleGroupStatus | 'all';
+    region: RegionNames | '-';
+    status: TitleGroupStatus | '-';
     vc: TitlesVcFilter;
     search: string;
 };
@@ -55,9 +61,9 @@ let showAllTitles = false;
 let currentGroups: TitleGroup[] = [];
 let virtualGroups: TitleGroup[] = [];
 let controlState: TitlesControlState = {
-    region: 'all',
-    status: 'all',
-    vc: 'all',
+    region: '-',
+    status: '-',
+    vc: '-',
     search: '',
 };
 let loading = false;
@@ -439,7 +445,7 @@ function renderGroup(
         renderPlatformBadge(group)
     );
 
-    const formatted = formatRegion(group.region ?? 'UNK');
+    const formatted = formatRegion(group.region ?? Region.UNK);
     const region = document.createElement('div');
     region.className = 'title-metadata-badge title-region';
     const flag = document.createElement('span');
@@ -524,30 +530,24 @@ function getSearchHaystack(group: TitleGroup): string {
     return haystack;
 }
 
-function collectRegions(groups: TitleGroup[]): string[] {
-    return [...new Set(groups.flatMap((group) => group.region ?? []))].sort(
-        (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })
+function getRegionFilters(): RegionNames[] {
+    return [...RegionNames].sort((a, b) =>
+        (getRegionCountry(a) ?? a).localeCompare(
+            getRegionCountry(b) ?? b,
+            undefined,
+            { sensitivity: 'base' }
+        )
     );
 }
 
-function collectVcPlatforms(groups: TitleGroup[]): VirtualConsolePlatform[] {
-    const platforms = groups.flatMap((group) => {
-        const platform = getVirtualConsolePlatform(
-            group.platform,
-            group.productCode
-        );
-        return platform ? [platform] : [];
-    });
-    return [...new Set(platforms)].sort((a, b) =>
+function getVcFilterPlatforms(): VirtualConsolePlatform[] {
+    return Object.values(VirtualConsolePlatform).sort((a, b) =>
         a.localeCompare(b, undefined, { sensitivity: 'base' })
     );
 }
 
-function updateVirtualConsoleBadgeWidth(
-    groups: TitleGroup[],
-    grid: HTMLDivElement
-): void {
-    const platforms = collectVcPlatforms(groups);
+function updateVirtualConsoleBadgeWidth(grid: HTMLDivElement): void {
+    const platforms = getVcFilterPlatforms();
 
     if (platforms.length === 0) {
         grid.style.removeProperty('--title-vc-badge-width');
@@ -561,21 +561,21 @@ function updateVirtualConsoleBadgeWidth(
     grid.style.setProperty('--title-vc-badge-width', `${label.length + 2}ch`);
 }
 
-function normalizeControlState(groups: TitleGroup[]): void {
-    const regions = collectRegions(groups);
+function normalizeControlState(): void {
+    const regions = getRegionFilters();
     const vcFilters: TitlesVcFilter[] = [
-        'all',
+        '-',
         'vc',
         'non-vc',
-        ...collectVcPlatforms(groups),
+        ...getVcFilterPlatforms(),
     ];
     controlState.region =
-        controlState.region === 'all' || regions.includes(controlState.region)
+        controlState.region === '-' || regions.includes(controlState.region)
             ? controlState.region
-            : 'all';
+            : '-';
     controlState.vc = vcFilters.includes(controlState.vc)
         ? controlState.vc
-        : 'all';
+        : '-';
 }
 
 function isGroupVisible(group: TitleGroup): boolean {
@@ -586,10 +586,10 @@ function isGroupVisible(group: TitleGroup): boolean {
     ) {
         return false;
     }
-    if (controlState.status !== 'all' && group.status !== controlState.status) {
+    if (controlState.status !== '-' && group.status !== controlState.status) {
         return false;
     }
-    if (controlState.region !== 'all' && group.region !== controlState.region) {
+    if (controlState.region !== '-' && group.region !== controlState.region) {
         return false;
     }
 
@@ -604,7 +604,7 @@ function isGroupVisible(group: TitleGroup): boolean {
         return false;
     }
     if (
-        controlState.vc !== 'all' &&
+        controlState.vc !== '-' &&
         controlState.vc !== 'vc' &&
         controlState.vc !== 'non-vc' &&
         controlState.vc !== platform
@@ -625,7 +625,7 @@ function renderGroups(
     const filtered = groups.filter(
         (group) => group.name.length > 0 && isGroupVisible(group)
     );
-    updateVirtualConsoleBadgeWidth(groups, grid);
+    updateVirtualConsoleBadgeWidth(grid);
     virtualGroups = filtered;
     virtualWindowState = null;
 
@@ -881,7 +881,7 @@ function buildControls(
     appendOptions(
         statusSelect,
         [
-            'all',
+            '-',
             'complete',
             'incomplete',
             'missing',
@@ -952,11 +952,15 @@ function buildControls(
     );
 
     const update = (): void => {
+        const selectedRegion = regionSelect?.value ?? '-';
         controlState = {
-            region: regionSelect?.value ?? 'all',
+            region:
+                selectedRegion === '-' || isRegionName(selectedRegion)
+                    ? selectedRegion
+                    : '-',
             status:
-                (statusSelect?.value as TitlesControlState['status']) ?? 'all',
-            vc: (vcSelect?.value as TitlesVcFilter) ?? 'all',
+                (statusSelect?.value as TitlesControlState['status']) ?? '-',
+            vc: (vcSelect?.value as TitlesVcFilter) ?? '-',
             search: searchInput?.value ?? '',
         };
         renderGroups(currentGroups, grid, sidebar);
@@ -980,16 +984,15 @@ function buildControls(
 }
 
 function updateTitlesControls(): void {
-    const visibleGroups = filterVisibleTitleGroups(currentGroups);
-    normalizeControlState(visibleGroups);
+    normalizeControlState();
 
     if (regionSelect) {
         regionSelect.replaceChildren();
         appendOptions(regionSelect, [
-            { value: 'all', label: 'All' },
-            ...collectRegions(visibleGroups).map((value) => ({
+            { value: '-', label: '-' },
+            ...getRegionFilters().map((value) => ({
                 value,
-                label: value,
+                label: getRegionCountry(value) ?? value,
             })),
         ]);
         regionSelect.value = controlState.region;
@@ -1000,10 +1003,10 @@ function updateTitlesControls(): void {
     if (vcSelect) {
         vcSelect.replaceChildren();
         appendOptions(vcSelect, [
-            { value: 'all', label: 'All' },
+            { value: '-', label: '-' },
             { value: 'vc', label: 'VC only' },
             { value: 'non-vc', label: 'Non-VC' },
-            ...collectVcPlatforms(visibleGroups).map((value) => ({
+            ...getVcFilterPlatforms().map((value) => ({
                 value,
                 label: value,
             })),
