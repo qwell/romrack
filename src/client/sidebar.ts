@@ -7,6 +7,7 @@ import {
     type TitleEntry,
     type TitleGroup,
     type TitleInputControl,
+    type TitlePlatform,
     TitleKinds,
 } from '../shared/titles.js';
 type SidebarOptions = {
@@ -63,6 +64,37 @@ function getAvailableSizeText(entry: unknown): string {
 
 function getSidebarBannerUrl(group: TitleGroup): string | null {
     return group.bannerUrl ?? group.iconUrl;
+}
+
+const SIDEBAR_COVER_SIZES: Record<
+    TitlePlatform,
+    { width: number; height: number }
+> = {
+    '3ds': { width: 400, height: 352 },
+    wiiu: { width: 350, height: 500 },
+    wii: { width: 160, height: 224 },
+};
+
+function buildSidebarImage(group: TitleGroup, src: string): HTMLElement {
+    const placeholder = document.createElement('div');
+    placeholder.className = 'sidebar-thumbnail-placeholder';
+
+    const size = SIDEBAR_COVER_SIZES[group.platform];
+    placeholder.style.aspectRatio = `${size.width.toString()} / ${size.height.toString()}`;
+
+    const image = document.createElement('img');
+    image.className = 'sidebar-thumbnail-image-loading';
+    image.alt = group.name;
+    image.decoding = 'async';
+    image.addEventListener('load', () => {
+        image.classList.remove('sidebar-thumbnail-image-loading');
+        placeholder.replaceWith(image);
+    });
+    addSidebarImageFallback(image, group, src);
+    image.src = src;
+
+    placeholder.append(image);
+    return placeholder;
 }
 
 function addSidebarImageFallback(
@@ -136,11 +168,7 @@ function showDetailSidebar(sidebar: HTMLElement, group: TitleGroup): void {
 
         const bannerUrl = getSidebarBannerUrl(group);
         if (bannerUrl) {
-            const image = document.createElement('img');
-            image.src = bannerUrl;
-            image.alt = group.name;
-            addSidebarImageFallback(image, group, bannerUrl);
-            thumbnail.append(image);
+            thumbnail.append(buildSidebarImage(group, bannerUrl));
         }
     }
 

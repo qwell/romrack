@@ -749,6 +749,17 @@ select {
     background: var(--placeholder-bg);
 }
 
+.sidebar-thumbnail-placeholder {
+    height: 128px;
+    background: var(--placeholder-bg);
+    border-radius: 4px;
+}
+
+.sidebar-thumbnail-placeholder img,
+.sidebar-thumbnail-image-loading {
+    opacity: 0;
+}
+
 .sidebar-thumbnail img {
     display: block;
     height: 128px;
