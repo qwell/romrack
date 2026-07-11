@@ -167,15 +167,15 @@ yarn generate:titles
 
 ## WebSocket API
 
-The browser connects to `/api/socket`. On connection the server sends an `app.connected` event with the current state (downloads, storage copies, storage deletes, and optional library verification status).
+The browser connects to `/api/socket`. On connection the server sends an `app.connected` event with the current state (downloads, storage copies, storage deletes, library verification events, WUD/WUX conversions, and title validation results).
 
 Server events:
 
-- `app.connected`: Initial app state payload (downloads, storageCopies, storageDeletes, libraryVerifyStatus, libraryConversions).
+- `app.connected`: Initial app state payload (`downloads`, `storageCopies`, `storageDeletes`, `libraryVerifyEvents`, `libraryConversions`, `titleValidations`).
 - `download.queueChanged`: Current download queue updates.
 - `storage.copyChanged`: Current storage copy/move queue updates.
 - `storage.delete.changed`: Current storage delete queue updates.
-- `library.verifyStatus`: Full library verification progress and status updates.
+- `library.verifyChanged`: Full library verification progress and status updates.
 - `library.convertChanged`: Current WUD/WUX conversion queue.
 - `title.validate.changed`: Size-only title validation progress and results.
 
@@ -192,12 +192,12 @@ Client commands:
 - `storage.delete.clear`: Clear a storage delete entry (payload: id).
 - `storage.delete.cancel`: Cancel a storage delete operation (payload: id).
 - `library.verify.cancel`: Cancel an in-progress full library verification.
-- `library.verify.clear`: Clear current verification status.
+- `library.verify.clear`: Clear a failed verification item (payload: id).
 - `library.verify.download`: Queue downloads for verification failures.
-- `library.convert.cancel`: Cancel the active WUD/WUX conversion.
+- `library.convert.cancel`: Cancel a WUD/WUX conversion queue entry (payload: id).
 - `library.convert.clear`: Clear a WUD/WUX conversion queue entry.
 - `library.convert.retry`: Retry a failed WUD/WUX conversion.
-- `title.validate.queue`: Queue size-only validation for a title (payload: `{ titleId, name }`).
+- `title.validate.queue`: Queue size-only validation for a title (payload: `{ id, name }`).
 
 ## Title Data
 
