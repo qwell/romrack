@@ -50,6 +50,7 @@ const TITLE_GRID_GAP = 8;
 const TITLE_LIST_ROW_HEIGHT = 30;
 const TITLE_LIST_GAP = 4;
 const TITLE_VIRTUAL_OVERSCAN_ROWS = 3;
+const TITLE_INDEX_LABELS = [...'#ABCDEFGHIJKLMNOPQRSTUVWXYZ'];
 
 type VirtualTitleWindowState = {
     startIndex: number;
@@ -73,6 +74,7 @@ let controlState: TitlesControlState = {
 let loading = false;
 let verifying = false;
 let titlesGrid: HTMLDivElement | null = null;
+let titlesIndex: HTMLElement | null = null;
 let titlesSidebar: HTMLElement | null = null;
 let loadingLine: HTMLDivElement | null = null;
 let regionSelect: HTMLSelectElement | null = null;
@@ -108,7 +110,12 @@ export function mountTitles(root: HTMLElement): void {
     loadingLine.setAttribute('role', 'status');
     loadingLine.setAttribute('aria-live', 'polite');
 
-    root.replaceChildren(controls, loadingLine, titlesGrid, titlesSidebar);
+    const browser = document.createElement('div');
+    browser.className = 'library-browser';
+    titlesIndex = buildTitleIndex(titlesGrid);
+    browser.append(titlesGrid, titlesIndex);
+
+    root.replaceChildren(controls, loadingLine, browser, titlesSidebar);
     updateTitlesControls();
     updateTitleActionButtons();
 }
@@ -125,6 +132,8 @@ export function renderTitles(groups: TitleGroup[]): void {
 
 export function renderTitlesError(message: string): void {
     currentGroups = [];
+    virtualGroups = [];
+    updateTitleIndex();
     updateTitlesControls();
     updateTitleActionButtons();
 
@@ -167,6 +176,8 @@ export function setTitlesStatus(next: {
         loadingLine.textContent = loading ? 'Loading...' : '';
     }
     if (next.loading === true) {
+        virtualGroups = [];
+        updateTitleIndex();
         titlesGrid?.replaceChildren();
     }
     updateTitlesControls();
@@ -735,6 +746,7 @@ function renderGroups(
     updateVirtualConsoleBadgeWidth(grid);
     virtualGroups = filtered;
     virtualWindowState = null;
+    updateTitleIndex();
 
     grid.replaceChildren();
     const spacer = document.createElement('div');
@@ -757,6 +769,66 @@ function scheduleVirtualTitleRender(): void {
             renderVirtualTitleWindow(titlesGrid, titlesSidebar);
         }
     });
+}
+
+function getTitleIndexLabel(name: string): string {
+    const initial = name.normalize('NFD')[0]?.toUpperCase();
+
+    // Default to '#' for non-alphabetic characters.
+    return /^[A-Z]$/.test(initial) ? initial : '#';
+}
+
+function buildTitleIndex(grid: HTMLDivElement): HTMLElement {
+    const index = document.createElement('nav');
+    index.className = 'title-index';
+    index.setAttribute('aria-label', 'Jump to title');
+
+    for (const label of TITLE_INDEX_LABELS) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'title-index-button';
+        button.textContent = label;
+        button.dataset.label = label;
+        button.title = `Jump to ${label}`;
+        button.addEventListener('click', () => {
+            const groupIndex = virtualGroups.findIndex(
+                (group) => getTitleIndexLabel(group.name) === label
+            );
+            if (groupIndex < 0) {
+                return;
+            }
+            const layout = getVirtualTitleLayout(grid);
+            grid.scrollTo({
+                top: Math.floor(groupIndex / layout.columns) * layout.rowStride,
+                behavior: 'smooth',
+            });
+        });
+        index.append(button);
+    }
+
+    return index;
+}
+
+function updateTitleIndex(): void {
+    const available = new Set(
+        virtualGroups.map((group) => getTitleIndexLabel(group.name))
+    );
+    for (const button of titlesIndex?.querySelectorAll<HTMLButtonElement>(
+        '.title-index-button'
+    ) ?? []) {
+        button.disabled = !available.has(button.dataset.label ?? '');
+    }
+}
+
+function updateActiveTitleIndex(firstVisibleIndex: number): void {
+    const active = virtualGroups[firstVisibleIndex]
+        ? getTitleIndexLabel(virtualGroups[firstVisibleIndex].name)
+        : null;
+    for (const button of titlesIndex?.querySelectorAll<HTMLButtonElement>(
+        '.title-index-button'
+    ) ?? []) {
+        button.toggleAttribute('data-active', button.dataset.label === active);
+    }
 }
 
 function getVirtualTitleLayout(grid: HTMLDivElement): {
@@ -818,6 +890,11 @@ function renderVirtualTitleWindow(
     );
     const startIndex = startRow * layout.columns;
     const endIndex = Math.min(virtualGroups.length, endRow * layout.columns);
+    const firstVisibleIndex = Math.min(
+        virtualGroups.length - 1,
+        Math.floor(grid.scrollTop / layout.rowStride) * layout.columns
+    );
+    updateActiveTitleIndex(firstVisibleIndex);
     const selectedFamily = options?.getSelectedDetailFamily() ?? null;
     const nextState = {
         startIndex,
