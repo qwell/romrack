@@ -705,7 +705,7 @@ select {
 }
 
 .title-region {
-    font-family: 'Noto Color Emoji', system-ui, sans-serif;
+    font-family: 'Noto Color Emoji', system-ui, sans-serif; /* flags */
     min-width: 50px;
 }
 
