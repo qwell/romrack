@@ -696,12 +696,17 @@ select {
     justify-self: end;
 }
 
+.title-platform {
+    min-width: 36px;
+}
+
 .title-metadata-badge-placeholder {
     visibility: hidden;
 }
 
 .title-region {
     font-family: 'Noto Color Emoji', system-ui, sans-serif;
+    min-width: 50px;
 }
 
 .title-region .region {
