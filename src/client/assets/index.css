@@ -292,7 +292,7 @@ select {
     flex: 0 0 auto;
     display: grid;
     grid-template-columns:
-        max-content max-content max-content minmax(120px, 420px)
+        max-content max-content max-content max-content minmax(120px, 420px)
         max-content max-content 22px 22px 22px;
     grid-template-rows: auto auto;
     column-gap: 8px;
@@ -307,48 +307,58 @@ select {
     line-height: 1;
 }
 
-.library-label-region {
-    grid-column: 1;
-    grid-row: 1;
-}
-
 .library-label-status {
-    grid-column: 2;
+    grid-column: 1;
     grid-row: 1;
 }
 
 .library-label-vc {
+    grid-column: 2;
+    grid-row: 1;
+}
+
+.library-label-console {
     grid-column: 3;
+    grid-row: 1;
+}
+
+.library-label-region {
+    grid-column: 4;
     grid-row: 1;
 }
 
 .library-label-search {
-    grid-column: 4;
-    grid-row: 1;
-}
-
-.library-label-show-all {
     grid-column: 5;
     grid-row: 1;
 }
 
-.library-field-region {
+.library-label-show-all {
+    grid-column: 6;
+    grid-row: 1;
+}
+
+.library-field-status {
     grid-column: 1;
     grid-row: 2;
 }
 
-.library-field-status {
+.library-field-vc {
     grid-column: 2;
     grid-row: 2;
 }
 
-.library-field-vc {
+.library-field-console {
     grid-column: 3;
     grid-row: 2;
 }
 
-.library-field-search {
+.library-field-region {
     grid-column: 4;
+    grid-row: 2;
+}
+
+.library-field-search {
+    grid-column: 5;
     grid-row: 2;
 }
 
@@ -358,27 +368,27 @@ select {
 }
 
 .library-field-show-all {
-    grid-column: 5;
-    grid-row: 2;
-}
-
-.library-field-view {
     grid-column: 6;
     grid-row: 2;
 }
 
-.library-field-refresh {
+.library-field-view {
     grid-column: 7;
     grid-row: 2;
 }
 
-.library-field-verify {
+.library-field-refresh {
     grid-column: 8;
     grid-row: 2;
 }
 
-.library-field-settings {
+.library-field-verify {
     grid-column: 9;
+    grid-row: 2;
+}
+
+.library-field-settings {
+    grid-column: 10;
     grid-row: 2;
 }
 
@@ -665,6 +675,20 @@ select {
     padding: 1px 6px;
     border: 1px solid var(--border-muted);
     line-height: 1;
+}
+
+.title-metadata-badge-filter {
+    cursor: pointer;
+}
+
+.title-metadata-badge-filter:hover,
+.title-metadata-badge-filter:focus-visible {
+    border-color: currentColor;
+}
+
+.title-metadata-badge-filter[data-filter-active] {
+    border-color: currentColor;
+    box-shadow: 0 0 0 1px currentColor;
 }
 
 .title-vc {

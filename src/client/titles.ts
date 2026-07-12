@@ -26,9 +26,11 @@ import {
 
 type TitlesViewMode = 'table' | 'list';
 type TitlesVcFilter = '-' | 'vc' | 'non-vc' | VirtualConsolePlatform;
+type TitlesConsoleFilter = '-' | TitleGroup['platform'];
 type TitlesControlState = {
     region: RegionNames | '-';
     status: TitleGroupStatus | '-';
+    console: TitlesConsoleFilter;
     vc: TitlesVcFilter;
     search: string;
 };
@@ -64,6 +66,7 @@ let virtualGroups: TitleGroup[] = [];
 let controlState: TitlesControlState = {
     region: '-',
     status: '-',
+    console: '-',
     vc: '-',
     search: '',
 };
@@ -74,6 +77,7 @@ let titlesSidebar: HTMLElement | null = null;
 let loadingLine: HTMLDivElement | null = null;
 let regionSelect: HTMLSelectElement | null = null;
 let statusSelect: HTMLSelectElement | null = null;
+let consoleSelect: HTMLSelectElement | null = null;
 let vcSelect: HTMLSelectElement | null = null;
 let searchInput: HTMLInputElement | null = null;
 let showAllInput: HTMLInputElement | null = null;
@@ -333,6 +337,51 @@ function formatSlotBadgeTitle(
     ].join('\n');
 }
 
+function refreshTitleFilterControls(): void {
+    updateTitlesControls();
+    if (titlesGrid && titlesSidebar) {
+        renderGroups(currentGroups, titlesGrid, titlesSidebar);
+    }
+}
+
+function toggleVcFilter(platform: VirtualConsolePlatform): void {
+    controlState.vc = controlState.vc === platform ? '-' : platform;
+    refreshTitleFilterControls();
+}
+
+function toggleRegionFilter(region: RegionNames): void {
+    controlState.region = controlState.region === region ? '-' : region;
+    refreshTitleFilterControls();
+}
+
+function toggleConsoleFilter(platform: TitleGroup['platform']): void {
+    controlState.console = controlState.console === platform ? '-' : platform;
+    refreshTitleFilterControls();
+}
+
+function makeFilterBadge(
+    badge: HTMLElement,
+    active: boolean,
+    onToggle: () => void
+): void {
+    badge.classList.add('title-metadata-badge-filter');
+    badge.toggleAttribute('data-filter-active', active);
+    badge.tabIndex = 0;
+    badge.setAttribute('role', 'button');
+    badge.addEventListener('click', (event) => {
+        event.stopPropagation();
+        onToggle();
+    });
+    badge.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        onToggle();
+    });
+}
+
 function renderSlotBadge(
     group: TitleGroup,
     kind: TitleKinds,
@@ -364,6 +413,9 @@ function renderPlatformBadge(group: TitleGroup): HTMLElement {
 
     badge.textContent = TitlePlatform[group.platform];
     badge.title = `Console: ${TitlePlatform[group.platform]}`;
+    makeFilterBadge(badge, controlState.console === group.platform, () =>
+        toggleConsoleFilter(group.platform)
+    );
 
     return badge;
 }
@@ -379,6 +431,9 @@ function renderVirtualConsoleBadge(group: TitleGroup): HTMLElement {
     if (platform) {
         badge.textContent = platform;
         badge.title = `Virtual Console: ${platform}`;
+        makeFilterBadge(badge, controlState.vc === platform, () =>
+            toggleVcFilter(platform)
+        );
     } else {
         badge.classList.add('title-metadata-badge-placeholder');
         badge.setAttribute('aria-hidden', 'true');
@@ -469,12 +524,18 @@ function renderGroup(
     );
 
     const formatted = formatRegion(group.region ?? Region.UNK);
+    const regionCode =
+        group.region && isRegionName(group.region) ? group.region : null;
     const region = document.createElement('div');
     region.className = 'title-metadata-badge title-region';
-    region.title =
-        group.region && isRegionName(group.region)
-            ? `Region: ${getRegionCountry(group.region) ?? group.region}`
-            : `Region: ${formatted.text}`;
+    region.title = regionCode
+        ? `Region: ${getRegionCountry(regionCode) ?? regionCode}`
+        : `Region: ${formatted.text}`;
+    if (regionCode) {
+        makeFilterBadge(region, controlState.region === regionCode, () =>
+            toggleRegionFilter(regionCode)
+        );
+    }
     const flag = document.createElement('span');
     flag.className = formatted.class ?? '';
     flag.textContent = formatted.flag;
@@ -573,6 +634,15 @@ function getVcFilterPlatforms(): VirtualConsolePlatform[] {
     );
 }
 
+function getConsoleFilters(): TitleGroup['platform'][] {
+    return (Object.keys(TitlePlatform) as TitleGroup['platform'][]).sort(
+        (a, b) =>
+            TitlePlatform[a].localeCompare(TitlePlatform[b], undefined, {
+                sensitivity: 'base',
+            })
+    );
+}
+
 function updateVirtualConsoleBadgeWidth(grid: HTMLDivElement): void {
     const platforms = getVcFilterPlatforms();
 
@@ -590,6 +660,7 @@ function updateVirtualConsoleBadgeWidth(grid: HTMLDivElement): void {
 
 function normalizeControlState(): void {
     const regions = getRegionFilters();
+    const consoles: TitlesConsoleFilter[] = ['-', ...getConsoleFilters()];
     const vcFilters: TitlesVcFilter[] = [
         '-',
         'vc',
@@ -600,6 +671,9 @@ function normalizeControlState(): void {
         controlState.region === '-' || regions.includes(controlState.region)
             ? controlState.region
             : '-';
+    controlState.console = consoles.includes(controlState.console)
+        ? controlState.console
+        : '-';
     controlState.vc = vcFilters.includes(controlState.vc)
         ? controlState.vc
         : '-';
@@ -617,6 +691,12 @@ function isGroupVisible(group: TitleGroup): boolean {
         return false;
     }
     if (controlState.region !== '-' && group.region !== controlState.region) {
+        return false;
+    }
+    if (
+        controlState.console !== '-' &&
+        group.platform !== controlState.console
+    ) {
         return false;
     }
 
@@ -889,9 +969,10 @@ function buildControls(
     root.className = 'library-controls';
 
     for (const [text, className] of [
-        ['Region', 'region'],
         ['Status', 'status'],
         ['VC', 'vc'],
+        ['Console', 'console'],
+        ['Region', 'region'],
         ['Search', 'search'],
         ['Titles', 'show-all'],
     ]) {
@@ -921,6 +1002,8 @@ function buildControls(
     );
     vcSelect = document.createElement('select');
     vcSelect.className = 'library-field-vc';
+    consoleSelect = document.createElement('select');
+    consoleSelect.className = 'library-field-console';
 
     searchInput = document.createElement('input');
     searchInput.type = 'search';
@@ -967,9 +1050,10 @@ function buildControls(
     );
 
     root.append(
-        regionSelect,
         statusSelect,
         vcSelect,
+        consoleSelect,
+        regionSelect,
         searchInput,
         showAllLabel,
         buildViewControl(grid),
@@ -987,6 +1071,8 @@ function buildControls(
                     : '-',
             status:
                 (statusSelect?.value as TitlesControlState['status']) ?? '-',
+            console:
+                (consoleSelect?.value as TitlesControlState['console']) ?? '-',
             vc: (vcSelect?.value as TitlesVcFilter) ?? '-',
             search: searchInput?.value ?? '',
         };
@@ -994,6 +1080,7 @@ function buildControls(
     };
     regionSelect.addEventListener('change', update);
     statusSelect.addEventListener('change', update);
+    consoleSelect.addEventListener('change', update);
     vcSelect.addEventListener('change', update);
     searchInput.addEventListener('input', update);
     showAllInput.addEventListener('change', () => {
@@ -1027,6 +1114,17 @@ function updateTitlesControls(): void {
     if (statusSelect) {
         statusSelect.value = controlState.status;
     }
+    if (consoleSelect) {
+        consoleSelect.replaceChildren();
+        appendOptions(consoleSelect, [
+            { value: '-', label: '-' },
+            ...getConsoleFilters().map((value) => ({
+                value,
+                label: TitlePlatform[value],
+            })),
+        ]);
+        consoleSelect.value = controlState.console;
+    }
     if (vcSelect) {
         vcSelect.replaceChildren();
         appendOptions(vcSelect, [
@@ -1051,6 +1149,7 @@ function updateTitlesControls(): void {
     for (const control of [
         regionSelect,
         statusSelect,
+        consoleSelect,
         vcSelect,
         searchInput,
         showAllInput,
