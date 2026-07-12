@@ -34,6 +34,14 @@ export type SlotBadgeState =
     | 'unavailable'
     | 'unknown';
 
+export const SLOT_BADGE_STATE_LABELS: Record<SlotBadgeState, string> = {
+    complete: 'Complete',
+    incomplete: 'Incomplete',
+    na: 'Not applicable',
+    unavailable: 'Unavailable',
+    unknown: 'Unknown',
+};
+
 type RemoveTitlesFromLibraryOptions = {
     groups: TitleGroup[];
     haystacks: WeakMap<TitleGroup, string>;

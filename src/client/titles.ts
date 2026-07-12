@@ -20,6 +20,7 @@ import {
     getBaseBadgeState,
     getChildBadgeState,
     getEntry,
+    SLOT_BADGE_STATE_LABELS,
     type SlotBadgeState,
 } from './library.js';
 
@@ -303,6 +304,35 @@ function getDownloadState(group: TitleGroup, kind: TitleKinds) {
     );
 }
 
+export function formatSlotBadgeState(state: SlotBadgeState): string {
+    return SLOT_BADGE_STATE_LABELS[state];
+}
+
+function formatSlotBadgeVersion(group: TitleGroup, kind: TitleKinds): string {
+    const entry = getEntry(group, kind);
+    if (entry?.version !== null && entry?.version !== undefined) {
+        return `v${entry.version}`;
+    }
+
+    const availableEntry = group.availableEntries.find(
+        (candidate) => candidate.kind === kind
+    );
+    return availableEntry && availableEntry.versions.length > 0
+        ? availableEntry.versions.map((version) => `v${version}`).join(', ')
+        : '-';
+}
+
+function formatSlotBadgeTitle(
+    group: TitleGroup,
+    kind: TitleKinds,
+    state: SlotBadgeState
+): string {
+    return [
+        `${kind}: ${formatSlotBadgeState(state)}`,
+        `Version: ${formatSlotBadgeVersion(group, kind)}`,
+    ].join('\n');
+}
+
 function renderSlotBadge(
     group: TitleGroup,
     kind: TitleKinds,
@@ -312,6 +342,7 @@ function renderSlotBadge(
     badge.className = `title-slot-badge title-slot-badge-${state}`;
     badge.dataset.family = group.family;
     badge.dataset.kind = kind;
+    badge.title = formatSlotBadgeTitle(group, kind, state);
 
     const text = document.createElement('span');
     text.textContent = kind;
@@ -332,6 +363,7 @@ function renderPlatformBadge(group: TitleGroup): HTMLElement {
     badge.dataset.platform = group.platform;
 
     badge.textContent = TitlePlatform[group.platform];
+    badge.title = `Console: ${TitlePlatform[group.platform]}`;
 
     return badge;
 }
@@ -346,7 +378,7 @@ function renderVirtualConsoleBadge(group: TitleGroup): HTMLElement {
 
     if (platform) {
         badge.textContent = platform;
-        badge.title = 'Virtual Console';
+        badge.title = `Virtual Console: ${platform}`;
     } else {
         badge.classList.add('title-metadata-badge-placeholder');
         badge.setAttribute('aria-hidden', 'true');
@@ -439,6 +471,10 @@ function renderGroup(
     const formatted = formatRegion(group.region ?? Region.UNK);
     const region = document.createElement('div');
     region.className = 'title-metadata-badge title-region';
+    region.title =
+        group.region && isRegionName(group.region)
+            ? `Region: ${getRegionCountry(group.region) ?? group.region}`
+            : `Region: ${formatted.text}`;
     const flag = document.createElement('span');
     flag.className = formatted.class ?? '';
     flag.textContent = formatted.flag;
