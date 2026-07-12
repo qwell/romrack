@@ -83,12 +83,14 @@ header {
 }
 
 header .logo {
-    width: 64px;
-    height: 64px;
+    width: 32px;
+    height: 32px;
 }
 
 h1 {
     margin: 0;
+    font-size: 1.375em;
+    align-self: end;
 }
 
 input,
@@ -532,27 +534,7 @@ select {
 }
 
 .title-group[data-selected] {
-    box-shadow: inset 0 0 0 1px var(--fg);
-}
-
-.title-group-incomplete {
-    border-color: var(--incomplete);
-}
-
-.title-group-complete {
-    border-color: var(--complete);
-}
-
-.title-group-missing {
-    border-color: var(--fg);
-}
-
-.title-group-unavailable {
-    border-color: var(--unavailable);
-}
-
-.title-group-unknown {
-    border-color: var(--unknown);
+    box-shadow: inset 0 0 2px 2px var(--fg);
 }
 
 .title-icon,
@@ -679,15 +661,10 @@ select {
     align-items: center;
     justify-content: center;
     box-sizing: border-box;
-    min-width: 36px;
     min-height: 16px;
     padding: 1px 6px;
     border: 1px solid var(--border-muted);
     line-height: 1;
-}
-
-.title-platform {
-    color: var(--complete);
 }
 
 .title-vc {
