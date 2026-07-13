@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.2.1
+## [v0.2.1] - 2026-07-12
 
 ### Added
 
@@ -35,9 +35,9 @@
 - Adjusted config candidate display formatting.
 - Optimized logo SVG and updated the app logo.
 
-## v0.2.0
+## [v0.2.0] - 2026-07-08
 
-## v0.1.0
+## [v0.1.0] - 2026-06-08
 
 - Initial public release.
 - Name has been changed to ROM Rack.

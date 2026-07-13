@@ -48,8 +48,8 @@ jobs:
               run: |
                   TAG="${GITHUB_REF_NAME}"
 
-                  if ! grep -Eq "^##[[:space:]]+(\[$TAG\]|$TAG)$" CHANGELOG.md; then
-                      echo "CHANGELOG.md does not contain an entry for $TAG"
+                  if ! grep -Eq "^##[[:space:]]+\[$TAG\][[:space:]]+-[[:space:]]+[0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md; then
+                      echo "CHANGELOG.md does not contain a dated entry for $TAG"
                       echo "Expected: ## $TAG or ## [$TAG]"
                       exit 1
                   fi
