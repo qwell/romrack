@@ -1,6 +1,6 @@
 # [ROM Rack](https://romrack.com/)
 
-ROM Rack is a web-based application that allows users to manage and organize their Wii U game library. It provides features such as game categorization, search and filter functionality, the ability to track title statuses (e.g., complete, incomplete, etc.), download homebrew and other titles, and copy titles to an SD card. The application is built using TypeScript and Node.js, with the aim to be cross-platform.
+ROM Rack is a web-based application that allows users to manage and organize their Wii U, Wii, and 3DS game libraries. It provides features such as game categorization, search and filter functionality, the ability to track title statuses (e.g., complete, incomplete, etc.), download homebrew and other titles, and copy titles to an SD card. The application is built using TypeScript and Node.js, with the aim to be cross-platform.
 
 Work in Progress
 
@@ -46,8 +46,9 @@ Available options:
     "host": "127.0.0.1",
     "port": 3000,
     "openBrowser": true,
+    "wiiuRoots": [],
     "wiiRoots": [],
-    "wiiuRoots": []
+    "3dsRoots": []
 }
 ```
 
@@ -57,9 +58,11 @@ Available options:
 
 `openBrowser` controls whether ROM Rack opens your browser on startup using the configured host and port.
 
+`wiiuRoots` is a list of Wii U title directories.
+
 `wiiRoots` is a list of Wii library directories.
 
-`wiiuRoots` is a list of Wii U title directories.
+`3dsRoots` is a list of 3DS library directories.
 
 For title metadata generation or title downloads, put `common.key` in `~/.romrack/common.key`. If no key is found, ROM Rack will try to download one and save it there. The key may be raw 16-byte binary, hex text, or comma-separated byte literals.
 
