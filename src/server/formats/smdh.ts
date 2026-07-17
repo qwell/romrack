@@ -1,10 +1,6 @@
 import { deflateSync } from 'node:zlib';
 
-import {
-    Region,
-    type RegionNames,
-    normalizeRegion,
-} from '../../shared/regions.js';
+import { Region, type RegionNames } from '../../shared/regions.js';
 
 export type SmdhMetadata = {
     name: string | null;
@@ -55,15 +51,12 @@ const SMDH_REGION_BITS: Array<[number, RegionNames]> = [
     [0x40, Region.CHN],
 ];
 
-export function readSmdhMetadata(
-    smdh: Uint8Array,
-    productCode: string | null
-): SmdhMetadata | null {
-    const result = inspectSmdhMetadata(smdh, productCode);
+export function readSmdhMetadata(smdh: Buffer): SmdhMetadata | null {
+    const result = inspectSmdhMetadata(smdh);
     return result.ok ? result.metadata : null;
 }
 
-export function readSmdhLargeIconPng(smdh: Uint8Array): Buffer | null {
+export function readSmdhLargeIconPng(smdh: Buffer): Buffer | null {
     const iconBytes =
         SMDH_LARGE_ICON_SIZE *
         SMDH_LARGE_ICON_SIZE *
@@ -101,10 +94,7 @@ export function readSmdhLargeIconPng(smdh: Uint8Array): Buffer | null {
     return encodePngRgba(SMDH_LARGE_ICON_SIZE, SMDH_LARGE_ICON_SIZE, rgba);
 }
 
-export function inspectSmdhMetadata(
-    smdh: Uint8Array,
-    productCode: string | null
-): SmdhReadResult {
+export function inspectSmdhMetadata(smdh: Buffer): SmdhReadResult {
     if (smdh.length < SMDH_REGION_LOCKOUT_OFFSET + 4) {
         return {
             ok: false,
@@ -121,7 +111,7 @@ export function inspectSmdhMetadata(
     }
 
     const title = readSmdhTitle(smdh);
-    const region = readSmdhRegion(smdh, productCode);
+    const region = readSmdhRegion(smdh);
 
     if (!title && !region) {
         return {
@@ -140,7 +130,7 @@ export function inspectSmdhMetadata(
     };
 }
 
-function readSmdhTitle(smdh: Uint8Array): SmdhTitle | null {
+function readSmdhTitle(smdh: Buffer): SmdhTitle | null {
     const titles = Array.from({ length: SMDH_TITLE_COUNT }, (_, index) =>
         readSmdhTitleAt(smdh, index)
     );
@@ -152,7 +142,7 @@ function readSmdhTitle(smdh: Uint8Array): SmdhTitle | null {
     );
 }
 
-function readSmdhTitleAt(smdh: Uint8Array, index: number): SmdhTitle {
+function readSmdhTitleAt(smdh: Buffer, index: number): SmdhTitle {
     const offset = SMDH_TITLE_OFFSET + index * SMDH_TITLE_SIZE;
 
     return {
@@ -174,12 +164,9 @@ function readSmdhTitleAt(smdh: Uint8Array, index: number): SmdhTitle {
     };
 }
 
-function readSmdhRegion(
-    smdh: Uint8Array,
-    productCode: string | null
-): string | null {
+function readSmdhRegion(smdh: Buffer): string | null {
     if (smdh.length < SMDH_REGION_LOCKOUT_OFFSET + 4) {
-        return normalizeRegion(null, productCode);
+        return null;
     }
 
     const regionLockout = dataView(smdh).getUint32(
@@ -194,7 +181,7 @@ function readSmdhRegion(
         return regions[0];
     }
 
-    return normalizeRegion(null, productCode);
+    return null;
 }
 
 function nonEmptySmdhTitle(title: SmdhTitle): SmdhTitle | null {
@@ -203,7 +190,7 @@ function nonEmptySmdhTitle(title: SmdhTitle): SmdhTitle | null {
         : null;
 }
 
-function readAscii(buffer: Uint8Array, offset: number, length: number): string {
+function readAscii(buffer: Buffer, offset: number, length: number): string {
     return Buffer.from(buffer)
         .subarray(offset, offset + length)
         .toString('ascii')
@@ -212,7 +199,7 @@ function readAscii(buffer: Uint8Array, offset: number, length: number): string {
 }
 
 function readUtf16String(
-    buffer: Uint8Array,
+    buffer: Buffer,
     offset: number,
     length: number
 ): string {
@@ -223,7 +210,7 @@ function readUtf16String(
         .trim();
 }
 
-function dataView(buffer: Uint8Array): DataView {
+function dataView(buffer: Buffer): DataView {
     return new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 }
 

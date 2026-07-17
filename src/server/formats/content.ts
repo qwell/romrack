@@ -1,23 +1,18 @@
 import { createDecipheriv, createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
-import path from 'node:path';
 
 import { createContentIv, decryptContentWithIv } from '../decryption.js';
 import { type TmdContent } from './tmd.js';
-
-export type ContentInstallFiles = {
-    contentId: string;
-    appName: string;
-    appFile: string;
-    h3Name: string | null;
-    h3File: string | null;
-};
 
 export type ContentTreeVerification = {
     contentId: string;
     status: 'ok' | 'failed';
     error?: string;
+};
+
+export type ContentInstallNames = {
+    contentId: string;
+    appName: string;
+    h3Name: string | null;
 };
 
 const AES_BLOCK_SIZE = 0x10;
@@ -34,23 +29,6 @@ const HASH_H0_START = 0x000;
 const HASH_H1_START = 0x140;
 const HASH_H2_START = 0x280;
 const HASH_H2_END = 0x3c0;
-
-export function getContentInstallFiles(
-    dirPath: string,
-    content: TmdContent
-): ContentInstallFiles {
-    const contentId = formatContentId(content.id);
-    const appName = `${contentId}.app`;
-    const h3Name = isHashedContent(content) ? `${contentId}.h3` : null;
-
-    return {
-        contentId,
-        appName,
-        appFile: path.join(dirPath, appName),
-        h3Name,
-        h3File: h3Name ? path.join(dirPath, h3Name) : null,
-    };
-}
 
 export function getEncryptedContentFileSize(content: TmdContent): number {
     if (isHashedContent(content)) {
@@ -90,65 +68,95 @@ export function formatContentId(contentId: number): string {
     return contentId.toString(16).toUpperCase().padStart(8, '0');
 }
 
-export function verifyContentInstallFiles({
-    files,
+export function getContentInstallNames(
+    content: TmdContent
+): ContentInstallNames {
+    const contentId = formatContentId(content.id);
+    return {
+        contentId,
+        appName: `${contentId}.app`,
+        h3Name: isHashedContent(content) ? `${contentId}.h3` : null,
+    };
+}
+
+export async function verifyContent({
+    contentId,
+    appSize,
+    appChunks,
+    h3,
     content,
     titleKey,
     signal,
 }: {
-    files: ContentInstallFiles;
+    contentId: string;
+    appSize: number;
+    appChunks: AsyncIterable<Buffer>;
+    h3: Buffer | null;
     content: TmdContent;
-    titleKey: Uint8Array;
+    titleKey: Buffer;
     signal?: AbortSignal;
 }): Promise<ContentTreeVerification> {
-    throwIfAborted(signal);
-    if (isHashedContent(content)) {
-        if (!files.h3File) {
-            return Promise.resolve({
-                contentId: files.contentId,
-                status: 'failed',
-                error: 'Missing H3 file path for hashed content',
+    try {
+        throwIfAborted(signal);
+        assertContentSize(
+            appSize,
+            getEncryptedContentFileSize(content),
+            contentId
+        );
+        if (isHashedContent(content)) {
+            if (!h3) {
+                return {
+                    contentId,
+                    status: 'failed',
+                    error: 'Missing H3 data for hashed content',
+                };
+            }
+
+            return await verifyContentTree({
+                appChunks,
+                h3,
+                content,
+                titleKey,
+                contentId,
+                signal,
             });
         }
 
-        return verifyContentTree({
-            appFile: files.appFile,
-            h3File: files.h3File,
+        return await verifyContentHash({
+            appChunks,
             content,
             titleKey,
-            contentId: files.contentId,
+            contentId,
             signal,
         });
+    } catch (error) {
+        throwIfAborted(signal);
+        return {
+            contentId,
+            status: 'failed',
+            error: error instanceof Error ? error.message : String(error),
+        };
     }
-
-    return verifyContentHash({
-        appFile: files.appFile,
-        content,
-        titleKey,
-        contentId: files.contentId,
-        signal,
-    });
 }
 
-export async function assertExistingContentFileSize(
-    appFile: string,
+export function assertContentSize(
+    actualSize: number,
     expectedSize: number,
     contentId: string
-): Promise<void> {
-    const { size } = await stat(appFile);
-    if (size !== expectedSize) {
+): void {
+    if (actualSize !== expectedSize) {
         throw new Error(
-            `Content size mismatch for ${contentId}: expected ${expectedSize.toString()} bytes, got ${size} bytes`
+            `Content size mismatch for ${contentId}: expected ${expectedSize.toString()} bytes, got ${actualSize.toString()} bytes`
         );
     }
 }
 
 export function decryptHashedContent(
-    encryptedContent: Uint8Array,
-    titleKey: Uint8Array,
-    iv: Uint8Array
-): Uint8Array {
-    const output = new Uint8Array(encryptedContent.length);
+    encryptedContent: Buffer,
+    titleKey: Buffer,
+    iv: Buffer
+): Buffer {
+    const output = Buffer.alloc(encryptedContent.length);
 
     for (
         let blockOffset = 0;
@@ -183,14 +191,14 @@ export function decryptHashedContent(
 }
 
 export function extractHashedContentSlice(
-    buffer: Uint8Array,
+    buffer: Buffer,
     logicalOffset: number,
     length: number
-): Uint8Array | null {
+): Buffer | null {
     if (logicalOffset < 0 || length < 0) {
         return null;
     }
-    const output = new Uint8Array(length);
+    const output = Buffer.alloc(length);
     let sourceOffset = logicalOffset;
     let targetOffset = 0;
     let remaining = length;
@@ -223,31 +231,25 @@ export function extractHashedContentSlice(
 }
 
 async function verifyContentTree({
-    appFile,
-    h3File,
+    appChunks,
+    h3,
     content,
     titleKey,
     contentId,
     signal,
 }: {
-    appFile: string;
-    h3File: string;
+    appChunks: AsyncIterable<Buffer>;
+    h3: Buffer;
     content: TmdContent;
-    titleKey: Uint8Array;
+    titleKey: Buffer;
     contentId: string;
     signal?: AbortSignal;
 }): Promise<ContentTreeVerification> {
     try {
         throwIfAborted(signal);
-        await assertExistingContentFileSize(
-            appFile,
-            getEncryptedContentFileSize(content),
-            contentId
-        );
-        throwIfAborted(signal);
-        await verifyEncryptedContentTreeFile({
-            appFile,
-            h3File,
+        await verifyEncryptedContentTree({
+            appChunks,
+            h3,
             content,
             titleKey,
             signal,
@@ -268,28 +270,22 @@ async function verifyContentTree({
 }
 
 async function verifyContentHash({
-    appFile,
+    appChunks,
     content,
     titleKey,
     contentId,
     signal,
 }: {
-    appFile: string;
+    appChunks: AsyncIterable<Buffer>;
     content: TmdContent;
-    titleKey: Uint8Array;
+    titleKey: Buffer;
     contentId: string;
     signal?: AbortSignal;
 }): Promise<ContentTreeVerification> {
     try {
         throwIfAborted(signal);
-        await assertExistingContentFileSize(
-            appFile,
-            getEncryptedContentFileSize(content),
-            contentId
-        );
-        throwIfAborted(signal);
-        const actualHash = await hashDecryptedContentFile(
-            appFile,
+        const actualHash = await hashDecryptedContent(
+            appChunks,
             titleKey,
             content.index,
             content.size,
@@ -316,13 +312,13 @@ async function verifyContentHash({
     }
 }
 
-async function hashDecryptedContentFile(
-    appFile: string,
-    titleKey: Uint8Array,
+async function hashDecryptedContent(
+    appChunks: AsyncIterable<Buffer>,
+    titleKey: Buffer,
     contentIndex: number,
     contentSize: number,
     signal?: AbortSignal
-): Promise<Uint8Array> {
+): Promise<Buffer> {
     throwIfAborted(signal);
     const decipher = createDecipheriv(
         'aes-128-cbc',
@@ -334,7 +330,7 @@ async function hashDecryptedContentFile(
     const hash = createHash('sha1');
     let remaining = contentSize;
 
-    for await (const chunk of readFileChunks(appFile, signal)) {
+    for await (const chunk of appChunks) {
         throwIfAborted(signal);
         const decrypted = decipher.update(chunk);
         const hashLength = Math.min(remaining, decrypted.length);
@@ -359,64 +355,25 @@ async function hashDecryptedContentFile(
         );
     }
 
-    return new Uint8Array(hash.digest());
+    return hash.digest();
 }
 
-async function hashFileWithSignal(
-    filePath: string,
-    signal?: AbortSignal
-): Promise<Uint8Array> {
-    const hash = createHash('sha1');
-    for await (const chunk of readFileChunks(filePath, signal)) {
-        throwIfAborted(signal);
-        hash.update(chunk);
-    }
-
-    return new Uint8Array(hash.digest());
-}
-
-async function* readFileChunks(
-    filePath: string,
-    signal?: AbortSignal
-): AsyncGenerator<Buffer> {
-    const stream = createReadStream(filePath);
-    const abort = () =>
-        stream.destroy(
-            signal?.reason instanceof Error ? signal.reason : undefined
-        );
-    signal?.addEventListener('abort', abort, { once: true });
-    try {
-        for await (const chunk of stream) {
-            throwIfAborted(signal);
-            yield Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-        }
-    } finally {
-        signal?.removeEventListener('abort', abort);
-    }
-}
-
-async function verifyEncryptedContentTreeFile({
-    appFile,
-    h3File,
+async function verifyEncryptedContentTree({
+    appChunks,
+    h3,
     content,
     titleKey,
     signal,
 }: {
-    appFile: string;
-    h3File: string;
+    appChunks: AsyncIterable<Buffer>;
+    h3: Buffer;
     content: TmdContent;
-    titleKey: Uint8Array;
+    titleKey: Buffer;
     signal?: AbortSignal;
 }): Promise<void> {
     throwIfAborted(signal);
-    const [h3, h3Hash] = await Promise.all([
-        readFile(h3File),
-        hashFileWithSignal(h3File, signal),
-    ]);
-    throwIfAborted(signal);
-
     assertHashEquals(
-        h3Hash,
+        sha1(h3),
         content.hash.slice(0, HASH_ENTRY_SIZE),
         'TMD H3 hash mismatch'
     );
@@ -424,7 +381,7 @@ async function verifyEncryptedContentTreeFile({
     let pending = Buffer.alloc(0);
     let blockIndex = 0;
 
-    for await (const chunk of readFileChunks(appFile, signal)) {
+    for await (const chunk of appChunks) {
         throwIfAborted(signal);
         pending = Buffer.concat([pending, chunk]);
 
@@ -446,15 +403,15 @@ async function verifyEncryptedContentTreeFile({
 }
 
 function verifyEncryptedContentTreeBlock(
-    encryptedBlock: Uint8Array,
-    h3: Uint8Array,
-    titleKey: Uint8Array,
+    encryptedBlock: Buffer,
+    h3: Buffer,
+    titleKey: Buffer,
     blockIndex: number
 ): void {
     const hashArea = decryptContentWithIv(
         encryptedBlock.slice(0, HASHED_BLOCK_DATA_OFFSET),
         titleKey,
-        new Uint8Array(AES_BLOCK_SIZE)
+        Buffer.alloc(AES_BLOCK_SIZE)
     );
     const h0Index = blockIndex % HASH_ENTRIES_PER_LEVEL;
     const dataIv = hashArea.slice(
@@ -471,9 +428,9 @@ function verifyEncryptedContentTreeBlock(
 }
 
 function verifyHashArea(
-    hashArea: Uint8Array,
-    dataArea: Uint8Array,
-    h3: Uint8Array,
+    hashArea: Buffer,
+    dataArea: Buffer,
+    h3: Buffer,
     blockIndex: number
 ): void {
     const h0 = hashArea.slice(HASH_H0_START, HASH_H1_START);
@@ -517,13 +474,13 @@ function verifyHashArea(
     );
 }
 
-function sha1(value: Uint8Array): Uint8Array {
-    return new Uint8Array(createHash('sha1').update(value).digest());
+function sha1(value: Buffer): Buffer {
+    return createHash('sha1').update(value).digest();
 }
 
 function assertHashEquals(
-    actual: Uint8Array,
-    expected: Uint8Array,
+    actual: Buffer,
+    expected: Buffer,
     message: string
 ): void {
     if (expected.length !== actual.length) {

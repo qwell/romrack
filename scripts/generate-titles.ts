@@ -62,6 +62,12 @@ type ThreeDSHShopRow = {
     version: string;
 };
 
+type GeneratedTitleDatabase = {
+    '3ds': RawTitleDatabaseEntry[];
+    wiiu: RawTitleDatabaseEntry[];
+    wii: RawTitleDatabaseEntry[];
+};
+
 type TitleLookupPlatform = '3ds' | 'wiiu';
 
 type TitleRange = {
@@ -76,6 +82,7 @@ type GeneratedTitleId = {
 
 type GenerateOptions = {
     refreshNus: boolean;
+    refreshTdb: boolean;
 };
 
 const ranges: TitleRange[] = [
@@ -202,6 +209,7 @@ async function writeJson(file: string, value: unknown): Promise<void> {
 function parseGenerateOptions(args: string[]): GenerateOptions {
     const options: GenerateOptions = {
         refreshNus: false,
+        refreshTdb: false,
     };
 
     for (const arg of args) {
@@ -210,6 +218,9 @@ function parseGenerateOptions(args: string[]): GenerateOptions {
                 break;
             case '--refresh-nus':
                 options.refreshNus = true;
+                break;
+            case '--refresh-tdb':
+                options.refreshTdb = true;
                 break;
             default:
                 throw new Error(`Unknown generate-titles option: ${arg}`);
@@ -310,9 +321,9 @@ function getLookupPlatform(titleId: string): TitleLookupPlatform | null {
         case '3ds':
         case 'wiiu':
             return title.platform;
-        case 'wii':
-            return null;
     }
+
+    return null;
 }
 
 function getActiveLookupPlatforms(): Set<TitleLookupPlatform> {
@@ -516,7 +527,7 @@ function versionsText(versions: number[]): string {
 async function loadTitles(
     excluded: Set<string>,
     options: GenerateOptions
-): Promise<RawTitleDatabaseEntry[]> {
+): Promise<GeneratedTitleDatabase> {
     const supplementalTitles = mergeTitleEntries([
         ...(await loadWiiTitles()),
         ...(await loadWiiUTitles()),
@@ -533,9 +544,22 @@ async function loadTitles(
         supplementalTitleById
     );
 
-    return sortByTitleId(
+    const database: GeneratedTitleDatabase = {
+        '3ds': [],
+        wiiu: [],
+        wii: [],
+    };
+
+    for (const title of sortByTitleId(
         mergeTitleEntries([...nusTitles, ...supplementalTitles])
-    );
+    )) {
+        const platform = identifyTitle(title.titleId)?.platform;
+        if (platform) {
+            database[platform].push(title);
+        }
+    }
+
+    return database;
 }
 
 async function loadWiiTitles(): Promise<RawTitleDatabaseEntry[]> {
@@ -1050,17 +1074,25 @@ async function applyIcons(file: string, icons: Icon[]): Promise<void> {
     const iconByTitleId = new Map(
         icons.map((icon) => [icon.titleId, icon.iconUrl])
     );
-    const titles = (await readJsonArray(file)).filter((value) =>
-        stringFieldRecord(value, ['titleId'])
-    );
+    const parsed = JSON.parse(await fs.readFile(file, 'utf8')) as unknown;
+    if (typeof parsed !== 'object' || parsed === null) {
+        throw new Error(`Invalid generated title database: ${file}`);
+    }
 
-    await writeJson(
-        file,
+    const database = parsed as GeneratedTitleDatabase;
+    const applyPlatformIcons = (
+        titles: RawTitleDatabaseEntry[]
+    ): RawTitleDatabaseEntry[] =>
         titles.map((title) => ({
             ...title,
             iconUrl: iconByTitleId.get(title.titleId) ?? null,
-        }))
-    );
+        }));
+
+    await writeJson(file, {
+        '3ds': applyPlatformIcons(database['3ds']),
+        wiiu: applyPlatformIcons(database.wiiu),
+        wii: applyPlatformIcons(database.wii),
+    });
 }
 
 async function fileExists(file: string): Promise<boolean> {
@@ -1075,9 +1107,11 @@ async function fileExists(file: string): Promise<boolean> {
 async function main() {
     const options = parseGenerateOptions(process.argv.slice(2));
 
-    await downloadWiiTdbXml();
-    await downloadWiiUTdbXml();
-    await downloadThreeDSTdbXml();
+    if (options.refreshTdb) {
+        await downloadWiiTdbXml();
+        await downloadWiiUTdbXml();
+        await downloadThreeDSTdbXml();
+    }
 
     const excluded = titleIdSet(await readJsonArray(excludeFile));
     const titles = await loadTitles(excluded, options);

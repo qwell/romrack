@@ -11,7 +11,12 @@ const CCI_PARTITION_ENTRY_SIZE = 8;
 const CCI_MEDIA_UNIT_SIZE = 0x200;
 
 export function readCciPartitions(header: Buffer): CciPartition[] | null {
-    if (readAscii(header, CCI_HEADER_OFFSET, CCI_MAGIC.length) !== CCI_MAGIC) {
+    if (
+        header.length <
+            CCI_PARTITION_TABLE_OFFSET +
+                CCI_PARTITION_COUNT * CCI_PARTITION_ENTRY_SIZE ||
+        readAscii(header, CCI_HEADER_OFFSET, CCI_MAGIC.length) !== CCI_MAGIC
+    ) {
         return null;
     }
 

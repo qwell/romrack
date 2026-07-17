@@ -744,6 +744,7 @@ export function handleLibraryActionBarCommand(
             const queued = queueVerificationDownloads([
                 {
                     id: crypto.randomUUID(),
+                    platform: identifyTitle(item.titleId)?.platform ?? 'wiiu',
                     family: identifyTitle(item.titleId)?.family ?? item.titleId,
                     groupName: item.name ?? item.titleId,
                     kind: item.kind,

@@ -10,11 +10,14 @@ import {
     DownloadSocketCommand,
 } from '../../shared/socket.js';
 import { broadcastAppSocketEvent } from '../socket.js';
-import { TitleDownloadProgress } from '../title.js';
-import { generateTitleInstallFiles } from '../install-title.js';
+import {
+    generateWupTitleFiles,
+    type WupGenerationProgress,
+} from '../platforms/wiiu.js';
 import { clearTitleScanCache } from '../library.js';
-import { findFirstReadableWiiURoot } from '../wiiu.js';
+import { findFirstReadableWiiURoot } from '../platforms/wiiu.js';
 import { markTitleCopiesValidating, revalidateTitleCopies } from './titles.js';
+import { type TitlePlatform } from '../../shared/titles.js';
 
 let downloadQueue: DownloadQueueItem[] = [];
 
@@ -25,13 +28,29 @@ const activeDownloadSourcePaths = new Map<string, string>();
 const cancelledDownloadIds = new Set<string>();
 
 export async function downloadTitle(
+    platform: TitlePlatform,
     titleId: string,
-    onProgress?: (progress: TitleDownloadProgress) => void,
+    onProgress?: (progress: WupGenerationProgress) => void,
+    signal?: AbortSignal
+): Promise<TitleDownloadResponse> {
+    switch (platform) {
+        case '3ds':
+            return downloadThreeDSTitle(titleId);
+        case 'wii':
+            return downloadWiiTitle(titleId);
+        case 'wiiu':
+            return downloadWiiUTitle(titleId, onProgress, signal);
+    }
+}
+
+async function downloadWiiUTitle(
+    titleId: string,
+    onProgress?: (progress: WupGenerationProgress) => void,
     signal?: AbortSignal
 ): Promise<TitleDownloadResponse> {
     const romRoot = await findFirstReadableWiiURoot(getConfig().wiiuRoots);
 
-    const response = await generateTitleInstallFiles(titleId, romRoot, {
+    const response = await generateWupTitleFiles(titleId, romRoot, {
         onProgress,
         signal,
     });
@@ -39,6 +58,24 @@ export async function downloadTitle(
     clearTitleScanCache();
 
     return response;
+}
+
+function downloadThreeDSTitle(titleId: string): never {
+    throwUnsupportedTitleDownload('3ds', titleId, 'CIA');
+}
+
+function downloadWiiTitle(titleId: string): never {
+    throwUnsupportedTitleDownload('wii', titleId, 'WAD');
+}
+
+function throwUnsupportedTitleDownload(
+    platform: TitlePlatform,
+    titleId: string,
+    representation: string
+): never {
+    throw new Error(
+        `${platform} title download is unavailable for ${titleId}: ${representation} writing is not implemented`
+    );
 }
 
 function broadcastDownloadQueue(): void {
@@ -49,11 +86,12 @@ function broadcastDownloadQueue(): void {
 }
 
 function getDownloadQueueKey(item: {
+    platform: TitlePlatform;
     family: string;
     kind: string;
     titleId: string;
 }): string {
-    return `${item.family}\0${item.kind}\0${item.titleId}`;
+    return `${item.platform}\0${item.family}\0${item.kind}\0${item.titleId}`;
 }
 
 function hasDownloadQueueItem(id: string): boolean {
@@ -107,6 +145,7 @@ async function processDownloadQueue(): Promise<void> {
 
     try {
         const result = await downloadTitle(
+            nextItem.platform,
             nextItem.titleId,
             (progress) => {
                 activeDownloadSourcePaths.set(nextItem.id, progress.outputDir);

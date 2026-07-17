@@ -24,7 +24,7 @@ export type NcchHeader = {
 
 export type Ncch = {
     productCode: string | null;
-    exefs: Uint8Array | null;
+    exefs: Buffer | null;
 };
 
 export type NcchReadResult =
@@ -37,21 +37,21 @@ export type NcchReadResult =
           reason: string;
       };
 
-export function readNcch(content: Uint8Array): Ncch | null {
+export function readNcch(content: Buffer): Ncch | null {
     const result = inspectNcch(content);
     return result.ok ? result.ncch : null;
 }
 
-export function isNcchHeader(header: Buffer | Uint8Array): boolean {
+export function isNcchHeader(header: Buffer): boolean {
     return (
-        header.length >= NCCH_MAGIC_OFFSET + NCCH_MAGIC.length &&
+        header.length >= NCCH_HEADER_SIZE &&
         Buffer.from(header)
             .subarray(NCCH_MAGIC_OFFSET, NCCH_MAGIC_OFFSET + NCCH_MAGIC.length)
             .toString('ascii') === NCCH_MAGIC
     );
 }
 
-export function readNcchHeader(header: Buffer | Uint8Array): NcchHeader | null {
+export function readNcchHeader(header: Buffer): NcchHeader | null {
     if (!isNcchHeader(header)) {
         return null;
     }
@@ -76,10 +76,10 @@ export function readNcchHeader(header: Buffer | Uint8Array): NcchHeader | null {
 }
 
 export function createNcchRegionCounter(
-    header: Buffer | Uint8Array,
+    header: Buffer,
     regionOffset: number,
     regionId: number
-): Uint8Array {
+): Buffer {
     const counter = Buffer.alloc(16);
     const partitionId = Buffer.from(
         header.subarray(NCCH_PARTITION_ID_OFFSET, NCCH_PARTITION_ID_OFFSET + 8)
@@ -97,7 +97,7 @@ export function createNcchRegionCounter(
     return counter;
 }
 
-export function inspectNcch(content: Uint8Array): NcchReadResult {
+export function inspectNcch(content: Buffer): NcchReadResult {
     if (content.length < NCCH_MAGIC_OFFSET + NCCH_MAGIC.length) {
         return {
             ok: false,
@@ -128,7 +128,7 @@ export function inspectNcch(content: Uint8Array): NcchReadResult {
     };
 }
 
-function readNcchExeFs(content: Uint8Array): Uint8Array | null {
+function readNcchExeFs(content: Buffer): Buffer | null {
     if (content.length < NCCH_EXEFS_SIZE_OFFSET + 4) {
         return null;
     }
@@ -148,19 +148,15 @@ function readNcchExeFs(content: Uint8Array): Uint8Array | null {
     return content.slice(offset, offset + size);
 }
 
-function getNcchMediaUnitSize(header: Buffer | Uint8Array): number {
-    return MEDIA_UNIT_SIZE << header[NCCH_FLAGS_OFFSET + 6];
+function getNcchMediaUnitSize(header: Buffer): number {
+    return MEDIA_UNIT_SIZE * 2 ** header[NCCH_FLAGS_OFFSET + 6];
 }
 
 function readTitleId(buffer: Buffer, offset: number): string {
     return buffer.readBigUInt64LE(offset).toString(16).padStart(16, '0');
 }
 
-function readAscii(
-    buffer: Buffer | Uint8Array,
-    offset: number,
-    length: number
-): string {
+function readAscii(buffer: Buffer, offset: number, length: number): string {
     return Buffer.from(buffer)
         .subarray(offset, offset + length)
         .toString('ascii')
@@ -168,6 +164,6 @@ function readAscii(
         .trim();
 }
 
-function dataView(buffer: Uint8Array): DataView {
+function dataView(buffer: Buffer): DataView {
     return new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 }

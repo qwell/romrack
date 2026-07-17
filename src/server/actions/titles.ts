@@ -1,5 +1,5 @@
 import { broadcastAppSocketEvent } from '../socket.js';
-import { findWiiUTitleSourcePaths } from '../wiiu.js';
+import { findWiiUTitleSourcePaths } from '../platforms/wiiu.js';
 import {
     identifyTitle,
     type TitleIdentity,
@@ -15,15 +15,25 @@ import {
     type TitleValidationCopyResult,
     type TitleValidationSocketCommand,
 } from '../../shared/socket.js';
-import { validateTitleInstallFileSizes } from '../install-title.js';
+import { validateWupTitleFileSizes } from '../platforms/wiiu.js';
 import {
     findThreeDSTitleSourcePaths,
     validateThreeDSTitleFile,
-} from '../3ds.js';
+} from '../platforms/3ds.js';
 import { getConfig } from '../routes/config.js';
 
 const activeTitleValidations = new Map<string, AbortController>();
 const titleValidationResults = new Map<string, TitleValidationSocketEvent>();
+
+function supportsTitleValidation(title: TitleIdentity): boolean {
+    switch (title.platform) {
+        case '3ds':
+        case 'wiiu':
+            return true;
+    }
+
+    return false;
+}
 
 export function getTitleValidationResults(): TitleValidationSocketEvent[] {
     return [...titleValidationResults.values()];
@@ -43,6 +53,9 @@ async function validateTitleCopies(titleId: string): Promise<void> {
     const title = identifyTitle(titleId);
     if (!title) {
         logger.warn('server', `Invalid title validation request: ${titleId}`);
+        return;
+    }
+    if (!supportsTitleValidation(title)) {
         return;
     }
 
@@ -173,17 +186,10 @@ async function validateTitleCopy(
             return validateThreeDSTitleCopy(title, sourcePath, signal);
 
         case 'wiiu':
-            return validateTitleInstallFileSizes(sourcePath, signal);
+            return validateWupTitleFileSizes(sourcePath, signal);
 
         case 'wii':
-            return {
-                titleId: title.titleId,
-                titleVersion: null,
-                status: 'ok',
-                failedFileCount: 0,
-                totalFileCount: 0,
-                error: null,
-            };
+            throw new Error('Wii title validation is not implemented');
     }
 }
 
@@ -219,6 +225,9 @@ export function revalidateTitleCopies(
                 'server',
                 `Invalid title revalidation request: ${title.titleId}`
             );
+            continue;
+        }
+        if (!supportsTitleValidation(titleIdentity)) {
             continue;
         }
 

@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
 import { broadcastAppSocketEvent } from '../socket.js';
-import { verifyWiiUTitleRoots } from '../wiiu.js';
+import { findWudImagePaths, verifyWiiUTitleRoots } from '../platforms/wiiu.js';
 import { clearTitleScanCache } from '../library.js';
-import { verifyWiiTitleRoots } from '../wii.js';
-import { convertWudImagesInRoots } from '../wud.js';
+import { verifyWiiTitleRoots } from '../platforms/wii.js';
+import { convertWudImages } from '../platforms/wiiu.js';
 import { markTitleCopiesValidating, revalidateTitleCopies } from './titles.js';
 import {
     type LibraryVerifyProgress,
@@ -265,8 +265,8 @@ async function processLibraryConvertQueue(): Promise<void> {
     broadcastLibraryConversions();
 
     try {
-        const result = await convertWudImagesInRoots(
-            getConfig().wiiuRoots,
+        const result = await convertWudImages(
+            await findWudImagePaths(getConfig().wiiuRoots),
             item.titleId,
             {
                 onProgress: (progress) => {

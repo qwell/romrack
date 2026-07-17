@@ -8,23 +8,20 @@ const EXEFS_ENTRY_SIZE_OFFSET = 0x0c;
 export type ExeFsFileReadResult =
     | {
           ok: true;
-          file: Uint8Array;
+          file: Buffer;
       }
     | {
           ok: false;
           reason: string;
       };
 
-export function readExeFsFile(
-    exefs: Uint8Array,
-    name: string
-): Uint8Array | null {
+export function readExeFsFile(exefs: Buffer, name: string): Buffer | null {
     const result = inspectExeFsFile(exefs, name);
     return result.ok ? result.file : null;
 }
 
 export function inspectExeFsFile(
-    exefs: Uint8Array,
+    exefs: Buffer,
     name: string
 ): ExeFsFileReadResult {
     if (exefs.length < EXEFS_HEADER_SIZE) {
@@ -35,7 +32,7 @@ export function inspectExeFsFile(
     }
 
     const view = dataView(exefs);
-    for (let index = 0; index < EXEFS_ENTRY_COUNT; index++) {
+    for (let index = 0; index < EXEFS_ENTRY_COUNT; index += 1) {
         const entryOffset = index * EXEFS_ENTRY_SIZE;
         const entryName = readAscii(exefs, entryOffset, EXEFS_ENTRY_NAME_SIZE);
 
@@ -70,7 +67,7 @@ export function inspectExeFsFile(
     };
 }
 
-function readAscii(buffer: Uint8Array, offset: number, length: number): string {
+function readAscii(buffer: Buffer, offset: number, length: number): string {
     return Buffer.from(buffer)
         .subarray(offset, offset + length)
         .toString('ascii')
@@ -78,6 +75,6 @@ function readAscii(buffer: Uint8Array, offset: number, length: number): string {
         .trim();
 }
 
-function dataView(buffer: Uint8Array): DataView {
+function dataView(buffer: Buffer): DataView {
     return new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 }

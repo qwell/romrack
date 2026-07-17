@@ -103,6 +103,8 @@ export function formatTitleDisplay(
             case 'wiiu':
                 kindText = ` [${title.kind}]`;
                 break;
+            case 'wii':
+                break;
         }
     }
     const titleIdText = name === null ? '' : ` ${titleId}`;

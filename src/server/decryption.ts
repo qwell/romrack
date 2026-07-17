@@ -5,7 +5,7 @@ import {
     pbkdf2Sync,
 } from 'node:crypto';
 
-export type TitleKey = Uint8Array;
+export type TitleKey = Buffer;
 
 export type GeneratedTitleKey = {
     password: string;
@@ -14,7 +14,7 @@ export type GeneratedTitleKey = {
 
 const AES_BLOCK_SIZE = 16;
 
-const KEYGEN_SECRET = new Uint8Array([
+const KEYGEN_SECRET = Buffer.from([
     0xfd, 0x04, 0x01, 0x05, 0x06, 0x0b, 0x11, 0x1c, 0x2d, 0x49,
 ]);
 
@@ -32,18 +32,18 @@ export const TITLE_KEY_PASSWORDS = [
 
 // -- IV construction --
 
-export function createTitleKeyIv(titleId: Uint8Array): Uint8Array {
+export function createTitleKeyIv(titleId: Buffer): Buffer {
     if (titleId.length !== 8) {
         throw new Error(
             `titleId IV source must be 8 bytes, got ${titleId.length}`
         );
     }
-    const iv = new Uint8Array(AES_BLOCK_SIZE);
-    iv.set(titleId, 0);
+    const iv = Buffer.alloc(AES_BLOCK_SIZE);
+    Buffer.from(titleId).copy(iv, 0);
     return iv;
 }
 
-export function createContentIv(contentIndex: number): Uint8Array {
+export function createContentIv(contentIndex: number): Buffer {
     if (
         !Number.isInteger(contentIndex) ||
         contentIndex < 0 ||
@@ -51,17 +51,16 @@ export function createContentIv(contentIndex: number): Uint8Array {
     ) {
         throw new Error(`contentIndex must be a uint16, got ${contentIndex}`);
     }
-    const iv = new Uint8Array(AES_BLOCK_SIZE);
-    new DataView(iv.buffer).setUint16(0, contentIndex, false);
+    const iv = Buffer.alloc(AES_BLOCK_SIZE);
+    iv.writeUInt16BE(contentIndex, 0);
     return iv;
 }
 
-export function createBigIntIv(value: bigint | number): Uint8Array {
-    const iv = new Uint8Array(AES_BLOCK_SIZE);
-    new DataView(iv.buffer).setBigUint64(
-        0,
+export function createBigIntIv(value: bigint | number): Buffer {
+    const iv = Buffer.alloc(AES_BLOCK_SIZE);
+    iv.writeBigUInt64BE(
         typeof value === 'bigint' ? value : BigInt(Math.trunc(value)),
-        false
+        0
     );
     return iv;
 }
@@ -69,41 +68,89 @@ export function createBigIntIv(value: bigint | number): Uint8Array {
 // -- Decryption --
 
 export function decryptTitleKey(
-    encryptedKey: Uint8Array,
-    commonKey: Uint8Array,
-    titleId: Uint8Array
+    encryptedKey: Buffer,
+    commonKey: Buffer,
+    titleId: Buffer
 ): TitleKey {
     return aes128CbcDecrypt(encryptedKey, commonKey, createTitleKeyIv(titleId));
 }
 
 export function encryptTitleKey(
-    titleKey: Uint8Array,
-    commonKey: Uint8Array,
-    titleId: Uint8Array
-): Uint8Array {
+    titleKey: Buffer,
+    commonKey: Buffer,
+    titleId: Buffer
+): Buffer {
     return aes128CbcEncrypt(titleKey, commonKey, createTitleKeyIv(titleId));
 }
 
 export function decryptContentWithBigIntIv(
-    encryptedContent: Uint8Array,
-    titleKey: Uint8Array,
+    encryptedContent: Buffer,
+    titleKey: Buffer,
     value: bigint | number
-): Uint8Array {
+): Buffer {
     return aes128CbcDecrypt(encryptedContent, titleKey, createBigIntIv(value));
 }
 
 export function decryptContentWithIv(
-    encryptedContent: Uint8Array,
-    titleKey: Uint8Array,
-    iv: Uint8Array
-): Uint8Array {
+    encryptedContent: Buffer,
+    titleKey: Buffer,
+    iv: Buffer
+): Buffer {
     return aes128CbcDecrypt(encryptedContent, titleKey, iv);
+}
+
+export function deriveThreeDSNormalKey(
+    keyX: Buffer,
+    keyY: Buffer,
+    generatorConstant: Buffer
+): Buffer {
+    assertAesParams(keyX, keyY);
+    if (generatorConstant.length !== AES_BLOCK_SIZE) {
+        throw new Error('3DS generator constant must be 16 bytes');
+    }
+    return rotateLeft128(
+        add128(xor128(rotateLeft128(keyX, 2), keyY), generatorConstant),
+        87
+    );
+}
+
+export function decryptAes128Ctr(
+    input: Buffer,
+    key: Buffer,
+    counter: Buffer
+): Buffer {
+    assertAesParams(key, counter);
+    const decipher = createDecipheriv('aes-128-ctr', key, counter);
+    return Buffer.concat([decipher.update(input), decipher.final()]);
+}
+
+function xor128(a: Buffer, b: Buffer): Buffer {
+    return Buffer.from(a.map((value, index) => value ^ b[index]));
+}
+
+function add128(a: Buffer, b: Buffer): Buffer {
+    return fromBigInt((toBigInt(a) + toBigInt(b)) & ((1n << 128n) - 1n));
+}
+
+function rotateLeft128(value: Buffer, bits: number): Buffer {
+    const mask = (1n << 128n) - 1n;
+    const shift = BigInt(bits % 128);
+    const input = toBigInt(value);
+    return fromBigInt(((input << shift) | (input >> (128n - shift))) & mask);
+}
+
+function toBigInt(value: Buffer): bigint {
+    return BigInt(`0x${Buffer.from(value).toString('hex')}`);
+}
+
+function fromBigInt(value: bigint): Buffer {
+    return Buffer.from(value.toString(16).padStart(32, '0'), 'hex');
 }
 
 // -- Title key generation --
 
 export function generateTitleKey(
-    titleId: Uint8Array,
+    titleId: Buffer,
     password: string
 ): GeneratedTitleKey {
     return {
@@ -113,7 +160,7 @@ export function generateTitleKey(
 }
 
 export function findGeneratedTitleKey(
-    titleId: Uint8Array,
+    titleId: Buffer,
     isValid: (candidate: GeneratedTitleKey) => boolean,
     passwords: readonly string[] = TITLE_KEY_PASSWORDS
 ): GeneratedTitleKey | null {
@@ -129,11 +176,7 @@ export function findGeneratedTitleKey(
 }
 
 // -- Internal --
-function aes128CbcDecrypt(
-    input: Uint8Array,
-    key: Uint8Array,
-    iv: Uint8Array
-): Uint8Array {
+function aes128CbcDecrypt(input: Buffer, key: Buffer, iv: Buffer): Buffer {
     assertAesParams(key, iv);
     const decipher = createDecipheriv(
         'aes-128-cbc',
@@ -141,16 +184,13 @@ function aes128CbcDecrypt(
         Buffer.from(iv)
     );
     decipher.setAutoPadding(false);
-    return new Uint8Array(
-        Buffer.concat([decipher.update(Buffer.from(input)), decipher.final()])
-    );
+    return Buffer.concat([
+        decipher.update(Buffer.from(input)),
+        decipher.final(),
+    ]);
 }
 
-function aes128CbcEncrypt(
-    input: Uint8Array,
-    key: Uint8Array,
-    iv: Uint8Array
-): Uint8Array {
+function aes128CbcEncrypt(input: Buffer, key: Buffer, iv: Buffer): Buffer {
     assertAesParams(key, iv);
     const cipher = createCipheriv(
         'aes-128-cbc',
@@ -158,12 +198,10 @@ function aes128CbcEncrypt(
         Buffer.from(iv)
     );
     cipher.setAutoPadding(false);
-    return new Uint8Array(
-        Buffer.concat([cipher.update(Buffer.from(input)), cipher.final()])
-    );
+    return Buffer.concat([cipher.update(Buffer.from(input)), cipher.final()]);
 }
 
-function assertAesParams(key: Uint8Array, iv: Uint8Array): void {
+function assertAesParams(key: Buffer, iv: Buffer): void {
     if (key.length !== AES_BLOCK_SIZE) {
         throw new Error(`AES-128 key must be 16 bytes, got ${key.length}`);
     }
@@ -172,18 +210,16 @@ function assertAesParams(key: Uint8Array, iv: Uint8Array): void {
     }
 }
 
-function deriveTitleKey(titleId: Uint8Array, password: string): TitleKey {
+function deriveTitleKey(titleId: Buffer, password: string): TitleKey {
     const saltSource = Buffer.concat([
         Buffer.from(KEYGEN_SECRET),
         Buffer.from(extractKeygenTitleIdPart(titleId)),
     ]);
     const salt = createHash('md5').update(saltSource).digest();
-    return new Uint8Array(
-        pbkdf2Sync(password, salt, 20, AES_BLOCK_SIZE, 'sha1')
-    );
+    return pbkdf2Sync(password, salt, 20, AES_BLOCK_SIZE, 'sha1');
 }
 
-function extractKeygenTitleIdPart(titleId: Uint8Array): Uint8Array {
+function extractKeygenTitleIdPart(titleId: Buffer): Buffer {
     if (titleId.length !== 8) {
         throw new Error(`titleId must be 8 bytes, got ${titleId.length}`);
     }
@@ -192,6 +228,6 @@ function extractKeygenTitleIdPart(titleId: Uint8Array): Uint8Array {
         : titleId.subarray(1);
 }
 
-function isVwiiIosTitleId(titleId: Uint8Array): boolean {
+function isVwiiIosTitleId(titleId: Buffer): boolean {
     return titleId[0] === 0x00 && titleId[1] === 0x01 && titleId[2] === 0x00;
 }

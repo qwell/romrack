@@ -4,19 +4,27 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-import AdmZip from 'adm-zip';
 import * as cheerio from 'cheerio';
 
 import logger from '../shared/logger.js';
-import { isFileNotFoundError } from '../shared/file.js';
+import { isFileExistsError, isFileNotFoundError } from '../shared/file.js';
 import {
     TITLE_PLATFORM_IDS,
     type TitleGroup,
     type TitlePlatform,
 } from '../shared/titles.js';
 import { formatLogError } from '../shared/utils.js';
+import {
+    decompressZipEntry,
+    readZipCentralDirectory,
+    readZipCentralDirectoryEntries,
+    readZipEntryDataLocation,
+    type ZipCentralDirectoryEntry,
+    ZIP_EOCD_MIN_SIZE,
+} from './formats/zip.js';
 import { getImageContentType, type CachedImage } from './image-cache.js';
 import { getUserAppRoot } from './paths.js';
+import { downloadBytes } from './download.js';
 
 const GAME_TDB_MEDIA_TYPES = ['icons', 'covers'] as const;
 const GAME_TDB_MEDIA_EXTENSIONS = ['.png', '.jpg', '.jpeg'] as const;
@@ -126,7 +134,6 @@ const THREE_DS_MEDIA_REGIONS = [
     'US',
     'JA',
     'EN',
-    'AU',
     'FR',
     'DE',
     'ES',
@@ -134,25 +141,7 @@ const THREE_DS_MEDIA_REGIONS = [
     'NL',
     'PT',
     'CH',
-    'SE',
-    'DK',
-    'NO',
-    'FI',
-    'RU',
-] as const;
-const THREE_DS_DISC_MEDIA_REGIONS = THREE_DS_MEDIA_REGIONS;
-const THREE_DS_COVER_MEDIA_REGIONS = THREE_DS_MEDIA_REGIONS;
-
-const WII_DISC_MEDIA_REGIONS = [
-    'US',
-    'JA',
-    'EN',
     'AU',
-    'FR',
-    'DE',
-    'ES',
-    'IT',
-    'NL',
     'SE',
     'DK',
     'NO',
@@ -161,34 +150,39 @@ const WII_DISC_MEDIA_REGIONS = [
     'ZH',
     'RU',
 ] as const;
+const THREE_DS_DISC_MEDIA_REGIONS = [...THREE_DS_MEDIA_REGIONS] as const;
+const THREE_DS_COVER_MEDIA_REGIONS = [...THREE_DS_MEDIA_REGIONS] as const;
+
+const WII_MEDIA_REGIONS = [
+    'US',
+    'JA',
+    'EN',
+    'FR',
+    'DE',
+    'ES',
+    'IT',
+    'NL',
+    'AU',
+    'SE',
+    'DK',
+    'NO',
+    'FI',
+    'KO',
+    'ZH',
+    'RU',
+] as const;
+const WII_DISC_MEDIA_REGIONS = [...WII_MEDIA_REGIONS] as const;
 const WII_COVER_MEDIA_REGIONS = [
-    'US',
-    'JA',
-    'EN',
-    'AU',
-    'FR',
-    'DE',
-    'ES',
-    'IT',
-    'NL',
+    ...WII_MEDIA_REGIONS,
     'PT',
     'CH',
-    'SE',
-    'DK',
-    'NO',
-    'FI',
     'TR',
-    'KO',
-    'ZH',
-    'RU',
 ] as const;
 
-const WII_U_DISC_MEDIA_REGIONS = ['US', 'JA', 'EN', 'AU', 'RU'] as const;
+const WII_U_MEDIA_REGIONS = ['US', 'JA', 'EN', 'AU', 'RU'] as const;
+const WII_U_DISC_MEDIA_REGIONS = [...WII_U_MEDIA_REGIONS] as const;
 const WII_U_COVER_MEDIA_REGIONS = [
-    'US',
-    'JA',
-    'EN',
-    'AU',
+    ...WII_U_DISC_MEDIA_REGIONS,
     'FR',
     'DE',
     'ES',
@@ -200,8 +194,71 @@ const WII_U_COVER_MEDIA_REGIONS = [
     'DK',
     'NO',
     'FI',
-    'RU',
 ] as const;
+
+const platforms: Record<TitlePlatform, GameTdbPlatformConfig> = {
+    '3ds': {
+        downloadsPage: 'https://www.gametdb.com/3DS/Downloads',
+        media: {
+            icons: {
+                archiveName: 'box',
+                regions: THREE_DS_DISC_MEDIA_REGIONS,
+            },
+            covers: {
+                archiveName: 'coverM',
+                regions: THREE_DS_COVER_MEDIA_REGIONS,
+            },
+        },
+    },
+    wii: {
+        downloadsPage: 'https://www.gametdb.com/Wii/Downloads',
+        media: {
+            icons: {
+                archiveName: 'disc',
+                regions: WII_DISC_MEDIA_REGIONS,
+            },
+            covers: {
+                archiveName: 'cover',
+                regions: WII_COVER_MEDIA_REGIONS,
+            },
+        },
+    },
+    wiiu: {
+        downloadsPage: 'https://www.gametdb.com/WiiU/Downloads',
+        media: {
+            icons: {
+                archiveName: 'discM',
+                regions: WII_U_DISC_MEDIA_REGIONS,
+            },
+            covers: {
+                archiveName: 'coverM',
+                regions: WII_U_COVER_MEDIA_REGIONS,
+            },
+        },
+    },
+};
+
+const downloadUrl = 'https://www.gametdb.com/download.php';
+const mediaCacheRoot = path.join(getUserAppRoot(), '.cache');
+const DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
+const STALE_TEMP_ARCHIVE_MS = DOWNLOAD_TIMEOUT_MS;
+const ZIP_CACHE_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000;
+const MEDIA_KEY_LENGTHS: Record<TitlePlatform, number> = {
+    '3ds': 4,
+    wii: 4,
+    wiiu: 4,
+};
+const mediaArchives = new Map<string, Promise<GameTdbDownloadedArchive>>();
+const mediaExtractions = new Map<string, GameTdbArchiveExtraction>();
+const downloadsPageCache = new Map<TitlePlatform, Promise<string>>();
+const remoteArchiveIndexes = new Map<
+    string,
+    Promise<GameTdbArchiveProductCodes>
+>();
+const archiveProductCodes = new Map<string, GameTdbArchiveProductCodes>();
+const missingMediaArchives = new Set<string>();
+let cacheFileLoaded = false;
+let startupUpdateStarted = false;
 
 export function isGameTdbGame(value: unknown): value is GameTdbGame {
     return (
@@ -268,71 +325,6 @@ export function getPreferredGameTdbSynopsis(
     return null;
 }
 
-const platforms: Record<TitlePlatform, GameTdbPlatformConfig> = {
-    '3ds': {
-        downloadsPage: 'https://www.gametdb.com/3DS/Downloads',
-        media: {
-            icons: {
-                archiveName: 'box',
-                regions: THREE_DS_DISC_MEDIA_REGIONS,
-            },
-            covers: {
-                archiveName: 'coverM',
-                regions: THREE_DS_COVER_MEDIA_REGIONS,
-            },
-        },
-    },
-    wii: {
-        downloadsPage: 'https://www.gametdb.com/Wii/Downloads',
-        media: {
-            icons: {
-                archiveName: 'disc',
-                regions: WII_DISC_MEDIA_REGIONS,
-            },
-            covers: {
-                archiveName: 'cover',
-                regions: WII_COVER_MEDIA_REGIONS,
-            },
-        },
-    },
-    wiiu: {
-        downloadsPage: 'https://www.gametdb.com/WiiU/Downloads',
-        media: {
-            icons: {
-                archiveName: 'discM',
-                regions: WII_U_DISC_MEDIA_REGIONS,
-            },
-            covers: {
-                archiveName: 'coverM',
-                regions: WII_U_COVER_MEDIA_REGIONS,
-            },
-        },
-    },
-};
-
-const downloadUrl = 'https://www.gametdb.com/download.php';
-const mediaCacheRoot = path.join(getUserAppRoot(), '.cache');
-const DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
-const STALE_TEMP_ARCHIVE_MS = DOWNLOAD_TIMEOUT_MS;
-const ZIP_CACHE_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000;
-const MEDIA_KEY_LENGTH = 4;
-const ZIP_EOCD_MIN_SIZE = 22;
-const ZIP_EOCD_MAX_COMMENT_SIZE = 0xffff;
-const ZIP_EOCD_SEARCH_SIZE = ZIP_EOCD_MIN_SIZE + ZIP_EOCD_MAX_COMMENT_SIZE;
-const ZIP_EOCD_SIGNATURE = 0x06054b50;
-const ZIP_CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
-const mediaArchives = new Map<string, Promise<GameTdbDownloadedArchive>>();
-const mediaExtractions = new Map<string, GameTdbArchiveExtraction>();
-const downloadsPageCache = new Map<TitlePlatform, Promise<string>>();
-const remoteArchiveIndexes = new Map<
-    string,
-    Promise<GameTdbArchiveProductCodes>
->();
-const archiveProductCodes = new Map<string, GameTdbArchiveProductCodes>();
-const missingMediaArchives = new Set<string>();
-let cacheFileLoaded = false;
-let startupUpdateStarted = false;
-
 async function readDownloadsPage(platform: TitlePlatform): Promise<string> {
     let pending = downloadsPageCache.get(platform);
     if (!pending) {
@@ -397,15 +389,18 @@ function getZipUrl(filename: string): string {
     return url.toString();
 }
 
-function getMediaCacheFilename(filename: string): {
+function getMediaCacheFilename(
+    platform: TitlePlatform,
+    filename: string
+): {
     mediaKey: string;
     filename: string;
 } | null {
     const parsed = path.parse(path.basename(filename));
-    const key = parsed.name.slice(0, MEDIA_KEY_LENGTH).toUpperCase();
+    const key = parsed.name.slice(0, MEDIA_KEY_LENGTHS[platform]).toUpperCase();
     const extension = parsed.ext.toLowerCase();
 
-    return key.length === MEDIA_KEY_LENGTH && extension
+    return key.length === MEDIA_KEY_LENGTHS[platform] && extension
         ? {
               mediaKey: key,
               filename: `${key}${extension}`,
@@ -413,8 +408,8 @@ function getMediaCacheFilename(filename: string): {
         : null;
 }
 
-function getMediaKey(id: string): string {
-    return id.slice(0, MEDIA_KEY_LENGTH).toUpperCase();
+function getMediaKey(platform: TitlePlatform, id: string): string {
+    return id.slice(0, MEDIA_KEY_LENGTHS[platform]).toUpperCase();
 }
 
 function formatFileCount(count: number): string {
@@ -504,11 +499,12 @@ async function writeCacheFile(): Promise<void> {
 }
 
 async function downloadBuffer(url: string): Promise<Buffer> {
-    let response: Response;
     try {
-        response = await fetch(url, {
-            signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
-        });
+        return Buffer.from(
+            await downloadBytes(url, 'GameTDB', {
+                signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+            })
+        );
     } catch (error) {
         if (
             error instanceof Error &&
@@ -519,17 +515,8 @@ async function downloadBuffer(url: string): Promise<Buffer> {
                 { cause: error }
             );
         }
-
         throw error;
     }
-
-    if (!response.ok) {
-        throw new Error(
-            `GameTDB download failed: ${url} (${response.status.toString()})`
-        );
-    }
-
-    return Buffer.from(await response.arrayBuffer());
 }
 
 async function fetchGameTdb(url: string, init: RequestInit): Promise<Response> {
@@ -607,81 +594,90 @@ async function downloadRange(
     return body;
 }
 
-function findZipEndOfCentralDirectory(buffer: Buffer): number {
-    for (
-        let offset = buffer.length - ZIP_EOCD_MIN_SIZE;
-        offset >= 0;
-        offset -= 1
-    ) {
-        if (buffer.readUInt32LE(offset) === ZIP_EOCD_SIGNATURE) {
-            return offset;
-        }
-    }
-
-    return -1;
-}
-
-function readCentralDirectoryFilenames(directory: Buffer): string[] {
-    const filenames: string[] = [];
-    let offset = 0;
-
-    while (
-        offset + 46 <= directory.length &&
-        directory.readUInt32LE(offset) === ZIP_CENTRAL_DIRECTORY_SIGNATURE
-    ) {
-        const filenameLength = directory.readUInt16LE(offset + 28);
-        const extraLength = directory.readUInt16LE(offset + 30);
-        const commentLength = directory.readUInt16LE(offset + 32);
-        const filenameStart = offset + 46;
-        const filenameEnd = filenameStart + filenameLength;
-
-        if (filenameEnd > directory.length) {
-            break;
-        }
-
-        filenames.push(
-            directory.subarray(filenameStart, filenameEnd).toString('utf8')
-        );
-        offset = filenameEnd + extraLength + commentLength;
-    }
-
-    return filenames;
-}
-
 async function readRemoteArchiveProductCodes(
+    platform: TitlePlatform,
     filename: string
 ): Promise<Set<string>> {
     const url = getZipUrl(filename);
     const fileSize = await readRemoteFileSize(url);
-    const tailStart = Math.max(0, fileSize - ZIP_EOCD_SEARCH_SIZE);
-    const tail = await downloadRange(url, tailStart, fileSize - 1);
-    const eocdOffset = findZipEndOfCentralDirectory(tail);
-    if (eocdOffset < 0) {
-        throw new Error(
-            `GameTDB archive central directory was not found: ${url}`
-        );
-    }
-
-    const directorySize = tail.readUInt32LE(eocdOffset + 12);
-    const directoryOffset = tail.readUInt32LE(eocdOffset + 16);
-    const directoryEnd = directoryOffset + directorySize - 1;
-    const directory =
-        directoryOffset >= tailStart && directoryEnd < fileSize
-            ? tail.subarray(
-                  directoryOffset - tailStart,
-                  directoryOffset - tailStart + directorySize
-              )
-            : await downloadRange(url, directoryOffset, directoryEnd);
+    const directory = await readZipCentralDirectory(
+        fileSize,
+        (start, end) => downloadRange(url, start, end),
+        url
+    );
     const productCodes = new Set<string>();
 
-    for (const entryName of readCentralDirectoryFilenames(directory)) {
-        const filename = getMediaCacheFilename(entryName);
+    for (const entry of readZipCentralDirectoryEntries(directory)) {
+        const filename = getMediaCacheFilename(platform, entry.filename);
         if (filename) {
             productCodes.add(filename.mediaKey);
         }
     }
 
     return productCodes;
+}
+
+async function readLocalArchiveProductCodes(
+    platform: TitlePlatform,
+    archivePath: string
+): Promise<Set<string>> {
+    const directory = await readLocalZipCentralDirectory(archivePath);
+    const productCodes = new Set<string>();
+
+    for (const entry of readZipCentralDirectoryEntries(directory)) {
+        const filename = getMediaCacheFilename(platform, entry.filename);
+        if (filename) {
+            productCodes.add(filename.mediaKey);
+        }
+    }
+
+    return productCodes;
+}
+
+async function readFileRange(
+    filePath: string,
+    start: number,
+    end: number
+): Promise<Buffer> {
+    const file = await fs.open(filePath, 'r');
+    try {
+        const length = end - start + 1;
+        const body = Buffer.alloc(length);
+        const { bytesRead } = await file.read(body, 0, length, start);
+        return bytesRead === length ? body : body.subarray(0, bytesRead);
+    } finally {
+        await file.close();
+    }
+}
+
+async function readLocalZipCentralDirectory(filePath: string): Promise<Buffer> {
+    const info = await fs.stat(filePath);
+    return readZipCentralDirectory(
+        info.isFile() ? info.size : 0,
+        (start, end) => readFileRange(filePath, start, end),
+        filePath
+    );
+}
+
+async function readLocalZipEntryData(
+    filePath: string,
+    entry: ZipCentralDirectoryEntry
+): Promise<Buffer> {
+    const header = await readFileRange(
+        filePath,
+        entry.localHeaderOffset,
+        entry.localHeaderOffset + 29
+    );
+    const location = readZipEntryDataLocation(header, entry);
+    const compressed =
+        location.length > 0
+            ? await readFileRange(
+                  filePath,
+                  location.offset,
+                  location.offset + location.length - 1
+              )
+            : Buffer.alloc(0);
+    return decompressZipEntry(compressed, entry);
 }
 
 async function findZipFilename(
@@ -877,32 +873,6 @@ async function downloadArchive(
     return archivePath;
 }
 
-function readArchiveProductCodes(archivePath: string): Set<string> {
-    const productCodes = new Set<string>();
-    let zip;
-
-    try {
-        zip = new AdmZip(archivePath);
-    } catch (error) {
-        throw new Error(`GameTDB archive could not be opened: ${archivePath}`, {
-            cause: error,
-        });
-    }
-
-    for (const entry of zip.getEntries()) {
-        if (entry.isDirectory) {
-            continue;
-        }
-
-        const filename = getMediaCacheFilename(entry.entryName);
-        if (filename) {
-            productCodes.add(filename.mediaKey);
-        }
-    }
-
-    return productCodes;
-}
-
 async function readRemoteArchiveIndex(
     step: GameTdbMediaStep
 ): Promise<GameTdbArchiveProductCodes | null> {
@@ -935,7 +905,10 @@ async function readRemoteArchiveIndex(
 
     const pending = (async () => {
         logger.log('gametdb', `probing ${formatStepArchiveLabel(step)}`);
-        const productCodes = await readRemoteArchiveProductCodes(filename);
+        const productCodes = await readRemoteArchiveProductCodes(
+            step.platform,
+            filename
+        );
         logger.log(
             'gametdb',
             `${formatStepArchiveLabel(step)} contains ${formatFileCount(productCodes.size)}`
@@ -979,7 +952,10 @@ async function readDownloadedArchive(
         );
         let productCodes;
         try {
-            productCodes = readArchiveProductCodes(archivePath);
+            productCodes = await readLocalArchiveProductCodes(
+                platform,
+                archivePath
+            );
         } catch (error) {
             await fs.unlink(archivePath).catch((unlinkError: unknown) => {
                 if (!isFileNotFoundError(unlinkError)) {
@@ -1019,11 +995,7 @@ async function writeMediaFile(
     try {
         await fs.writeFile(filePath, body, { flag: 'wx' });
     } catch (error) {
-        if (
-            error instanceof Error &&
-            'code' in error &&
-            error.code === 'EEXIST'
-        ) {
+        if (isFileExistsError(error)) {
             return;
         }
 
@@ -1045,13 +1017,9 @@ async function extractArchive(
     let extracted = 0;
     const productCodes = new Set<string>();
 
-    const zip = new AdmZip(archivePath);
-    for (const entry of zip.getEntries()) {
-        if (entry.isDirectory) {
-            continue;
-        }
-
-        const filename = getMediaCacheFilename(entry.entryName);
+    const directory = await readLocalZipCentralDirectory(archivePath);
+    for (const entry of readZipCentralDirectoryEntries(directory)) {
+        const filename = getMediaCacheFilename(platform, entry.filename);
         if (!filename) {
             continue;
         }
@@ -1064,7 +1032,7 @@ async function extractArchive(
 
         await writeMediaFile(
             path.join(outputDir, filename.filename),
-            entry.getData(),
+            await readLocalZipEntryData(archivePath, entry),
             overwrite
         );
         extracted += 1;
@@ -1102,7 +1070,7 @@ async function getExtractedMediaKeys(
                 continue;
             }
 
-            const filename = getMediaCacheFilename(entry.name);
+            const filename = getMediaCacheFilename(platform, entry.name);
             if (filename) {
                 mediaKeys.add(filename.mediaKey);
             }
@@ -1244,7 +1212,7 @@ async function findCachedMediaPath(
     type: GameTdbMediaType,
     productCode: string
 ): Promise<string | null> {
-    const mediaKey = getMediaKey(productCode);
+    const mediaKey = getMediaKey(platform, productCode);
 
     for (const extension of GAME_TDB_MEDIA_EXTENSIONS) {
         const mediaPath = getMediaCachePath(
@@ -1291,7 +1259,7 @@ function addWantedMedia(
         platformMedia.set(type, productCodes);
     }
 
-    const mediaKey = getMediaKey(productCode);
+    const mediaKey = getMediaKey(platform, productCode);
     const items = productCodes.get(mediaKey);
     const wantedItem = { ...item, productCode };
     if (items) {
@@ -1524,6 +1492,26 @@ export function cacheAllGameTdbMedia(): void {
 
 export function cacheGameTdbMediaForGroups(groups: TitleGroup[]): void {
     void groups;
+}
+
+export async function readCachedGameTdbMedia(
+    type: string,
+    platform: TitlePlatform,
+    productCode: string
+): Promise<CachedImage | null> {
+    if (!isMediaType(type) || !isMediaPlatform(platform)) {
+        return null;
+    }
+
+    const mediaPath = await findCachedMediaPath(platform, type, productCode);
+    if (!mediaPath) {
+        return null;
+    }
+
+    return {
+        body: await fs.readFile(mediaPath),
+        contentType: getImageContentType(mediaPath),
+    };
 }
 
 export async function readGameTdbMedia(

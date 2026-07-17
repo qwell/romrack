@@ -521,6 +521,7 @@ function renderDownloadAvailabilityRow(
     checkbox.className = 'sidebar-download-checkbox';
     checkbox.value = entry.titleId;
     checkbox.dataset.family = group.family;
+    checkbox.dataset.platform = group.platform;
     checkbox.dataset.groupName = group.name;
     checkbox.dataset.kind = entry.kind;
     checkbox.dataset.label = label;
@@ -658,6 +659,7 @@ function renderLocalCopyRow(
         group.platform === '3ds' || getBusyKinds(group).has(entry.kind);
     if (downloadData) {
         checkbox.dataset.family = downloadData.group.family;
+        checkbox.dataset.platform = downloadData.group.platform;
         checkbox.dataset.groupName = downloadData.group.name;
         checkbox.dataset.kind = entry.kind;
         checkbox.dataset.label = downloadData.label;
@@ -1296,11 +1298,15 @@ function requestTitleValidation(titleId: string, name: string): void {
 }
 
 export function requestTitleValidations(group: TitleGroup): void {
-    if (group.platform === 'wii') {
-        return;
+    switch (group.platform) {
+        case 'wii':
+            return;
     }
 
     for (const entry of group.entries) {
-        requestTitleValidation(entry.titleId, entry.name);
+        requestTitleValidation(
+            entry.titleId,
+            entry.name === 'Unknown' ? group.name : entry.name
+        );
     }
 }

@@ -42,6 +42,7 @@ const RegionAliases: Record<string, RegionNames> = {
     'NTSC-J': Region.JPN,
     'NTSC-U': Region.USA,
     PAL: Region.EUR,
+    WLD: Region.ALL,
 };
 
 const RegionMasks: Record<number, RegionNames> = {

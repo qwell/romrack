@@ -1,9 +1,9 @@
 import { Router } from 'express';
 
 import { sendServerError } from '../request.js';
-import { readThreeDSTitleMedia } from '../3ds.js';
-import { readWiiTitleMedia } from '../wii.js';
-import { readWiiUTitleMedia } from '../wiiu.js';
+import { readThreeDSTitleMedia } from '../platforms/3ds.js';
+import { readWiiTitleMedia } from '../platforms/wii.js';
+import { readWiiUTitleMedia } from '../platforms/wiiu.js';
 import logger from '../../shared/logger.js';
 import {
     isTitleMediaType,

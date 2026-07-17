@@ -41,16 +41,16 @@ const FST_ENTRY_LENGTH_OFFSET = 8;
 const FST_ENTRY_FLAGS_OFFSET = 12;
 const FST_ENTRY_CONTENT_ID_OFFSET = 14;
 
-export function looksLikeFst(value: Uint8Array | null): boolean {
+export function looksLikeFst(value: Buffer | null): boolean {
     return (
         value !== null &&
-        value.length >= FST_MAGIC.length &&
+        value.length >= FST_CONTENT_COUNT_OFFSET + 4 &&
         Buffer.from(value.subarray(0, FST_MAGIC.length)).toString('ascii') ===
             FST_MAGIC
     );
 }
 
-export function parseFstEntries(fst: Uint8Array): FstEntry[] {
+export function parseFstEntries(fst: Buffer): FstEntry[] {
     if (!looksLikeFst(fst)) {
         return [];
     }
@@ -66,6 +66,12 @@ export function parseFstEntries(fst: Uint8Array): FstEntry[] {
 
     const totalEntries = buffer.readUInt32BE(baseOffset + FST_ROOT_NEXT_OFFSET);
     const nameOffsetBase = baseOffset + totalEntries * FST_ENTRY_SIZE;
+    if (
+        !Number.isSafeInteger(nameOffsetBase) ||
+        nameOffsetBase > buffer.length
+    ) {
+        return [];
+    }
     const directoryStack: Array<{ name: string; nextOffset: number }> = [];
     const entries: FstEntry[] = [];
 
@@ -114,7 +120,7 @@ export function parseFstEntries(fst: Uint8Array): FstEntry[] {
             fileOffset,
             shiftedFileOffset:
                 (flags & FST_CHANGE_OFFSET_FLAG) === 0
-                    ? fileOffset << FST_SHIFTED_OFFSET_SHIFT
+                    ? fileOffset * 2 ** FST_SHIFTED_OFFSET_SHIFT
                     : fileOffset,
             fileLength,
         });
@@ -128,7 +134,7 @@ export function parseFstEntries(fst: Uint8Array): FstEntry[] {
 }
 
 export function parseTitleFstEntries(
-    decryptedFst: Uint8Array,
+    decryptedFst: Buffer,
     tmd: Tmd
 ): TitleFstEntry[] {
     return parseFstEntries(decryptedFst).map((entry) => {
@@ -147,17 +153,14 @@ export function parseTitleFstEntries(
     });
 }
 
-export function findFstEntry(
-    fst: Uint8Array,
-    fullPath: string
-): FstEntry | null {
+export function findFstEntry(fst: Buffer, fullPath: string): FstEntry | null {
     return (
         parseFstEntries(fst).find((entry) => entry.fullPath === fullPath) ??
         null
     );
 }
 
-export function getRootDirectoryChildren(fst: Uint8Array): string[] {
+export function getRootDirectoryChildren(fst: Buffer): string[] {
     return parseFstEntries(fst)
         .filter(
             (entry) =>
@@ -168,12 +171,20 @@ export function getRootDirectoryChildren(fst: Uint8Array): string[] {
         .map((entry) => entry.name);
 }
 
-export function readFstContentInfos(
-    fst: Uint8Array
-): Map<number, FstContentInfo> {
+export function readFstContentInfos(fst: Buffer): Map<number, FstContentInfo> {
     const buffer = Buffer.from(fst);
+    if (!looksLikeFst(buffer)) {
+        return new Map();
+    }
     const count = readFstContentCount(buffer);
     const infos = new Map<number, FstContentInfo>();
+
+    if (
+        FST_CONTENT_INFO_OFFSET + count * FST_CONTENT_INFO_SIZE >
+        buffer.length
+    ) {
+        return infos;
+    }
 
     for (let index = 0; index < count; index += 1) {
         const offset = FST_CONTENT_INFO_OFFSET + index * FST_CONTENT_INFO_SIZE;

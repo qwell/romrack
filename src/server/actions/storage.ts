@@ -4,13 +4,19 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { pipeline } from 'stream/promises';
 import { broadcastAppSocketEvent } from '../socket.js';
-import { findWiiTitleSourcePaths, readWiiTitleIdentity } from '../wii.js';
+import {
+    findWiiTitleSourcePaths,
+    getWbfsDiscFilePaths,
+    readWiiTitleIdentity,
+} from '../platforms/wii.js';
 import {
     findThreeDSTitleSourcePaths,
     readThreeDSTitleIdentity,
-} from '../3ds.js';
-import { findWiiUTitleSourcePaths, readWiiUTitleIdentity } from '../wiiu.js';
-import { getWbfsDiscFilePaths } from '../formats/wbfs.js';
+} from '../platforms/3ds.js';
+import {
+    findWiiUTitleSourcePaths,
+    readWiiUTitleIdentity,
+} from '../platforms/wiiu.js';
 import {
     clearTitleScanCache,
     getCachedTitleSourcePaths,

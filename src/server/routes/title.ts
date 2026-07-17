@@ -6,11 +6,8 @@ import {
     getUpdateMetadata,
     type NusTitleMetadata,
     readThreeDSDownloadOptions,
-} from '../title.js';
-import {
-    THREE_DS_NUS_BASE_URL,
-    WII_U_NUS_BASE_URL,
-} from '../download-title.js';
+} from '../nus.js';
+import { THREE_DS_NUS_BASE_URL, WII_U_NUS_BASE_URL } from '../nus.js';
 import {
     getStringQuery,
     requireWiiUTitleQuery,

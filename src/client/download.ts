@@ -7,7 +7,11 @@ import {
     type ActionState,
 } from '../shared/action.js';
 import { formatSize, formatTitleDisplay } from '../shared/utils.js';
-import { type TitleGroup, TitleKinds } from '../shared/titles.js';
+import {
+    type TitleGroup,
+    TitleKinds,
+    type TitlePlatform,
+} from '../shared/titles.js';
 import { DOWNLOAD_SOCKET_COMMAND } from '../shared/socket.js';
 import { syncGroupStatusFromSlots } from './library.js';
 import { sendAppSocketCommand } from './app-socket.js';
@@ -180,7 +184,7 @@ export function handleDownloadActionBarCommand(
 }
 
 export function getDownloadDedupeKey(item: DownloadQueueItem): string {
-    return `${item.family}\0${item.kind}\0${item.titleId}`;
+    return `${item.platform}\0${item.family}\0${item.kind}\0${item.titleId}`;
 }
 
 export function syncDownloadQueue(
@@ -371,6 +375,7 @@ export function collectSelectedDownloads(
     return Array.from(root.querySelectorAll<HTMLInputElement>(selector)).map(
         (checkbox) => ({
             id: crypto.randomUUID(),
+            platform: checkbox.dataset.platform as TitlePlatform,
             family: checkbox.dataset.family ?? '',
             groupName: checkbox.dataset.groupName ?? '',
             kind: checkbox.dataset.kind as TitleKinds,

@@ -201,6 +201,8 @@ function getTitlePrefix(platform: TitlePlatform, kind: TitleKinds): string {
         case 'wiiu':
             prefix = WII_U_TITLE_PREFIX_BY_KIND[kind];
             break;
+        case 'wii':
+            break;
     }
 
     if (!prefix) {

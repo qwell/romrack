@@ -1,13 +1,13 @@
 import { Router } from 'express';
 
-import { scanThreeDSTitleRoots } from '../3ds.js';
-import { scanWiiUTitleRoots } from '../wiiu.js';
+import { scanThreeDSTitleRoots } from '../platforms/3ds.js';
+import { scanWiiUTitleRoots } from '../platforms/wiiu.js';
 import {
     clearTitleScanCache,
     getLibraryCacheEntry,
     setLibraryCacheGroups,
 } from '../library.js';
-import { scanWiiTitleRoots } from '../wii.js';
+import { scanWiiTitleRoots } from '../platforms/wii.js';
 import { cacheGameTdbMediaForGroups } from '../gametdb.js';
 import { requireWiiUTitleQuery, sendServerError } from '../request.js';
 import { abortAndClearTitleValidations } from '../actions/titles.js';

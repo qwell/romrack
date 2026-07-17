@@ -383,7 +383,7 @@ export function renderSettingsSidebar(preserveDraft = true): void {
             }),
             buildSettingsRootsSection({
                 title: `${TitlePlatform['wii']} Roots`,
-                help: `Add one or more ${TitlePlatform['wii']} library roots. These are saved for upcoming Wii library support.`,
+                help: `Add one or more ${TitlePlatform['wii']} library roots.`,
                 roots: settingsConfig.wiiRoots,
                 configKey: 'wiiRoots',
             }),

@@ -8,7 +8,7 @@ export type Tmd = {
 };
 
 export type TmdHeader = {
-    titleId: Uint8Array;
+    titleId: Buffer;
     titleVersion: number;
     region: string;
     systemType: SystemType;
@@ -20,7 +20,7 @@ export type TmdContent = {
     index: number;
     type: number;
     size: number;
-    hash: Uint8Array;
+    hash: Buffer;
 };
 
 export type TmdCertificates = {
@@ -29,18 +29,18 @@ export type TmdCertificates = {
 };
 
 export type TmdCertificateFull = {
-    raw: Uint8Array;
+    raw: Buffer;
     parsed: TmdCertificate | null;
 };
 
 export type TmdCertificate = {
     signatureType: CertificateSignatureType;
-    signature: Uint8Array;
+    signature: Buffer;
     issuer: string;
     keyType: CertificateKeyType;
     name: string;
     keyId: number;
-    publicKey: Uint8Array;
+    publicKey: Buffer;
 };
 
 type CertificateSignatureType =
@@ -124,7 +124,7 @@ export function readTmdHeader(buffer: Buffer): TmdHeader | null {
     if (buffer.length < TMD_CONTENT_COUNT_OFFSET + TMD_CONTENT_COUNT_SIZE) {
         return null;
     }
-    const titleId = new Uint8Array(
+    const titleId = Buffer.from(
         buffer.subarray(
             TMD_TITLE_ID_OFFSET,
             TMD_TITLE_ID_OFFSET + TMD_TITLE_ID_SIZE
@@ -176,7 +176,7 @@ export function readTmdCertificate(buffer: Buffer): TmdCertificate | null {
     }
     return {
         signatureType,
-        signature: new Uint8Array(
+        signature: Buffer.from(
             buffer.subarray(
                 CERT_SIGNATURE_OFFSET,
                 CERT_SIGNATURE_OFFSET + signatureSize
@@ -190,17 +190,17 @@ export function readTmdCertificate(buffer: Buffer): TmdCertificate | null {
             .toString('ascii', nameOffset, nameOffset + CERT_TEXT_SIZE)
             .replace(/\0.*$/, ''),
         keyId: buffer.readUInt32BE(keyIdOffset),
-        publicKey: new Uint8Array(
+        publicKey: Buffer.from(
             buffer.subarray(publicKeyOffset, publicKeyOffset + publicKeySize)
         ),
     };
 }
 
-export function getTitleIdHex(value: Uint8Array): string {
+export function getTitleIdHex(value: Buffer): string {
     return Buffer.from(value).toString('hex');
 }
 
-export function getTitleIdNumber(value: Uint8Array): bigint {
+export function getTitleIdNumber(value: Buffer): bigint {
     return Buffer.from(value).readBigUInt64BE(0);
 }
 
@@ -221,7 +221,7 @@ function readTmdContent(buffer: Buffer): TmdContent {
         index: buffer.readUInt16BE(4),
         type: buffer.readUInt16BE(6),
         size: Number(buffer.readBigUInt64BE(8)),
-        hash: new Uint8Array(
+        hash: Buffer.from(
             buffer.subarray(
                 TMD_CONTENT_HASH_OFFSET,
                 TMD_CONTENT_HASH_OFFSET + TMD_CONTENT_HASH_SIZE
@@ -234,8 +234,8 @@ function readTmdCertificates(buffer: Buffer): TmdCertificates {
     if (buffer.length < TMD_CERTIFICATE_1_SIZE + TMD_CERTIFICATE_2_SIZE) {
         return { certificate1: null, certificate2: null };
     }
-    const cert1Raw = new Uint8Array(buffer.subarray(0, TMD_CERTIFICATE_1_SIZE));
-    const cert2Raw = new Uint8Array(
+    const cert1Raw = Buffer.from(buffer.subarray(0, TMD_CERTIFICATE_1_SIZE));
+    const cert2Raw = Buffer.from(
         buffer.subarray(
             TMD_CERTIFICATE_1_SIZE,
             TMD_CERTIFICATE_1_SIZE + TMD_CERTIFICATE_2_SIZE
@@ -299,7 +299,7 @@ function getRegionName(region: number): string {
     return RegionNames[region] ?? Region.UNK;
 }
 
-function getSystemType(titleId: Uint8Array): SystemType {
+function getSystemType(titleId: Buffer): SystemType {
     if (!titleId || titleId.length < 2) {
         return SYSTEM_TYPE_UNKNOWN;
     }

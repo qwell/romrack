@@ -1,7 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
 
 import { normalizeRegion } from '../../shared/regions.js';
-import logger from '../../shared/logger.js';
 
 export type NUSTitleInformation = {
     name: string | null;
@@ -21,7 +20,7 @@ const META_XML_PARSER = new XMLParser({
     trimValues: false,
 });
 
-export function readMetaXml(buffer: Uint8Array): NUSTitleInformation | null {
+export function readMetaXml(buffer: Buffer): NUSTitleInformation | null {
     const menu = readMetaXmlJson(buffer);
     const productCode = getMenuString(menu, 'product_code');
     const companyCode = getMenuString(menu, 'company_code');
@@ -47,7 +46,7 @@ export function readMetaXml(buffer: Uint8Array): NUSTitleInformation | null {
 }
 
 export function readMetaXmlJson(
-    buffer: Uint8Array
+    buffer: Buffer
 ): Record<string, unknown> | null {
     try {
         const xml = Buffer.from(buffer)
@@ -61,13 +60,12 @@ export function readMetaXmlJson(
             menu?: Record<string, unknown>;
         };
         return parsed.menu ?? null;
-    } catch (error) {
-        logger.warn('metadata', 'failed to parse meta.xml:', String(error));
+    } catch {
         return null;
     }
 }
 
-export function findXmlStartByte(buffer: Uint8Array): number {
+export function findXmlStartByte(buffer: Buffer): number {
     const source = Buffer.from(buffer);
     const xmlIndex = source.indexOf(Buffer.from('<?xml'));
     if (xmlIndex >= 0) {

@@ -12,7 +12,11 @@ import {
     TITLE_VALIDATE_SOCKET_COMMAND,
 } from '../shared/socket.js';
 import { type DownloadQueueItemDetails } from '../shared/download.js';
-import { identifyTitle, TitleKinds } from '../shared/titles.js';
+import {
+    identifyTitle,
+    isTitlePlatform,
+    TitleKinds,
+} from '../shared/titles.js';
 import logger from '../shared/logger.js';
 
 type AppSocketOptions = {
@@ -234,6 +238,8 @@ function parseDownloadQueueItemDetails(
     if (
         typeof item.id !== 'string' ||
         item.id.length === 0 ||
+        typeof item.platform !== 'string' ||
+        !isTitlePlatform(item.platform) ||
         typeof item.titleId !== 'string' ||
         typeof item.groupName !== 'string' ||
         typeof item.label !== 'string' ||
@@ -246,12 +252,13 @@ function parseDownloadQueueItemDetails(
     }
 
     const title = identifyTitle(item.titleId);
-    if (!title) {
+    if (!title || title.platform !== item.platform) {
         return null;
     }
 
     return {
         id: item.id,
+        platform: item.platform,
         family: title.family,
         groupName: item.groupName,
         kind: item.kind as TitleKinds,

@@ -39,6 +39,10 @@ export function isFileNotFoundError(error: unknown): boolean {
     return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
+export function isFileExistsError(error: unknown): boolean {
+    return error instanceof Error && 'code' in error && error.code === 'EEXIST';
+}
+
 export function isSameOrNestedPath(left: string, right: string): boolean {
     const root = path.resolve(left);
     let current = path.resolve(right);

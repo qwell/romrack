@@ -1,8 +1,9 @@
-import { TitleKinds } from './titles.js';
+import { TitleKinds, type TitlePlatform } from './titles.js';
 import { type ActionState } from './action.js';
 
 export type DownloadQueueItemDetails = {
     id: string;
+    platform: TitlePlatform;
     family: string;
     groupName: string;
     kind: TitleKinds;
