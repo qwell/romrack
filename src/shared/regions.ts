@@ -38,6 +38,7 @@ const RegionCountries: Record<RegionNames, string> = {
 };
 
 const RegionAliases: Record<string, RegionNames> = {
+    'NTSC-K': Region.KOR,
     'NTSC-J': Region.JPN,
     'NTSC-U': Region.USA,
     PAL: Region.EUR,
