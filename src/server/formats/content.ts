@@ -1,6 +1,7 @@
 import { createDecipheriv, createHash } from 'node:crypto';
 
 import { createContentIv, decryptContentWithIv } from '../decryption.js';
+import { formatLogError } from '../../shared/utils.js';
 import { type TmdContent } from './tmd.js';
 
 export type ContentTreeVerification = {
@@ -134,7 +135,7 @@ export async function verifyContent({
         return {
             contentId,
             status: 'failed',
-            error: error instanceof Error ? error.message : String(error),
+            error: formatLogError(error),
         };
     }
 }
@@ -264,7 +265,7 @@ async function verifyContentTree({
         return {
             contentId,
             status: 'failed',
-            error: error instanceof Error ? error.message : String(error),
+            error: formatLogError(error),
         };
     }
 }
@@ -307,7 +308,7 @@ async function verifyContentHash({
         return {
             contentId,
             status: 'failed',
-            error: error instanceof Error ? error.message : String(error),
+            error: formatLogError(error),
         };
     }
 }

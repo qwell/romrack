@@ -129,7 +129,7 @@ async function runTitleCopyValidation(
         if (abortController.signal.aborted) {
             return;
         }
-        const message = error instanceof Error ? error.message : String(error);
+        const message = formatLogError(error);
         logger.warn(
             'server',
             `Failed to validate title ${titleId}: ${formatLogError(error)}`

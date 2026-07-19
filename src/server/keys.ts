@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { readOptionalFile } from '../shared/file.js';
 import logger from '../shared/logger.js';
+import { formatLogError } from '../shared/utils.js';
 import { getUserAppRoot } from './paths.js';
 
 export type ThreeDSKeys = {
@@ -239,7 +240,7 @@ async function loadCachedKeys<Keys>({
         try {
             return parse(cached, cachePath);
         } catch (error) {
-            errors.push(`${cachePath}: ${formatError(error)}`);
+            errors.push(`${cachePath}: ${formatLogError(error)}`);
         }
     }
 
@@ -261,7 +262,7 @@ async function loadCachedKeys<Keys>({
             logger.log('metadata', `Saved ${platform} keys to ${cachePath}`);
             return keys;
         } catch (error) {
-            errors.push(`source ${index + 1}: ${formatError(error)}`);
+            errors.push(`source ${index + 1}: ${formatLogError(error)}`);
         }
     }
 
@@ -277,10 +278,6 @@ async function writeKeyFile(
     const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
     await fs.writeFile(temporaryPath, contents);
     await fs.rename(temporaryPath, filePath);
-}
-
-function formatError(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
 }
 
 function getWudKeyCandidates(imagePath: string): string[] {

@@ -475,9 +475,7 @@ export async function findFirstReadableTitleRoot(
             await assertReadableDirectory(readableRoot);
             return readableRoot;
         } catch (error) {
-            errors.push(
-                `${root}: ${error instanceof Error ? error.message : String(error)}`
-            );
+            errors.push(`${root}: ${formatLogError(error)}`);
         }
     }
 
@@ -827,9 +825,9 @@ async function readTitleDatabaseFile(
         const message = `[${options.logNamespace}] failed to read titles DB at ${filePath}:`;
 
         if (options.required) {
-            logger.error('metadata', message, String(error));
+            logger.error('metadata', message, formatLogError(error));
         } else {
-            logger.warn('metadata', message, String(error));
+            logger.warn('metadata', message, formatLogError(error));
         }
 
         return [];

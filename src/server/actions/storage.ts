@@ -726,7 +726,7 @@ async function processStorageCopyQueue(): Promise<void> {
         }
 
         nextItem.state = 'failed';
-        nextItem.error = error instanceof Error ? error.message : String(error);
+        nextItem.error = formatLogError(error);
         nextItem.message = nextItem.error;
 
         logger.warn('server', `Storage copy failed: ${formatLogError(error)}`);
@@ -1508,7 +1508,7 @@ async function processStorageDelete(
         }
 
         nextItem.state = 'failed';
-        nextItem.error = error instanceof Error ? error.message : String(error);
+        nextItem.error = formatLogError(error);
         nextItem.message = nextItem.error;
 
         logger.warn(

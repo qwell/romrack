@@ -36,11 +36,15 @@ export async function readOptionalFile(
 }
 
 export function isFileNotFoundError(error: unknown): boolean {
-    return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+    return isNodeErrorCode(error, 'ENOENT');
 }
 
 export function isFileExistsError(error: unknown): boolean {
-    return error instanceof Error && 'code' in error && error.code === 'EEXIST';
+    return isNodeErrorCode(error, 'EEXIST');
+}
+
+function isNodeErrorCode(error: unknown, code: string): boolean {
+    return error instanceof Error && 'code' in error && error.code === code;
 }
 
 export function isSameOrNestedPath(left: string, right: string): boolean {

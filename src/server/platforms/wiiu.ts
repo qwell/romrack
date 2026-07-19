@@ -56,6 +56,7 @@ import {
     splitGameTdbList,
 } from '../library.js';
 import {
+    formatLogError,
     formatSize,
     formatTitleDisplay,
     mapConcurrent,
@@ -239,7 +240,7 @@ async function verifyContentInstallFiles({
         return {
             contentId: files.contentId,
             status: 'failed',
-            error: error instanceof Error ? error.message : String(error),
+            error: formatLogError(error),
         };
     }
 }
@@ -403,7 +404,7 @@ async function scanWudTitleEntries(roots: string[]): Promise<WudTitleEntry[]> {
         } catch (error) {
             logger.warn(
                 'wud',
-                `skipping ${imagePath}: ${error instanceof Error ? error.message : String(error)}`
+                `skipping ${imagePath}: ${formatLogError(error)}`
             );
         }
     }
@@ -521,7 +522,7 @@ export async function scanWiiUTitleRoots(
     } catch (error) {
         logger.warn(
             'wud',
-            `failed to scan WUD/WUX library entries: ${String(error)}`
+            `failed to scan WUD/WUX library entries: ${formatLogError(error)}`
         );
     }
 
@@ -942,7 +943,7 @@ async function readLocalMetaXml(
     } catch (error) {
         logger.warn(
             'wiiu',
-            `failed to read local Wii U metadata from ${dirPath}: ${String(error)}`
+            `failed to read local Wii U metadata from ${dirPath}: ${formatLogError(error)}`
         );
         return null;
     }
@@ -1580,7 +1581,7 @@ export async function verifyWupTitleFiles(
         return createFailedInstalledVerification(
             titleId,
             titleVersion,
-            error instanceof Error ? error.message : String(error)
+            formatLogError(error)
         );
     }
 
@@ -1883,7 +1884,7 @@ export async function convertWudImages(
                         throwIfAborted(options.signal);
                         logger.warn(
                             'wud',
-                            `skipping ${partition.name}: ${error instanceof Error ? error.message : String(error)}`
+                            `skipping ${partition.name}: ${formatLogError(error)}`
                         );
                     }
                 }
@@ -1899,8 +1900,7 @@ export async function convertWudImages(
             }
         } catch (error) {
             throwIfAborted(options.signal);
-            const message =
-                error instanceof Error ? error.message : String(error);
+            const message = formatLogError(error);
             logger.warn('wud', `skipping ${imagePath}: ${message}`);
         }
     }
@@ -2070,10 +2070,7 @@ async function readWudGamePartitionChild(
             tmd
         );
     } catch (error) {
-        logger.warn(
-            'wud',
-            `skipping ${child}: ${error instanceof Error ? error.message : String(error)}`
-        );
+        logger.warn('wud', `skipping ${child}: ${formatLogError(error)}`);
         return null;
     }
 }

@@ -30,7 +30,7 @@ export function createLibraryRouter(): Router {
         } catch (error) {
             logger.warn(
                 'server',
-                `Failed to clear title verification cache: ${String(error)}`
+                `Failed to clear title verification cache: ${formatLogError(error)}`
             );
         }
         try {
@@ -64,8 +64,7 @@ export function createLibraryRouter(): Router {
         try {
             res.json(await verifyLibrary());
         } catch (error) {
-            const message =
-                error instanceof Error ? error.message : String(error);
+            const message = formatLogError(error);
             if (message === 'Library verification already in progress') {
                 res.status(409).json({ error: message });
                 return;

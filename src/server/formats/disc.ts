@@ -1,5 +1,6 @@
 import { createDecipheriv, createHash } from 'node:crypto';
 import { scheduler } from 'node:timers/promises';
+import { formatLogError } from '../../shared/utils.js';
 
 export type DiscReader = {
     sparse: boolean;
@@ -233,7 +234,7 @@ async function verifyPartition(
             skippedClusters: 0,
             failedClusters: 0,
             status: 'failed',
-            error: error instanceof Error ? error.message : String(error),
+            error: formatLogError(error),
         };
     }
 }

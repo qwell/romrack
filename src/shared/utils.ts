@@ -65,6 +65,13 @@ export function formatLogError(error: unknown): string {
     return `${error.message}; cause: ${formatLogError(cause)}`;
 }
 
+export function isTimeoutError(error: unknown): boolean {
+    return (
+        error instanceof Error &&
+        (error.name === 'AbortError' || error.name === 'TimeoutError')
+    );
+}
+
 export function formatSize(sizeBytes: number | null): string {
     if (sizeBytes === null || sizeBytes === undefined) {
         return '';

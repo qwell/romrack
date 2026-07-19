@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { normalizeRegion } from '../../shared/regions.js';
 import logger from '../../shared/logger.js';
+import { formatLogError } from '../../shared/utils.js';
 import {
     CHILD_KINDS,
     ChildKind,
@@ -101,7 +102,7 @@ async function loadOptionalThreeDSKeys(): Promise<ThreeDSKeys | null> {
     } catch (error) {
         logger.warn(
             '3ds',
-            `Continuing without 3DS keys: ${error instanceof Error ? error.message : String(error)}`
+            `Continuing without 3DS keys: ${formatLogError(error)}`
         );
         return null;
     }

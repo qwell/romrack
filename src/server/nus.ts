@@ -56,6 +56,7 @@ import logger from '../shared/logger.js';
 import { isHttpErrorStatus } from '../shared/download.js';
 import { isFileNotFoundError } from '../shared/file.js';
 import { normalizeRegion } from '../shared/regions.js';
+import { formatLogError } from '../shared/utils.js';
 
 export { type DownloadOptions } from './download.js';
 
@@ -87,7 +88,7 @@ export async function downloadOptionalTicket(
         options?.signal?.throwIfAborted();
         logger.warn(
             'download',
-            `optional ticket unavailable for ${titleId}: ${error instanceof Error ? error.message : String(error)}`
+            `optional ticket unavailable for ${titleId}: ${formatLogError(error)}`
         );
         return null;
     }
@@ -441,9 +442,7 @@ async function readThreeDSP12DownloadOptions(): Promise<DownloadOptions> {
 
             return options;
         } catch (error) {
-            errors.push(
-                `${url}: ${error instanceof Error ? error.message : String(error)}`
-            );
+            errors.push(`${url}: ${formatLogError(error)}`);
         }
     }
 
@@ -586,7 +585,7 @@ export async function downloadNusTitleMetadata(
     } catch (error) {
         logger.warn(
             'metadata',
-            `failed to enrich metadata for ${titleId}: ${error instanceof Error ? error.message : String(error)}`
+            `failed to enrich metadata for ${titleId}: ${formatLogError(error)}`
         );
         return createBasicNusTitleMetadata(titleId, tmd);
     }
@@ -882,7 +881,7 @@ async function resolveThreeDSTicketTitleKey(
     } catch (error) {
         logger.warn(
             'metadata',
-            `failed to decrypt 3DS ticket title key: ${error instanceof Error ? error.message : String(error)}`
+            `failed to decrypt 3DS ticket title key: ${formatLogError(error)}`
         );
         return null;
     }

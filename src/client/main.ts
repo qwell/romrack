@@ -26,7 +26,7 @@ import {
 } from '../shared/storage.js';
 import { identifyTitle, type TitleGroup } from '../shared/titles.js';
 import { type DownloadQueueItem } from '../shared/download.js';
-import { formatSize } from '../shared/utils.js';
+import { formatLogError, formatSize } from '../shared/utils.js';
 import { type Fat32Volume, type RuntimeOs } from '../shared/os/types.js';
 import { isWindowsPath } from '../shared/os/path.js';
 import {
@@ -295,7 +295,7 @@ async function verifyLibraryContent(): Promise<void> {
         syncLibraryVerifyActions(libraryVerifications, {
             type: LIBRARY_VERIFY_SOCKET_EVENT.changed,
             state: 'failed',
-            error: error instanceof Error ? error.message : String(error),
+            error: formatLogError(error),
         });
         refreshActionBar();
     } finally {

@@ -220,7 +220,7 @@ async function processDownloadQueue(): Promise<void> {
         }
 
         nextItem.state = 'failed';
-        nextItem.error = error instanceof Error ? error.message : String(error);
+        nextItem.error = formatLogError(error);
 
         logger.warn('server', `Download failed: ${formatLogError(error)}`);
 

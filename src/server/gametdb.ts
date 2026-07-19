@@ -13,7 +13,7 @@ import {
     type TitleGroup,
     type TitlePlatform,
 } from '../shared/titles.js';
-import { formatLogError } from '../shared/utils.js';
+import { formatLogError, isTimeoutError } from '../shared/utils.js';
 import {
     decompressZipEntry,
     readZipCentralDirectory,
@@ -506,10 +506,7 @@ async function downloadBuffer(url: string): Promise<Buffer> {
             })
         );
     } catch (error) {
-        if (
-            error instanceof Error &&
-            (error.name === 'AbortError' || error.name === 'TimeoutError')
-        ) {
+        if (isTimeoutError(error)) {
             throw new Error(
                 `GameTDB download timed out after ${(DOWNLOAD_TIMEOUT_MS / 1000).toString()}s: ${url}`,
                 { cause: error }
@@ -526,10 +523,7 @@ async function fetchGameTdb(url: string, init: RequestInit): Promise<Response> {
             signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
         });
     } catch (error) {
-        if (
-            error instanceof Error &&
-            (error.name === 'AbortError' || error.name === 'TimeoutError')
-        ) {
+        if (isTimeoutError(error)) {
             throw new Error(
                 `GameTDB download timed out after ${(DOWNLOAD_TIMEOUT_MS / 1000).toString()}s: ${url}`,
                 { cause: error }
@@ -714,10 +708,7 @@ async function downloadFile(url: string, filePath: string): Promise<number> {
             signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
         });
     } catch (error) {
-        if (
-            error instanceof Error &&
-            (error.name === 'AbortError' || error.name === 'TimeoutError')
-        ) {
+        if (isTimeoutError(error)) {
             throw new Error(
                 `GameTDB download timed out after ${(DOWNLOAD_TIMEOUT_MS / 1000).toString()}s: ${url}`,
                 { cause: error }

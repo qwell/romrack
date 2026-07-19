@@ -146,7 +146,7 @@ export async function verifyLibrary(): Promise<LibraryVerifyResponse> {
         broadcastLibraryVerifyEvent({
             type: LIBRARY_VERIFY_SOCKET_EVENT.changed,
             state: 'failed',
-            error: error instanceof Error ? error.message : String(error),
+            error: formatLogError(error),
         });
         throw error;
     } finally {
@@ -334,7 +334,7 @@ async function processLibraryConvertQueue(): Promise<void> {
             return;
         }
         item.state = 'failed';
-        item.error = error instanceof Error ? error.message : String(error);
+        item.error = formatLogError(error);
         logger.warn(
             'server',
             `Failed to convert WUD/WUX library entries: ${formatLogError(error)}`
