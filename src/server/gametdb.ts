@@ -88,6 +88,11 @@ type GameTdbArchiveExtraction = {
     pending: Promise<void>;
 };
 
+type GameTdbArchiveRefresh = {
+    mediaKeys: Set<string>;
+    pending: Promise<void>;
+};
+
 export type GameTdbLocale = {
     '@lang'?: string;
     title?: string;
@@ -250,6 +255,7 @@ const MEDIA_KEY_LENGTHS: Record<TitlePlatform, number> = {
 };
 const mediaArchives = new Map<string, Promise<GameTdbDownloadedArchive>>();
 const mediaExtractions = new Map<string, GameTdbArchiveExtraction>();
+const mediaRefreshes = new Map<string, GameTdbArchiveRefresh>();
 const downloadsPageCache = new Map<TitlePlatform, Promise<string>>();
 const remoteArchiveIndexes = new Map<
     string,
@@ -258,7 +264,6 @@ const remoteArchiveIndexes = new Map<
 const archiveProductCodes = new Map<string, GameTdbArchiveProductCodes>();
 const missingMediaArchives = new Set<string>();
 let cacheFileLoaded = false;
-let startupUpdateStarted = false;
 
 export function isGameTdbGame(value: unknown): value is GameTdbGame {
     return (
@@ -1047,34 +1052,6 @@ async function extractArchive(
     return productCodes;
 }
 
-async function getExtractedMediaKeys(
-    platform: TitlePlatform,
-    type: GameTdbMediaType
-): Promise<Set<string>> {
-    const mediaKeys = new Set<string>();
-
-    try {
-        for (const entry of await fs.readdir(getMediaCacheDir(type, platform), {
-            withFileTypes: true,
-        })) {
-            if (!entry.isFile()) {
-                continue;
-            }
-
-            const filename = getMediaCacheFilename(platform, entry.name);
-            if (filename) {
-                mediaKeys.add(filename.mediaKey);
-            }
-        }
-    } catch (error) {
-        if (!isFileNotFoundError(error)) {
-            throw error;
-        }
-    }
-
-    return mediaKeys;
-}
-
 async function getExistingArchiveAgeMs(
     step: GameTdbMediaStep
 ): Promise<number | null> {
@@ -1129,6 +1106,8 @@ async function cacheMediaArchive(
     extraction.pending = (async () => {
         await waitForExtractionBatch();
 
+        const step = { platform, type, region };
+        const refreshAfterExtraction = await isArchiveRefreshDue(step);
         const archive = await readDownloadedArchive(platform, type, region);
         await extractArchive(
             platform,
@@ -1138,6 +1117,9 @@ async function cacheMediaArchive(
             extraction.mediaKeys.size > 0 ? extraction.mediaKeys : null,
             extraction.mediaItems.size > 0 ? extraction.mediaItems : null
         );
+        if (refreshAfterExtraction) {
+            refreshMediaArchiveInBackground(step, extraction.mediaKeys);
+        }
     })().catch((error: unknown) => {
         mediaExtractions.delete(key);
         logger.warn(
@@ -1154,6 +1136,58 @@ async function cacheMediaArchive(
             mediaExtractions.delete(key);
         }
     }
+}
+
+function refreshMediaArchiveInBackground(
+    step: GameTdbMediaStep,
+    mediaKeys: ReadonlySet<string>
+): void {
+    const key = getArchiveIndexKey(step.platform, step.type, step.region);
+    const existing = mediaRefreshes.get(key);
+    if (existing) {
+        for (const mediaKey of mediaKeys) {
+            existing.mediaKeys.add(mediaKey);
+        }
+        return;
+    }
+
+    const refresh: GameTdbArchiveRefresh = {
+        mediaKeys: new Set(mediaKeys),
+        pending: Promise.resolve(),
+    };
+    mediaRefreshes.set(key, refresh);
+    refresh.pending = (async () => {
+        logger.log(
+            'gametdb',
+            `refreshing stale ${formatStepArchiveLabel(step)} archive in the background`
+        );
+        const archive = await readDownloadedArchive(
+            step.platform,
+            step.type,
+            step.region,
+            true
+        );
+        await extractArchive(
+            step.platform,
+            step.type,
+            step.region,
+            archive.archivePath,
+            refresh.mediaKeys,
+            null,
+            true
+        );
+    })()
+        .catch((error: unknown) => {
+            logger.warn(
+                'gametdb',
+                `failed to refresh ${formatStepArchiveLabel(step)} in the background: ${formatLogError(error)}`
+            );
+        })
+        .finally(() => {
+            if (mediaRefreshes.get(key) === refresh) {
+                mediaRefreshes.delete(key);
+            }
+        });
 }
 
 function getMediaRegions(
@@ -1379,68 +1413,6 @@ async function cacheMissingMedia(wanted: WantedMedia): Promise<void> {
     }
 }
 
-async function refreshStaleMediaArchive(
-    step: GameTdbMediaStep,
-    mediaKeys: ReadonlySet<string>
-): Promise<void> {
-    if (
-        mediaKeys.size === 0 ||
-        missingMediaArchives.has(
-            getArchiveIndexKey(step.platform, step.type, step.region)
-        ) ||
-        !(await isArchiveRefreshDue(step))
-    ) {
-        return;
-    }
-
-    logger.log(
-        'gametdb',
-        `refreshing stale ${formatStepArchiveLabel(step)} archive`
-    );
-
-    const archive = await readDownloadedArchive(
-        step.platform,
-        step.type,
-        step.region,
-        true
-    );
-    await extractArchive(
-        step.platform,
-        step.type,
-        step.region,
-        archive.archivePath,
-        mediaKeys,
-        null,
-        true
-    );
-}
-
-async function refreshStaleExtractedMedia(): Promise<void> {
-    const mediaKeys = new Map<string, Set<string>>();
-
-    for (const platform of TITLE_PLATFORM_IDS) {
-        for (const type of GAME_TDB_MEDIA_TYPES) {
-            mediaKeys.set(
-                `${platform}:${type}`,
-                await getExtractedMediaKeys(platform, type)
-            );
-        }
-    }
-
-    for (const step of getMediaSteps()) {
-        const stepMediaKeys =
-            mediaKeys.get(`${step.platform}:${step.type}`) ?? new Set();
-        await refreshStaleMediaArchive(step, stepMediaKeys).catch(
-            (error: unknown) => {
-                logger.warn(
-                    'gametdb',
-                    `failed to refresh GameTDB ${step.platform} ${step.type} ${step.region}: ${formatLogError(error)}`
-                );
-            }
-        );
-    }
-}
-
 async function findOrCacheMediaPath(
     platform: TitlePlatform,
     type: GameTdbMediaType,
@@ -1465,20 +1437,6 @@ function isMediaPlatform(value: string): value is TitlePlatform {
 
 function isMediaType(value: string): value is GameTdbMediaType {
     return GAME_TDB_MEDIA_TYPES.includes(value as GameTdbMediaType);
-}
-
-export function cacheAllGameTdbMedia(): void {
-    if (startupUpdateStarted) {
-        return;
-    }
-
-    startupUpdateStarted = true;
-    void refreshStaleExtractedMedia().catch((error: unknown) => {
-        logger.warn(
-            'gametdb',
-            `failed to refresh stale GameTDB media: ${formatLogError(error)}`
-        );
-    });
 }
 
 export function cacheGameTdbMediaForGroups(groups: TitleGroup[]): void {

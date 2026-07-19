@@ -6,7 +6,6 @@ import path from 'node:path';
 import { getAppRoot } from './paths.js';
 import { createAppSocket } from './socket.js';
 import { getConfig } from './routes/config.js';
-import { cacheAllGameTdbMedia } from './gametdb.js';
 import logger from '../shared/logger.js';
 import { formatLogError } from '../shared/utils.js';
 import {
@@ -47,8 +46,6 @@ import {
 } from './actions/downloads.js';
 
 const config = getConfig();
-cacheAllGameTdbMedia();
-
 const app = express();
 const host = config.host;
 const port = config.port;
