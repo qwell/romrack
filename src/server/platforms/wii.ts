@@ -2,13 +2,9 @@ import { open, stat, type FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 
 import { normalizeRegion } from '../../shared/regions.js';
+import { formatLogError, formatSize } from '../../shared/utils.js';
 import {
-    formatLogError,
-    formatSize,
-    formatTitleDisplay,
-} from '../../shared/utils.js';
-import {
-    getWiiProductCode,
+    getDiscProductCode,
     identifyWiiTitle,
     mergeTitleEntry,
     normalizeTitleName,
@@ -25,16 +21,17 @@ import {
     type LibraryVerifyProgress,
     type LibraryVerifyTitle,
 } from '../../shared/api.js';
-import { ansi } from '../../shared/ansi.js';
 import {
     getGameTdbLocales,
     getPreferredGameTdbSynopsis,
+    isGameCubeGameTdbTitle,
     type GameTdbGame,
     readCachedGameTdbMedia,
     readGameTdbMedia,
 } from '../gametdb.js';
 import { readCachedTitleMedia, type CachedImage } from '../image-cache.js';
-import { type DiscReader, verifyWiiDisc } from '../formats/disc.js';
+import { inspectWiiDiscStructure, verifyWiiDisc } from '../formats/disc.js';
+import { type RandomAccessReader } from '../formats/reader.js';
 import { readWbfsHeader } from '../formats/wbfs.js';
 import {
     cacheLocalTitleIcon,
@@ -48,6 +45,8 @@ import {
     mergeLibraryTitleGroups,
     parseGameTdbInputControls,
     parseGameTdbNumber,
+    prepareTitleVerifications,
+    type PreparedTitleVerification,
     readGameTdb,
     readTitleDatabase,
     readTitleDatabaseByProductCode,
@@ -61,8 +60,13 @@ import {
 
 const LIBRARY_SCAN_CONCURRENCY = 8;
 const WII_DISC_IMAGE_EXTENSIONS = new Set(['.iso', '.wbfs']);
+type WiiDiscReader = RandomAccessReader & { sparse: boolean };
+const WII_COMMON_KEYS = [
+    Buffer.from('6+QqIl6Fk+RI2cVFc4Gq9w==', 'base64'),
+    Buffer.from('Y7grtPRhTi4T8v77ukybfg==', 'base64'),
+];
 const WII_DISC_TITLE_ID_OFFSET = 0x00; // [0] = systemType, [1-2] = titleId, [3] = region
-const WII_DISC_TITLE_ID_LENGTH = 0x04;
+const WII_DISC_TITLE_ID_LENGTH = 0x06;
 const WII_DISC_VERSION_OFFSET = 0x07;
 const WII_DISC_MAGIC_OFFSET = 0x18;
 const WII_DISC_MAGIC = 0x5d1c9ea3;
@@ -208,8 +212,8 @@ async function verifyWiiTitles(
         const titleKind = titleEntry?.kind ?? TitleKinds.Base;
         const titleVersion = titleEntry?.version ?? null;
         const sizeText = formatSize(sizeBytes);
-
         onProgress?.({
+            platform: 'wii',
             titleId,
             name: titleName,
             kind: titleKind,
@@ -218,19 +222,11 @@ async function verifyWiiTitles(
             total,
         });
 
-        logger.log(
-            'wii',
-            `verifying title: ${formatTitleDisplay(
-                titleName,
-                titleId,
-                titleVersion
-            )} (${sizeText})`
-        );
-
         const verification = await verifyDiscImage(
             filePath,
             (progress) => {
                 onProgress?.({
+                    platform: 'wii',
                     titleId,
                     name: titleName,
                     kind: titleKind,
@@ -246,21 +242,8 @@ async function verifyWiiTitles(
         throwIfLibraryVerifyCancelled(options.signal);
 
         const result = verification.status === 'ok' ? 'ok' : 'failed';
-        const status =
-            verification.status === 'failed'
-                ? `${ansi.red}failed${ansi.reset}`
-                : `${ansi.green}${verification.status}${ansi.reset}`;
-
-        logger.log(
-            'wii',
-            `verified title:  ${formatTitleDisplay(
-                titleName,
-                titleId,
-                titleVersion
-            )} (${status})`
-        );
-
         onProgress?.({
+            platform: 'wii',
             titleId,
             name: titleName,
             kind: titleKind,
@@ -272,6 +255,7 @@ async function verifyWiiTitles(
         });
 
         verifications.push({
+            platform: 'wii',
             root,
             directory,
             name: titleName,
@@ -304,6 +288,88 @@ export async function verifyWiiTitleRoots(
     });
 }
 
+export function prepareWiiTitleVerifications(
+    roots: string[],
+    signal?: AbortSignal
+): Promise<PreparedTitleVerification[]> {
+    return prepareTitleVerifications({
+        roots,
+        signal,
+        platform: 'wii',
+        logNamespace: 'wii',
+        findItems: findTitleDirs,
+    });
+}
+
+export function verifyPreparedWiiTitle(
+    item: PreparedTitleVerification,
+    index: number,
+    total: number,
+    onProgress?: (progress: LibraryVerifyProgress) => void,
+    signal?: AbortSignal
+): Promise<LibraryVerifyTitle[]> {
+    return verifyWiiTitles(item.root, onProgress, {
+        directories: [item.directory],
+        offset: index,
+        total,
+        signal,
+    });
+}
+
+export async function validateWiiTitleFile(
+    titlePath: string,
+    expectedTitleId: string,
+    signal?: AbortSignal
+): Promise<{
+    titleId: string | null;
+    titleVersion: number | null;
+    status: 'ok' | 'failed';
+    failedFileCount: number;
+    totalFileCount: number;
+    error: string | null;
+}> {
+    let reader: WiiDiscReader | null = null;
+    try {
+        signal?.throwIfAborted();
+        reader = await openWiiDisc(titlePath);
+        const discInfo = await readDiscInfoFromReader(reader);
+        const metadataValid = Boolean(discInfo?.titleId && discInfo.name);
+        const identityValid = discInfo?.titleId === expectedTitleId;
+        const structureChecks = await inspectWiiDiscStructure(reader, signal);
+        const failedStructure = structureChecks.filter((check) => !check.ok);
+        const failedFileCount =
+            (metadataValid ? 0 : 1) +
+            (identityValid ? 0 : 1) +
+            failedStructure.length;
+        const error = !metadataValid
+            ? 'Missing Wii disc metadata'
+            : !identityValid
+              ? `Expected ${expectedTitleId}, found ${discInfo?.titleId ?? 'unknown'}`
+              : (failedStructure[0]?.message ?? null);
+
+        return {
+            titleId: discInfo?.titleId ?? null,
+            titleVersion: discInfo?.version ?? null,
+            status: failedFileCount === 0 ? 'ok' : 'failed',
+            failedFileCount,
+            totalFileCount: 2 + structureChecks.length,
+            error,
+        };
+    } catch (error) {
+        signal?.throwIfAborted();
+        return {
+            titleId: null,
+            titleVersion: null,
+            status: 'failed',
+            failedFileCount: 1,
+            totalFileCount: 1,
+            error: formatLogError(error),
+        };
+    } finally {
+        await reader?.close();
+    }
+}
+
 export async function readWiiTitleIdentity(
     titlePath: string
 ): Promise<{ titleId: string; version: number; kind: TitleKinds } | null> {
@@ -324,7 +390,7 @@ export async function readWiiTitleMedia(
     platform: TitlePlatform,
     productCode: string
 ): Promise<CachedImage | null> {
-    const normalizedProductCode = getWiiProductCode(productCode);
+    const normalizedProductCode = getDiscProductCode(productCode);
     if (!normalizedProductCode) {
         return null;
     }
@@ -387,13 +453,14 @@ export async function findWiiTitleSourcePaths(
     roots: string[],
     titleId: string
 ): Promise<string[]> {
-    return findTitleSourcePathsInRoots(
+    const sourcePaths = await findTitleSourcePathsInRoots(
         roots,
         titleId,
         scanTitleEntriesWithDatabase,
         'wii',
         'wii'
     );
+    return sourcePaths.filter((sourcePath) => !isWbfsSplitPart(sourcePath));
 }
 
 export async function findFirstReadableWiiRoot(
@@ -433,15 +500,15 @@ function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
 
     return json
         .map((entry): TitleDatabaseEntry | null => {
-            const title = identifyWiiTitle(entry.titleId);
+            const productCode = getDiscProductCode(entry.productCode);
+            const title = identifyWiiTitle(entry.titleId ?? productCode ?? '');
             if (!title) {
                 return null;
             }
 
-            const productCode =
-                getWiiProductCode(entry.productCode) ?? title.titleId;
+            const resolvedProductCode = productCode ?? title.titleId;
             const region =
-                normalizeRegion(null, productCode) ||
+                normalizeRegion(null, resolvedProductCode) ||
                 normalizeRegion(entry.region, null);
 
             return {
@@ -452,7 +519,7 @@ function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
                 companyCode: entry.companyCode?.length
                     ? entry.companyCode
                     : null,
-                productCode,
+                productCode: resolvedProductCode,
                 iconUrl: entry.iconUrl,
                 bannerUrl: entry.bannerUrl ?? null,
 
@@ -481,7 +548,8 @@ export async function readWiiGameTdb(): Promise<Map<string, TitleDetails>> {
     return readGameTdb<GameTdbGame>({
         fileName: 'wii/tdb.xml',
         logNamespace: 'wii',
-        getId: (game) => (game.id ?? '').slice(0, 4).toUpperCase() || null,
+        includeGame: (game) => !isGameCubeGameTdbTitle(game),
+        getId: (game) => getDiscProductCode(game.id) ?? null,
         parseDetails: parseGameTdbDetails,
     });
 }
@@ -654,7 +722,11 @@ function parseDiscHeader(buffer: Buffer): DiscHeaderInfo | null {
         .toString('ascii')
         .toUpperCase();
 
-    const gameId = WII_GAME_ID_PATTERN.test(headerGameId) ? headerGameId : null;
+    const gameId =
+        WII_GAME_ID_PATTERN.test(headerGameId.slice(0, 4)) &&
+        /^[A-Z0-9]{2}$/.test(headerGameId.slice(4))
+            ? headerGameId
+            : null;
 
     const titleIdentity = gameId ? identifyWiiTitle(gameId) : null;
     const titleId = titleIdentity?.titleId ?? null;
@@ -686,13 +758,13 @@ function readDiscHeaderText(buffer: Buffer, encoding = 'utf-8'): string | null {
     return text.length > 0 ? text : null;
 }
 
-function openWiiDisc(filePath: string): Promise<DiscReader> {
+function openWiiDisc(filePath: string): Promise<WiiDiscReader> {
     return path.extname(filePath).toLowerCase() === '.iso'
         ? openIso(filePath)
         : openWbfs(filePath);
 }
 
-async function openIso(filePath: string): Promise<DiscReader> {
+async function openIso(filePath: string): Promise<WiiDiscReader> {
     const file = await open(filePath, 'r');
     return {
         sparse: false,
@@ -735,7 +807,7 @@ export async function getWbfsDiscFilePaths(
     return files;
 }
 
-async function openWbfs(filePath: string): Promise<DiscReader> {
+async function openWbfs(filePath: string): Promise<WiiDiscReader> {
     const paths = await getWbfsDiscFilePaths(filePath);
     const parts: WbfsPart[] = [];
     let start = 0;
@@ -773,6 +845,21 @@ async function openWbfs(filePath: string): Promise<DiscReader> {
             discOffset + 0x100,
             logicalSectorCount * 2
         );
+        let highestPhysicalSector = 0;
+        for (let index = 0; index < logicalSectorCount; index += 1) {
+            highestPhysicalSector = Math.max(
+                highestPhysicalSector,
+                wlba.readUInt16BE(index * 2)
+            );
+        }
+        if (
+            highestPhysicalSector > 0 &&
+            (highestPhysicalSector + 1) * header.wbfsSectorSize > start
+        ) {
+            throw new Error(
+                'WBFS sector map references data beyond the available split files'
+            );
+        }
 
         return {
             sparse: true,
@@ -859,7 +946,7 @@ async function closeWbfsParts(parts: WbfsPart[]): Promise<void> {
 }
 
 async function readDiscInfoFromReader(
-    reader: DiscReader
+    reader: RandomAccessReader
 ): Promise<DiscHeaderInfo | null> {
     return parseDiscHeader(
         await reader.read(
@@ -903,7 +990,7 @@ async function verifyDiscImage(
         currentFileSizeBytes: (await stat(filePath)).size,
     });
 
-    let reader: DiscReader | null = null;
+    let reader: WiiDiscReader | null = null;
     try {
         reader = await openWiiDisc(filePath);
         const discInfo = await readDiscInfoFromReader(reader);
@@ -915,7 +1002,12 @@ async function verifyDiscImage(
             };
         }
 
-        return await verifyWiiDisc(reader, signal);
+        return await verifyWiiDisc(
+            reader,
+            WII_COMMON_KEYS,
+            signal,
+            reader.sparse
+        );
     } catch (error) {
         return {
             status: 'failed',

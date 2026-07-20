@@ -1,8 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
 
-import { normalizeRegion } from '../../shared/regions.js';
-
-export type NUSTitleInformation = {
+export type MetaXmlInformation = {
     name: string | null;
     region: string | null;
     productCode: string | null;
@@ -11,8 +9,6 @@ export type NUSTitleInformation = {
     titleVersion: number | null;
 };
 
-export const META_XML_FILES = ['meta/meta.xml', 'meta.xml'] as const;
-
 const META_XML_PARSER = new XMLParser({
     ignoreAttributes: true,
     parseTagValue: false,
@@ -20,12 +16,12 @@ const META_XML_PARSER = new XMLParser({
     trimValues: false,
 });
 
-export function readMetaXml(buffer: Buffer): NUSTitleInformation | null {
+export function readMetaXml(buffer: Buffer): MetaXmlInformation | null {
     const menu = readMetaXmlJson(buffer);
     const productCode = getMenuString(menu, 'product_code');
     const companyCode = getMenuString(menu, 'company_code');
     const name = getMenuString(menu, 'longname_en');
-    const region = normalizeRegion(getMenuString(menu, 'region'), productCode);
+    const region = getMenuString(menu, 'region');
     const version = parseMetaUnsignedInt(getMenuString(menu, 'version'));
     const titleVersion = parseMetaUnsignedInt(
         getMenuString(menu, 'title_version')

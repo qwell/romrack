@@ -17,7 +17,7 @@ let settingsLoading = false;
 let settingsSaving = false;
 let settingsCheckingRoot = false;
 
-type RootConfigKey = '3dsRoots' | 'wiiRoots' | 'wiiuRoots';
+type RootConfigKey = '3dsRoots' | 'gamecubeRoots' | 'wiiRoots' | 'wiiuRoots';
 
 export function isSettingsOpen(): boolean {
     return document.body.hasAttribute('data-settings-open');
@@ -113,6 +113,7 @@ function readSettingsForm(sidebar: HTMLElement): AppConfig {
         port: Number(portInput?.value ?? 0),
         openBrowser: openBrowserInput?.checked ?? false,
         '3dsRoots': roots('3dsRoots'),
+        gamecubeRoots: roots('gamecubeRoots'),
         wiiRoots: roots('wiiRoots'),
         wiiuRoots: roots('wiiuRoots'),
     };
@@ -145,11 +146,13 @@ async function saveSettingsConfig(sidebar: HTMLElement): Promise<void> {
     const nextConfig = readSettingsForm(sidebar);
     const previousRoots = JSON.stringify({
         '3dsRoots': settingsConfig?.['3dsRoots'] ?? [],
+        gamecubeRoots: settingsConfig?.gamecubeRoots ?? [],
         wiiRoots: settingsConfig?.wiiRoots ?? [],
         wiiuRoots: settingsConfig?.wiiuRoots ?? [],
     });
     const nextRoots = JSON.stringify({
         '3dsRoots': nextConfig['3dsRoots'],
+        gamecubeRoots: nextConfig.gamecubeRoots,
         wiiRoots: nextConfig.wiiRoots,
         wiiuRoots: nextConfig.wiiuRoots,
     });
@@ -376,6 +379,12 @@ export function renderSettingsSidebar(preserveDraft = true): void {
         form.append(
             buildSettingsServerSection(settingsConfig),
             buildSettingsRootsSection({
+                title: `${TitlePlatform['3ds']} Roots`,
+                help: `Add one or more ${TitlePlatform['3ds']} library roots.`,
+                roots: settingsConfig['3dsRoots'],
+                configKey: '3dsRoots',
+            }),
+            buildSettingsRootsSection({
                 title: `${TitlePlatform['wiiu']} Roots`,
                 help: `Add one or more ${TitlePlatform['wiiu']} installable title roots. Check verifies that a path exists and is readable.`,
                 roots: settingsConfig.wiiuRoots,
@@ -388,10 +397,10 @@ export function renderSettingsSidebar(preserveDraft = true): void {
                 configKey: 'wiiRoots',
             }),
             buildSettingsRootsSection({
-                title: `${TitlePlatform['3ds']} Roots`,
-                help: `Add one or more ${TitlePlatform['3ds']} library roots.`,
-                roots: settingsConfig['3dsRoots'],
-                configKey: '3dsRoots',
+                title: `${TitlePlatform['gamecube']} Roots`,
+                help: `Add one or more ${TitlePlatform['gamecube']} library roots.`,
+                roots: settingsConfig.gamecubeRoots,
+                configKey: 'gamecubeRoots',
             }),
             buildSettingsFooter(sidebar)
         );

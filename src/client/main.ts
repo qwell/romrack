@@ -24,7 +24,11 @@ import {
     type StorageCopyItem,
     type StorageDeleteItem,
 } from '../shared/storage.js';
-import { identifyTitle, type TitleGroup } from '../shared/titles.js';
+import {
+    getTitlePlatformKey,
+    identifyTitle,
+    type TitleGroup,
+} from '../shared/titles.js';
 import { type DownloadQueueItem } from '../shared/download.js';
 import { formatLogError, formatSize } from '../shared/utils.js';
 import { type Fat32Volume, type RuntimeOs } from '../shared/os/types.js';
@@ -87,9 +91,10 @@ function reconcileCompletedLibraryConversions(
             continue;
         }
 
-        const family = identifyTitle(item.titleId)?.family;
+        const family = identifyTitle(item.titleId, 'wiiu')?.family;
         const group = getCurrentTitleGroups().find(
-            (candidate) => candidate.family === family
+            (candidate) =>
+                candidate.platform === 'wiiu' && candidate.family === family
         );
         if (!group) {
             continue;
@@ -118,7 +123,9 @@ function reconcileCompletedLibraryConversions(
             group.availableEntries = group.availableEntries.filter(
                 (entry) => entry.titleId !== converted.titleId
             );
-            titleValidations.delete(converted.titleId);
+            titleValidations.delete(
+                getTitlePlatformKey('wiiu', converted.titleId)
+            );
         }
 
         group.entries.sort((a, b) => (b.version ?? 0) - (a.version ?? 0));
@@ -347,11 +354,15 @@ function syncLibraryConversions(items: LibraryConvertItem[]): void {
 }
 
 function handleTitleValidation(event: TitleValidationSocketEvent): void {
-    titleValidations.set(event.titleId, event);
+    titleValidations.set(
+        getTitlePlatformKey(event.platform, event.titleId),
+        event
+    );
 
-    const family = identifyTitle(event.titleId)?.family;
+    const family = identifyTitle(event.titleId, event.platform)?.family;
     const group = getCurrentTitleGroups().find(
-        (candidate) => candidate.family === family
+        (candidate) =>
+            candidate.platform === event.platform && candidate.family === family
     );
     if (!group) {
         return;
@@ -493,11 +504,12 @@ setupUi({
     onVerifyLibrary: verifyLibraryContent,
     queueStorageCopy,
     queueLibraryConvert,
-    requestTitleValidation(titleId, name) {
+    requestTitleValidation(titleId, name, platform) {
         sendAppSocketCommand({
             type: TITLE_VALIDATE_SOCKET_COMMAND.queue,
             id: titleId,
             name,
+            platform,
         });
     },
     populateFat32DeviceSelect,

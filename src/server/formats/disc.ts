@@ -1,12 +1,8 @@
 import { createDecipheriv, createHash } from 'node:crypto';
 import { scheduler } from 'node:timers/promises';
 import { formatLogError } from '../../shared/utils.js';
-
-export type DiscReader = {
-    sparse: boolean;
-    read(position: number, length: number): Promise<Buffer>;
-    close(): Promise<void>;
-};
+import { type RandomAccessReader } from './reader.js';
+import { readTmdFromBuffer } from './tmd.js';
 
 export type WiiDiscPartition = {
     offset: number;
@@ -42,10 +38,11 @@ export type WiiDiscVerification = {
     >;
 };
 
-const WII_COMMON_KEYS = [
-    Buffer.from('6+QqIl6Fk+RI2cVFc4Gq9w==', 'base64'),
-    Buffer.from('Y7grtPRhTi4T8v77ukybfg==', 'base64'),
-];
+export type WiiDiscStructureCheck = {
+    ok: boolean;
+    message: string;
+};
+
 const WII_PARTITION_TABLE_OFFSET = 0x40000;
 const WII_PARTITION_TABLE_GROUPS = 4;
 const WII_PARTITION_HEADER_SIZE = 0x2c0;
@@ -56,9 +53,10 @@ const WII_CLUSTER_HASH_SIZE = 0x400;
 const WII_CLUSTER_DATA_SIZE = 0x7c00;
 const WII_VERIFY_YIELD_CLUSTER_INTERVAL = 32;
 const WII_H3_TABLE_SIZE = 0x18000;
+const WII_MAX_DISC_SIZE = 4_699_979_776;
 
 export async function readWiiDiscPartitions(
-    reader: DiscReader
+    reader: RandomAccessReader
 ): Promise<WiiDiscPartition[]> {
     const groups = await reader.read(
         WII_PARTITION_TABLE_OFFSET,
@@ -87,6 +85,60 @@ export async function readWiiDiscPartitions(
     return partitions;
 }
 
+export async function inspectWiiDiscStructure(
+    reader: RandomAccessReader,
+    signal?: AbortSignal
+): Promise<WiiDiscStructureCheck[]> {
+    const partitions = await readWiiDiscPartitions(reader);
+    const checks: WiiDiscStructureCheck[] = [
+        {
+            ok: partitions.length > 0,
+            message: 'Wii disc contains at least one partition',
+        },
+    ];
+
+    for (const [index, partition] of partitions.entries()) {
+        signal?.throwIfAborted();
+        const label = `Wii partition ${index.toString()}`;
+        const rawHeader = await reader.read(
+            partition.offset,
+            WII_PARTITION_HEADER_SIZE
+        );
+        const header = readWiiPartitionHeader(rawHeader);
+        checks.push({
+            ok: header !== null,
+            message: `${label} has a valid partition header`,
+        });
+        if (!header) {
+            continue;
+        }
+
+        const metadataRangesValid =
+            header.tmdOffset >= WII_PARTITION_HEADER_SIZE &&
+            header.tmdSize > 0 &&
+            header.tmdOffset + header.tmdSize <= header.dataOffset &&
+            header.certificateOffset >= WII_PARTITION_HEADER_SIZE &&
+            header.certificateSize > 0 &&
+            header.certificateOffset + header.certificateSize <=
+                header.dataOffset &&
+            header.h3Offset >= WII_PARTITION_HEADER_SIZE &&
+            header.h3Offset + WII_H3_TABLE_SIZE <= header.dataOffset;
+        checks.push({
+            ok: metadataRangesValid,
+            message: `${label} metadata ranges precede encrypted data`,
+        });
+
+        checks.push({
+            ok:
+                partition.offset + header.dataOffset + header.dataSize <=
+                WII_MAX_DISC_SIZE,
+            message: `${label} data range is within the logical disc image`,
+        });
+    }
+
+    return checks;
+}
+
 export function readWiiPartitionHeader(
     header: Buffer
 ): WiiPartitionHeader | null {
@@ -110,8 +162,10 @@ export function readWiiPartitionHeader(
 }
 
 export async function verifyWiiDisc(
-    reader: DiscReader,
-    signal?: AbortSignal
+    reader: RandomAccessReader,
+    commonKeys: readonly Buffer[],
+    signal?: AbortSignal,
+    sparse = false
 ): Promise<WiiDiscVerification> {
     const discFlags = await reader.read(
         WII_DISABLE_HASH_VERIFICATION_OFFSET,
@@ -143,7 +197,14 @@ export async function verifyWiiDisc(
     for (const [index, partition] of partitions.entries()) {
         signal?.throwIfAborted();
         verification.push(
-            await verifyPartition(reader, index, partition, signal)
+            await verifyPartition(
+                reader,
+                commonKeys,
+                index,
+                partition,
+                signal,
+                sparse
+            )
         );
     }
 
@@ -161,10 +222,12 @@ export async function verifyWiiDisc(
 }
 
 async function verifyPartition(
-    reader: DiscReader,
+    reader: RandomAccessReader,
+    commonKeys: readonly Buffer[],
     index: number,
     partition: WiiDiscPartition,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    sparse = false
 ): Promise<WiiPartitionVerification> {
     try {
         const rawHeader = await reader.read(
@@ -176,7 +239,7 @@ async function verifyPartition(
             throw new Error('Invalid Wii partition data range');
         }
 
-        const titleKey = decryptPartitionTitleKey(rawHeader);
+        const titleKey = decryptPartitionTitleKey(rawHeader, commonKeys);
         const h3 = await reader.read(
             partition.offset + header.h3Offset,
             WII_H3_TABLE_SIZE
@@ -198,7 +261,7 @@ async function verifyPartition(
                     cluster * WII_CLUSTER_SIZE,
                 WII_CLUSTER_SIZE
             );
-            if (reader.sparse && raw.every((value) => value === 0)) {
+            if (sparse && raw.every((value) => value === 0)) {
                 skippedClusters += 1;
                 continue;
             }
@@ -239,9 +302,12 @@ async function verifyPartition(
     }
 }
 
-function decryptPartitionTitleKey(header: Buffer): Buffer {
+function decryptPartitionTitleKey(
+    header: Buffer,
+    commonKeys: readonly Buffer[]
+): Buffer {
     const commonKeyIndex = header[0x1f1];
-    const commonKey = WII_COMMON_KEYS[commonKeyIndex];
+    const commonKey = commonKeys[commonKeyIndex];
     if (!commonKey) {
         throw new Error(`Unsupported Wii common key index ${commonKeyIndex}`);
     }
@@ -251,7 +317,7 @@ function decryptPartitionTitleKey(header: Buffer): Buffer {
 }
 
 async function verifyH3Table(
-    reader: DiscReader,
+    reader: RandomAccessReader,
     partitionOffset: number,
     header: WiiPartitionHeader,
     h3: Buffer
@@ -263,30 +329,17 @@ async function verifyH3Table(
         partitionOffset + header.tmdOffset,
         header.tmdSize
     );
-    const payloadOffset = getSignedPayloadOffset(tmd);
-    const contentCount = tmd.readUInt16BE(payloadOffset + 0x9e);
-    if (contentCount === 0) {
+    const parsedTmd = readTmdFromBuffer(tmd);
+    if (!parsedTmd || parsedTmd.header.systemType !== 'wii') {
+        throw new Error('Invalid Wii partition TMD');
+    }
+    const content = parsedTmd.contents[0];
+    if (!content) {
         throw new Error('Wii partition TMD has no content');
     }
-    const expected = tmd.subarray(payloadOffset + 0xb4, payloadOffset + 0xc8);
+    const expected = content.hash.subarray(0, 20);
     if (!sha1(h3).equals(expected)) {
         throw new Error('Wii partition H3 table hash does not match its TMD');
-    }
-}
-
-function getSignedPayloadOffset(buffer: Buffer): number {
-    const signatureType = buffer.readUInt32BE(0);
-    switch (signatureType) {
-        case 0x00010000:
-            return 0x240;
-        case 0x00010001:
-            return 0x140;
-        case 0x00010002:
-            return 0x80;
-        default:
-            throw new Error(
-                `Unsupported Wii signature type 0x${signatureType.toString(16)}`
-            );
     }
 }
 

@@ -3,6 +3,7 @@ export type AppConfig = {
     port: number;
     openBrowser: boolean;
     '3dsRoots': string[];
+    gamecubeRoots: string[];
     wiiRoots: string[];
     wiiuRoots: string[];
 };

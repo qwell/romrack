@@ -55,6 +55,7 @@ function getDefaultConfig(): AppConfig {
         port: DEFAULT_SERVER_PORT,
         openBrowser: DEFAULT_BROWSER_OPEN,
         '3dsRoots': [DEFAULT_ROM_DIR],
+        gamecubeRoots: [DEFAULT_ROM_DIR],
         wiiRoots: [DEFAULT_ROM_DIR],
         wiiuRoots: [DEFAULT_ROM_DIR],
     };
@@ -93,7 +94,7 @@ function assertConfigValues(
         throw new Error('Config.openBrowser must be a boolean.');
     }
 
-    for (const key of ['3dsRoots', 'wiiRoots', 'wiiuRoots']) {
+    for (const key of ['3dsRoots', 'gamecubeRoots', 'wiiRoots', 'wiiuRoots']) {
         const roots = readConfigValue(value, key);
         if (
             hasConfigValue(value, key) &&
@@ -163,6 +164,13 @@ function readThreeDSRoots(
     options: { defaultRoot?: string } = {}
 ): string[] {
     return readConfiguredRoots(config, '3dsRoots', options);
+}
+
+function readGameCubeRoots(
+    config: Record<string, unknown>,
+    options: { defaultRoot?: string } = {}
+): string[] {
+    return readConfiguredRoots(config, 'gamecubeRoots', options);
 }
 
 function readWiiRoots(
@@ -336,6 +344,9 @@ function loadConfig(): AppConfig {
                 ? (readConfigValue(parsed, 'openBrowser') as boolean)
                 : DEFAULT_BROWSER_OPEN,
         '3dsRoots': readThreeDSRoots(parsed, { defaultRoot: DEFAULT_ROM_DIR }),
+        gamecubeRoots: readGameCubeRoots(parsed, {
+            defaultRoot: DEFAULT_ROM_DIR,
+        }),
         wiiRoots: readWiiRoots(parsed, { defaultRoot: DEFAULT_ROM_DIR }),
         wiiuRoots: readWiiURoots(parsed, { defaultRoot: DEFAULT_ROM_DIR }),
     };
@@ -365,6 +376,9 @@ export function saveConfig(update: AppConfigUpdate): ConfigResponse {
         '3dsRoots': !hasConfigValue(update, '3dsRoots')
             ? previous['3dsRoots']
             : readThreeDSRoots(update),
+        gamecubeRoots: !hasConfigValue(update, 'gamecubeRoots')
+            ? previous.gamecubeRoots
+            : readGameCubeRoots(update),
         wiiRoots: !hasConfigValue(update, 'wiiRoots')
             ? previous.wiiRoots
             : readWiiRoots(update),

@@ -1,6 +1,5 @@
 import { createDecipheriv, createHash } from 'node:crypto';
 
-import { createContentIv, decryptContentWithIv } from '../decryption.js';
 import { formatLogError } from '../../shared/utils.js';
 import { type TmdContent } from './tmd.js';
 
@@ -67,6 +66,19 @@ export function formatContentId(contentId: number): string {
         throw new Error(`contentId must be a uint32, got ${contentId}`);
     }
     return contentId.toString(16).toUpperCase().padStart(8, '0');
+}
+
+export function createContentIv(contentIndex: number): Buffer {
+    if (
+        !Number.isInteger(contentIndex) ||
+        contentIndex < 0 ||
+        contentIndex > 0xffff
+    ) {
+        throw new Error(`contentIndex must be a uint16, got ${contentIndex}`);
+    }
+    const iv = Buffer.alloc(AES_BLOCK_SIZE);
+    iv.writeUInt16BE(contentIndex, 0);
+    return iv;
 }
 
 export function getContentInstallNames(
@@ -172,13 +184,13 @@ export function decryptHashedContent(
             continue;
         }
 
-        const decryptedHashArea = decryptContentWithIv(
+        const decryptedHashArea = decryptAesCbc(
             encryptedBlock.slice(0, HASHED_BLOCK_DATA_OFFSET),
             titleKey,
             iv
         );
         const dataIv = decryptedHashArea.slice(0, AES_BLOCK_SIZE);
-        const decryptedDataArea = decryptContentWithIv(
+        const decryptedDataArea = decryptAesCbc(
             encryptedBlock.slice(HASHED_BLOCK_DATA_OFFSET),
             titleKey,
             dataIv
@@ -409,7 +421,7 @@ function verifyEncryptedContentTreeBlock(
     titleKey: Buffer,
     blockIndex: number
 ): void {
-    const hashArea = decryptContentWithIv(
+    const hashArea = decryptAesCbc(
         encryptedBlock.slice(0, HASHED_BLOCK_DATA_OFFSET),
         titleKey,
         Buffer.alloc(AES_BLOCK_SIZE)
@@ -419,7 +431,7 @@ function verifyEncryptedContentTreeBlock(
         HASH_H0_START + h0Index * HASH_ENTRY_SIZE,
         HASH_H0_START + h0Index * HASH_ENTRY_SIZE + AES_BLOCK_SIZE
     );
-    const dataArea = decryptContentWithIv(
+    const dataArea = decryptAesCbc(
         encryptedBlock.slice(HASHED_BLOCK_DATA_OFFSET),
         titleKey,
         dataIv
@@ -477,6 +489,12 @@ function verifyHashArea(
 
 function sha1(value: Buffer): Buffer {
     return createHash('sha1').update(value).digest();
+}
+
+function decryptAesCbc(input: Buffer, key: Buffer, iv: Buffer): Buffer {
+    const decipher = createDecipheriv('aes-128-cbc', key, iv);
+    decipher.setAutoPadding(false);
+    return Buffer.concat([decipher.update(input), decipher.final()]);
 }
 
 function assertHashEquals(

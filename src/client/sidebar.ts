@@ -4,11 +4,13 @@ import { STORAGE_PATHS } from '../shared/storage.js';
 import { type TitleValidationSocketEvent } from '../shared/socket.js';
 import { formatSize } from '../shared/utils.js';
 import {
+    getTitlePlatformKey,
     type TitleDetails,
     type TitleEntry,
     type TitleGroup,
     type TitleInputControl,
     TitleKinds,
+    type TitlePlatform,
 } from '../shared/titles.js';
 type SidebarOptions = {
     titleValidations: Map<string, TitleValidationSocketEvent>;
@@ -24,13 +26,19 @@ type SidebarOptions = {
         titleIds: string[],
         entries: TitleEntry[],
         button: HTMLButtonElement,
+        platform: TitlePlatform,
         label?: string
     ) => Promise<void>;
     queueStorageCopy: (
         titleId: string,
-        destination: string
+        destination: string,
+        platform: TitlePlatform
     ) => Promise<unknown>;
-    requestTitleValidation: (titleId: string, name: string) => void;
+    requestTitleValidation: (
+        titleId: string,
+        name: string,
+        platform: TitlePlatform
+    ) => void;
     isTitleValidationUnavailable: (
         event: TitleValidationSocketEvent | null
     ) => boolean;
@@ -453,7 +461,10 @@ function hasUsableLocalEntry(
     }
 
     return localEntries.some((entry) => {
-        const validation = titleValidations?.get(entry.titleId) ?? null;
+        const validation =
+            titleValidations?.get(
+                getTitlePlatformKey(group.platform, entry.titleId)
+            ) ?? null;
 
         if (validation === null) {
             return false;
@@ -688,9 +699,9 @@ function renderLocalCopyRow(
     titleId.textContent = entry.titleId;
 
     const validation =
-        group.platform === 'wii'
-            ? null
-            : (options?.titleValidations.get(entry.titleId) ?? null);
+        options?.titleValidations.get(
+            getTitlePlatformKey(group.platform, entry.titleId)
+        ) ?? null;
     const validationStatus = renderTitleValidationStatus(validation);
 
     const size = document.createElement('span');
@@ -727,14 +738,18 @@ function getDetailEntries(group: TitleGroup): {
     const localEntries = group.entries
         .filter((entry) => {
             const validation =
-                detailOptions?.titleValidations?.get(entry.titleId) ?? null;
+                detailOptions?.titleValidations?.get(
+                    getTitlePlatformKey(group.platform, entry.titleId)
+                ) ?? null;
             return !isTitleValidationUnavailable(validation);
         })
         .sort((a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind));
     const invalidEntries = group.entries
         .filter((entry) => {
             const validation =
-                detailOptions?.titleValidations?.get(entry.titleId) ?? null;
+                detailOptions?.titleValidations?.get(
+                    getTitlePlatformKey(group.platform, entry.titleId)
+                ) ?? null;
             return isTitleValidationUnavailable(validation);
         })
         .sort((a, b) => getKindSortValue(a.kind) - getKindSortValue(b.kind));
@@ -1005,6 +1020,7 @@ function renderInvalidActions(
                 titleIds,
                 entries,
                 deleteButton,
+                group.platform,
                 'invalid local'
             );
         })();
@@ -1018,6 +1034,7 @@ function formatTitleEntrySlot(group: TitleGroup, entry: TitleEntry): string {
     switch (group.platform) {
         case '3ds':
             return entry.kind;
+        case 'gamecube':
         case 'wii':
         case 'wiiu':
             return entry.version === null
@@ -1205,7 +1222,11 @@ function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
                     try {
                         await Promise.all(
                             titleIds.map((titleId) =>
-                                queueStorageCopy(titleId, destination)
+                                queueStorageCopy(
+                                    titleId,
+                                    destination,
+                                    group.platform
+                                )
                             )
                         );
                     } finally {
@@ -1230,7 +1251,8 @@ function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
                     await detailOptions?.confirmAndQueueStorageDeletes(
                         titleIds,
                         localEntries,
-                        deleteButton
+                        deleteButton,
+                        group.platform
                     );
                 })();
             });
@@ -1293,20 +1315,20 @@ function renderGroupDetailContent(group: TitleGroup): DocumentFragment {
     return fragment;
 }
 
-function requestTitleValidation(titleId: string, name: string): void {
-    options?.requestTitleValidation(titleId, name);
+function requestTitleValidation(
+    titleId: string,
+    name: string,
+    platform: TitlePlatform
+): void {
+    options?.requestTitleValidation(titleId, name, platform);
 }
 
 export function requestTitleValidations(group: TitleGroup): void {
-    switch (group.platform) {
-        case 'wii':
-            return;
-    }
-
     for (const entry of group.entries) {
         requestTitleValidation(
             entry.titleId,
-            entry.name === 'Unknown' ? group.name : entry.name
+            entry.name === 'Unknown' ? group.name : entry.name,
+            group.platform
         );
     }
 }

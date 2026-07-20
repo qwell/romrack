@@ -17,6 +17,11 @@ export const STORAGE_PATHS: Record<TitlePlatform, StoragePathTemplate> = {
         directory: null,
         filename: '{titleName} [{titleId}].cia',
     },
+    gamecube: {
+        root: '/games/',
+        directory: '{titleName} [{titleId}]',
+        filename: 'game{extension}',
+    },
     wii: {
         root: '/wbfs/',
         directory: '{titleName} [{titleId}]',
@@ -32,6 +37,7 @@ export const STORAGE_PATHS: Record<TitlePlatform, StoragePathTemplate> = {
 export type StorageCopyOperation = 'copy' | 'move';
 export type StorageCopyItem = {
     id: string;
+    platform: TitlePlatform;
     operation: StorageCopyOperation;
     titleId: string | null;
     sourceName: string;
@@ -68,6 +74,7 @@ export type StorageCopyQueueItem = StorageCopyItem & {
 
 export type StorageDeleteItem = {
     id: string;
+    platform: TitlePlatform;
     titleId: string;
     titleName: string | null;
     titleVersion: number | null;

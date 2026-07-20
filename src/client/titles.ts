@@ -250,6 +250,7 @@ function formatTooltip(group: TitleGroup): string {
     ];
 
     switch (group.platform) {
+        case 'gamecube':
         case 'wii': {
             lines.push(
                 `Disc image: ${entry ? formatSize(entry.sizeBytes) : '-'}`

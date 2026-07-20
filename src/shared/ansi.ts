@@ -3,6 +3,7 @@ export const Subsystems = [
     'client',
     'metadata',
     '3ds',
+    'gamecube',
     'wii',
     'wiiu',
     'wud',
@@ -69,6 +70,7 @@ export const SubsystemColors: Record<Subsystems, string> = {
     assets: lightGreen,
 
     '3ds': lightYellow,
+    gamecube: lightMagenta,
     wii: lightCyan,
     wiiu: lightBlue,
 

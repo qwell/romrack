@@ -193,7 +193,7 @@ function parseSocketCommand(data: RawData): SocketCommand | null {
         }
 
         const name = command.name;
-        const titleIdentity = identifyTitle(command.id);
+        const titleIdentity = identifyTitle(command.id, command.platform);
 
         if (!titleIdentity || typeof name !== 'string') {
             return null;
@@ -251,7 +251,7 @@ function parseDownloadQueueItemDetails(
         return null;
     }
 
-    const title = identifyTitle(item.titleId);
+    const title = identifyTitle(item.titleId, item.platform);
     if (!title || title.platform !== item.platform) {
         return null;
     }

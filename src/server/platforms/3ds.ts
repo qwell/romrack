@@ -1,13 +1,23 @@
+import { createHash } from 'node:crypto';
 import { open, stat, type FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 
 import { normalizeRegion } from '../../shared/regions.js';
 import logger from '../../shared/logger.js';
-import { formatLogError } from '../../shared/utils.js';
+import {
+    formatLogError,
+    formatSize,
+    getPreferredValue,
+} from '../../shared/utils.js';
+import {
+    type LibraryVerifyProgress,
+    type LibraryVerifyTitle,
+} from '../../shared/api.js';
 import {
     CHILD_KINDS,
     ChildKind,
     getThreeDSProductCode,
+    getProductCodeMediaKey,
     identifyThreeDSTitle,
     mergeTitleEntry,
     normalizeTitleName,
@@ -46,6 +56,8 @@ import {
     mergeLibraryTitleGroups,
     parseGameTdbInputControls,
     parseGameTdbNumber,
+    prepareTitleVerifications,
+    type PreparedTitleVerification,
     readGameTdb as readLibraryGameTdb,
     readTitleDatabase as readLibraryTitleDatabase,
     readTitleDatabaseByProductCode,
@@ -53,6 +65,8 @@ import {
     scanCachedTitleEntries,
     scanTitleRoots,
     splitGameTdbList,
+    throwIfLibraryVerifyCancelled,
+    verifyTitleRoots,
 } from '../library.js';
 import {
     decryptAes128Ctr,
@@ -65,14 +79,11 @@ import {
     getCiaContentStorageSize,
     isCiaContentPresent,
     readCiaHeader,
-    readCiaTmdContents,
-    TICKET_ENCRYPTED_TITLE_KEY_OFFSET,
-    TICKET_ENCRYPTED_TITLE_KEY_SIZE,
-    TICKET_TITLE_ID_OFFSET,
-    TICKET_TITLE_ID_SIZE,
 } from '../formats/cia.js';
 import { readCciPartitions } from '../formats/cci.js';
 import { inspectExeFsFile } from '../formats/exefs.js';
+import { readTmdFromBuffer, type Tmd } from '../formats/tmd.js';
+import { readTik } from '../formats/tik.js';
 import {
     createNcchRegionCounter,
     isNcchHeader,
@@ -80,7 +91,11 @@ import {
     readNcchHeader,
 } from '../formats/ncch.js';
 import { loadKeys, type ThreeDSKeys } from '../keys.js';
-import { inspectSmdhMetadata, readSmdhLargeIconPng } from '../formats/smdh.js';
+import {
+    inspectSmdhMetadata,
+    readSmdhLargeIconPng,
+    SMDH_TITLE_ENGLISH_INDEX,
+} from '../formats/smdh.js';
 
 type ThreeDSTdbGame = GameTdbGame & {
     publisher?: string;
@@ -95,6 +110,11 @@ type ThreeDSHeaderInfo = {
     region: string | null;
     iconPng: Buffer | null;
 };
+
+function readThreeDSCiaTmd(buffer: Buffer): Tmd | null {
+    const tmd = readTmdFromBuffer(buffer);
+    return tmd?.header.systemType === '3ds' ? tmd : null;
+}
 
 async function loadOptionalThreeDSKeys(): Promise<ThreeDSKeys | null> {
     try {
@@ -149,7 +169,9 @@ function createGroup(
 
 function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
     const database = JSON.parse(jsonText) as Record<string, unknown>;
-    const json = database['3ds'] as RawTitleDatabaseEntry[];
+    const json = database['3ds'] as Array<
+        RawTitleDatabaseEntry & { titleId: string }
+    >;
 
     if (!Array.isArray(json)) {
         throw new Error('titles.json must contain a 3ds array');
@@ -162,7 +184,9 @@ function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
                 return null;
             }
 
-            const productCode = getThreeDSProductCode(entry.productCode);
+            const productCode = getThreeDSProductCode(
+                entry.productCode ?? null
+            );
 
             return {
                 platform: title.platform,
@@ -377,26 +401,25 @@ async function readCiaMetadata(
         readChunk(filePath, ciaHeader.tmdOffset, ciaHeader.tmdSize),
     ]);
 
-    if (
-        ticket.length < TICKET_TITLE_ID_OFFSET + TICKET_TITLE_ID_SIZE ||
-        ticket.length <
-            TICKET_ENCRYPTED_TITLE_KEY_OFFSET + TICKET_ENCRYPTED_TITLE_KEY_SIZE
-    ) {
+    const parsedTicket = readTik(ticket);
+    if (!parsedTicket) {
         return null;
     }
 
-    const titleIdBytes = ticket.subarray(
-        TICKET_TITLE_ID_OFFSET,
-        TICKET_TITLE_ID_OFFSET + TICKET_TITLE_ID_SIZE
-    );
+    const titleIdBytes = parsedTicket.titleId;
     const fallbackTitleId = Buffer.from(titleIdBytes).toString('hex');
-    const contents = readCiaTmdContents(tmd).filter((content) =>
+    const parsedTmd = readThreeDSCiaTmd(tmd);
+    if (!parsedTmd) {
+        return null;
+    }
+    const titleVersion = parsedTmd.header.titleVersion;
+    const contents = parsedTmd.contents.filter((content) =>
         isCiaContentPresent(ciaHeader, content.index)
     );
     const fallbackContent = contents[0] ?? null;
 
     if (!keys || !keys.slot0x3dKeyX || !fallbackContent) {
-        return fallbackCiaMetadata(fallbackTitleId);
+        return fallbackCiaMetadata(fallbackTitleId, titleVersion);
     }
 
     const handle = await open(filePath, 'r');
@@ -416,11 +439,7 @@ async function readCiaMetadata(
                     decodeHexKey(keys.generatorConstant)
                 );
                 const titleKey = decryptTitleKey(
-                    ticket.subarray(
-                        TICKET_ENCRYPTED_TITLE_KEY_OFFSET,
-                        TICKET_ENCRYPTED_TITLE_KEY_OFFSET +
-                            TICKET_ENCRYPTED_TITLE_KEY_SIZE
-                    ),
+                    parsedTicket.encryptedKey,
                     commonKey,
                     titleIdBytes
                 );
@@ -447,7 +466,10 @@ async function readCiaMetadata(
                     readRange,
                 });
                 if (metadata) {
-                    return metadata;
+                    return {
+                        ...metadata,
+                        version: titleVersion ?? metadata.version,
+                    };
                 }
             }
         }
@@ -455,10 +477,13 @@ async function readCiaMetadata(
         await handle.close();
     }
 
-    return fallbackCiaMetadata(fallbackTitleId);
+    return fallbackCiaMetadata(fallbackTitleId, titleVersion);
 }
 
-function fallbackCiaMetadata(titleId: string): ThreeDSHeaderInfo | null {
+function fallbackCiaMetadata(
+    titleId: string,
+    version: number | null
+): ThreeDSHeaderInfo | null {
     const title = identifyThreeDSTitle(titleId);
     if (!title) {
         return null;
@@ -467,7 +492,7 @@ function fallbackCiaMetadata(titleId: string): ThreeDSHeaderInfo | null {
     return {
         titleId: title.titleId,
         productCode: null,
-        version: null,
+        version,
         name: null,
         publisher: null,
         region: null,
@@ -518,8 +543,13 @@ async function readNcchLocalMetadata({
 
     const smdhResult = inspectSmdhMetadata(iconResult.file);
     if (smdhResult.ok) {
-        metadata.name = smdhResult.metadata.name;
-        metadata.publisher = smdhResult.metadata.publisher;
+        const title = getPreferredValue(
+            smdhResult.metadata.titles,
+            SMDH_TITLE_ENGLISH_INDEX
+        );
+        metadata.name =
+            title?.longDescription || title?.shortDescription || null;
+        metadata.publisher = title?.publisher || null;
         metadata.region = smdhResult.metadata.region;
     }
     metadata.iconPng = readSmdhLargeIconPng(iconResult.file);
@@ -705,7 +735,9 @@ async function scanThreeDSTitles(root: string): Promise<TitleGroup[]> {
         group.details = databaseEntry
             ? getGameTdbDetails(gameTdb, databaseEntry)
             : productCode
-              ? (gameTdb.get(productCode) ?? null)
+              ? (gameTdb.get(
+                    getProductCodeMediaKey('3ds', productCode) ?? productCode
+                ) ?? null)
               : null;
         group.availableEntries = getAvailableEntries(
             databaseEntry,
@@ -771,6 +803,147 @@ export async function scanThreeDSTitleRoots(
     });
 }
 
+async function verifyThreeDSTitles(
+    root: string,
+    onProgress?: (progress: LibraryVerifyProgress) => void,
+    options: {
+        directories?: string[];
+        offset?: number;
+        total?: number;
+        signal?: AbortSignal;
+    } = {}
+): Promise<LibraryVerifyTitle[]> {
+    const files = options.directories ?? (await findTitleFiles(root));
+    const offset = options.offset ?? 0;
+    const total = options.total ?? files.length;
+    const database = await readTitleDatabase();
+    const cachedEntries = await scanTitleEntries(root, database);
+    const entriesByFile = new Map(
+        cachedEntries.map((entry) => [
+            path.relative(root, entry.sourcePath),
+            entry,
+        ])
+    );
+    const results: LibraryVerifyTitle[] = [];
+
+    for (const [index, relativePath] of files.entries()) {
+        throwIfLibraryVerifyCancelled(options.signal);
+        const sourcePath = path.join(root, relativePath);
+        const cachedEntry = entriesByFile.get(relativePath) ?? null;
+        const identity = cachedEntry
+            ? null
+            : await readThreeDSTitleIdentity(sourcePath);
+        const titleId = cachedEntry?.titleId ?? identity?.titleId ?? 'unknown';
+        const name = cachedEntry?.name ?? getTitleName(relativePath, null);
+        const kind = cachedEntry?.kind ?? identity?.kind ?? TitleKinds.Unknown;
+        const version = cachedEntry?.version ?? identity?.version ?? null;
+        const sizeText = formatSize((await stat(sourcePath)).size);
+        onProgress?.({
+            platform: '3ds',
+            titleId,
+            name,
+            kind,
+            version,
+            current: offset + index,
+            total,
+        });
+        const inspection = await verifyThreeDSTitleFile(
+            sourcePath,
+            options.signal,
+            (currentFileName, currentFileSizeBytes) =>
+                onProgress?.({
+                    platform: '3ds',
+                    titleId,
+                    name,
+                    kind,
+                    version,
+                    currentFileName,
+                    currentFileSizeBytes,
+                    current: offset + index,
+                    total,
+                })
+        );
+        throwIfLibraryVerifyCancelled(options.signal);
+        const failed = inspection.checks.filter((check) => !check.ok);
+        const status = failed.length === 0 ? 'ok' : 'failed';
+        const error = failed[0]?.message ?? null;
+        onProgress?.({
+            platform: '3ds',
+            titleId,
+            name,
+            kind,
+            version,
+            result: status,
+            error,
+            current: offset + index + 1,
+            total,
+        });
+        results.push({
+            platform: '3ds',
+            root,
+            directory: relativePath,
+            name,
+            titleId: inspection.identity?.titleId ?? null,
+            version: inspection.identity?.version ?? null,
+            kind: inspection.identity?.kind ?? kind,
+            sizeText,
+            status,
+            error,
+            verification: inspection.checks.map((check) => ({
+                path: relativePath,
+                status: check.ok ? 'ok' : 'failed',
+                error: check.ok ? null : check.message,
+            })),
+        });
+    }
+
+    return results;
+}
+
+export async function verifyThreeDSTitleRoots(
+    roots: string[],
+    onProgress?: (progress: LibraryVerifyProgress) => void,
+    signal?: AbortSignal
+): Promise<LibraryVerifyTitle[]> {
+    return verifyTitleRoots({
+        roots,
+        onProgress,
+        signal,
+        platform: '3ds',
+        logNamespace: '3ds',
+        findItems: findTitleFiles,
+        verifyTitles: verifyThreeDSTitles,
+    });
+}
+
+export function prepareThreeDSTitleVerifications(
+    roots: string[],
+    signal?: AbortSignal
+): Promise<PreparedTitleVerification[]> {
+    return prepareTitleVerifications({
+        roots,
+        signal,
+        platform: '3ds',
+        logNamespace: '3ds',
+        findItems: findTitleFiles,
+    });
+}
+
+export function verifyPreparedThreeDSTitle(
+    item: PreparedTitleVerification,
+    index: number,
+    total: number,
+    onProgress?: (progress: LibraryVerifyProgress) => void,
+    signal?: AbortSignal
+): Promise<LibraryVerifyTitle[]> {
+    return verifyThreeDSTitles(item.root, onProgress, {
+        directories: [item.directory],
+        offset: index,
+        total,
+        signal,
+    });
+}
+
 function decodeHexKey(key: string): Buffer {
     return Buffer.from(key, 'hex');
 }
@@ -801,6 +974,29 @@ export async function validateThreeDSTitleFile(
     titlePath: string,
     expectedTitleId: string
 ): Promise<ThreeDSTitleFileValidation> {
+    const inspection = await inspectThreeDSTitleFile(
+        titlePath,
+        expectedTitleId
+    );
+    const failed = inspection.checks.filter((check) => !check.ok);
+    return {
+        titleId: inspection.identity?.titleId ?? null,
+        version: inspection.identity?.version ?? null,
+        kind: inspection.identity?.kind ?? null,
+        status: failed.length === 0 ? 'ok' : 'failed',
+        failedFileCount: failed.length,
+        totalFileCount: inspection.checks.length,
+        error: failed.length > 0 ? (failed[0]?.message ?? null) : null,
+    };
+}
+
+async function inspectThreeDSTitleFile(
+    titlePath: string,
+    expectedTitleId?: string
+): Promise<{
+    identity: Awaited<ReturnType<typeof readThreeDSTitleIdentity>>;
+    checks: Array<{ ok: boolean; message: string }>;
+}> {
     const identity = await readThreeDSTitleIdentity(titlePath);
     const checks: Array<{ ok: boolean; message: string }> = [
         {
@@ -809,7 +1005,7 @@ export async function validateThreeDSTitleFile(
         },
     ];
 
-    if (identity) {
+    if (identity && expectedTitleId) {
         checks.push({
             ok: identity.titleId === expectedTitleId,
             message: `expected ${expectedTitleId}, found ${identity.titleId}`,
@@ -818,16 +1014,148 @@ export async function validateThreeDSTitleFile(
 
     checks.push(...(await validateThreeDSFileStructure(titlePath)));
 
-    const failed = checks.filter((check) => !check.ok);
-    return {
-        titleId: identity?.titleId ?? null,
-        version: identity?.version ?? null,
-        kind: identity?.kind ?? null,
-        status: failed.length === 0 ? 'ok' : 'failed',
-        failedFileCount: failed.length,
-        totalFileCount: checks.length,
-        error: failed.length > 0 ? (failed[0]?.message ?? null) : null,
-    };
+    return { identity, checks };
+}
+
+export async function verifyThreeDSTitleFile(
+    titlePath: string,
+    signal?: AbortSignal,
+    onProgress?: (fileName: string, sizeBytes: number) => void
+): ReturnType<typeof inspectThreeDSTitleFile> {
+    const inspection = await inspectThreeDSTitleFile(titlePath);
+    if (path.extname(titlePath).toLowerCase() === '.cia') {
+        inspection.checks.push(
+            ...(await verifyCiaContentHashes(titlePath, signal, onProgress))
+        );
+    }
+    return inspection;
+}
+
+async function verifyCiaContentHashes(
+    titlePath: string,
+    signal?: AbortSignal,
+    onProgress?: (fileName: string, sizeBytes: number) => void
+): Promise<Array<{ ok: boolean; message: string }>> {
+    const keys = await loadOptionalThreeDSKeys();
+    if (!keys?.slot0x3dKeyX) {
+        return [{ ok: false, message: '3DS keys unavailable for CIA hashes' }];
+    }
+
+    const header = readCiaHeader(
+        await readChunk(titlePath, 0, CIA_HEADER_MIN_SIZE)
+    );
+    if (!header) {
+        return [];
+    }
+    const [ticket, tmd] = await Promise.all([
+        readChunk(titlePath, header.ticketOffset, header.ticketSize),
+        readChunk(titlePath, header.tmdOffset, header.tmdSize),
+    ]);
+    const parsedTicket = readTik(ticket);
+    if (!parsedTicket) {
+        return [{ ok: false, message: 'CIA ticket is invalid' }];
+    }
+    const titleId = parsedTicket.titleId;
+    const encryptedTitleKey = parsedTicket.encryptedKey;
+    const parsedTmd = readThreeDSCiaTmd(tmd);
+    if (!parsedTmd) {
+        return [{ ok: false, message: 'CIA TMD is invalid' }];
+    }
+    const contents = parsedTmd.contents.filter((content) =>
+        isCiaContentPresent(header, content.index)
+    );
+    const contentOffsets = new Map<number, number>();
+    let nextOffset = header.contentOffset;
+    for (const content of contents) {
+        contentOffsets.set(content.index, nextOffset);
+        nextOffset += getCiaContentStorageSize(content);
+    }
+
+    const handle = await open(titlePath, 'r');
+    try {
+        let titleKey: Buffer | null = null;
+        const firstContent = contents[0];
+        const firstOffset = firstContent
+            ? contentOffsets.get(firstContent.index)
+            : null;
+        if (firstContent && firstOffset !== null && firstOffset !== undefined) {
+            for (const commonKeyY of keys.commonKeyYs) {
+                if (!commonKeyY) continue;
+                const commonKey = deriveThreeDSNormalKey(
+                    decodeHexKey(keys.slot0x3dKeyX),
+                    decodeHexKey(commonKeyY),
+                    decodeHexKey(keys.generatorConstant)
+                );
+                const candidate = decryptTitleKey(
+                    encryptedTitleKey,
+                    commonKey,
+                    titleId
+                );
+                const iv = Buffer.alloc(16);
+                iv.writeUInt16BE(firstContent.index, 0);
+                const decryptedHeader = await readDecryptedCiaContentRange(
+                    handle,
+                    firstOffset,
+                    firstContent.size,
+                    candidate,
+                    iv,
+                    0,
+                    NCCH_HEADER_SIZE
+                );
+                if (isNcchHeader(decryptedHeader)) {
+                    titleKey = candidate;
+                    break;
+                }
+            }
+        }
+        if (!titleKey) {
+            return [{ ok: false, message: 'Could not decrypt CIA title key' }];
+        }
+
+        const checks: Array<{ ok: boolean; message: string }> = [];
+        const chunkSize = 4 * 1024 * 1024;
+        for (const content of contents) {
+            signal?.throwIfAborted();
+            onProgress?.(
+                `CIA content ${content.index.toString()}`,
+                content.size
+            );
+            const contentOffset = contentOffsets.get(content.index);
+            if (contentOffset === undefined) continue;
+            const iv = Buffer.alloc(16);
+            iv.writeUInt16BE(content.index, 0);
+            const hash = createHash('sha256');
+            let position = 0;
+            while (position < content.size) {
+                signal?.throwIfAborted();
+                const length = Math.min(chunkSize, content.size - position);
+                const decrypted = await readDecryptedCiaContentRange(
+                    handle,
+                    contentOffset,
+                    content.size,
+                    titleKey,
+                    iv,
+                    position,
+                    length
+                );
+                if (decrypted.length !== length) break;
+                hash.update(decrypted);
+                position += length;
+            }
+            const matches =
+                position === content.size && hash.digest().equals(content.hash);
+            checks.push({
+                ok: matches,
+                message: `CIA content ${content.index.toString()} SHA-256 matches TMD`,
+            });
+        }
+        return checks;
+    } catch (error) {
+        signal?.throwIfAborted();
+        return [{ ok: false, message: formatLogError(error) }];
+    } finally {
+        await handle.close();
+    }
 }
 
 async function validateThreeDSFileStructure(
@@ -949,7 +1277,7 @@ async function validateCiaFileStructure(
         ciaHeader.tmdOffset,
         ciaHeader.tmdSize
     );
-    const tmdContents = readCiaTmdContents(tmd);
+    const tmdContents = readThreeDSCiaTmd(tmd)?.contents ?? [];
     checks.push({
         ok: tmdContents.length > 0,
         message: 'read CIA TMD content table',
@@ -1075,7 +1403,9 @@ function getGameTdbDetails(
     gameTdb: Map<string, TitleDetails>,
     entry: TitleDatabaseEntry
 ): TitleDetails | null {
-    const id = entry.productCode;
+    const id = entry.productCode
+        ? getProductCodeMediaKey('3ds', entry.productCode)
+        : null;
     return id ? (gameTdb.get(id) ?? null) : null;
 }
 

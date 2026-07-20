@@ -18,7 +18,7 @@ import {
     isTitlePlatform,
     replaceTitleKind,
     TitleKinds,
-    type TitlePlatform,
+    TitlePlatform,
 } from '../../shared/titles.js';
 import {
     type TitleLookupResponse,
@@ -62,8 +62,9 @@ async function handleTitleLookup(
             await handleThreeDSTitleLookup(req, res);
             return;
 
+        case 'gamecube':
         case 'wii':
-            handleWiiTitleLookup(res);
+            handleUnavailableTitleLookup(platform, res);
             return;
 
         case 'wiiu':
@@ -72,9 +73,12 @@ async function handleTitleLookup(
     }
 }
 
-function handleWiiTitleLookup(res: Response): void {
+function handleUnavailableTitleLookup(
+    platform: TitlePlatform,
+    res: Response
+): void {
     res.status(404).json({
-        error: 'Title lookup is not available for Wii titles',
+        error: `Title lookup is not available for ${TitlePlatform[platform]} titles`,
     });
 }
 

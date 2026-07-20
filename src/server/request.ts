@@ -3,6 +3,7 @@ import { type ApiErrorResponse } from '../shared/api.js';
 import {
     identifyTitle,
     identifyWiiUTitle,
+    isTitlePlatform,
     type TitleIdentity,
 } from '../shared/titles.js';
 import { formatLogError } from '../shared/utils.js';
@@ -48,6 +49,7 @@ export function getStringBodyField(body: unknown, name: string): string {
 
 export function getTitleQuery(req: Request): TitleQueryResult {
     const titleId = getStringQuery(req, 'titleId');
+    const requestedPlatform = getStringQuery(req, 'platform');
 
     if (!titleId) {
         return {
@@ -56,11 +58,22 @@ export function getTitleQuery(req: Request): TitleQueryResult {
         };
     }
 
-    const titleIdentity = identifyTitle(titleId);
+    if (requestedPlatform && !isTitlePlatform(requestedPlatform)) {
+        return {
+            ok: false,
+            error: 'platform query parameter must be a recognized title platform',
+        };
+    }
+
+    const platform =
+        requestedPlatform && isTitlePlatform(requestedPlatform)
+            ? requestedPlatform
+            : undefined;
+    const titleIdentity = identifyTitle(titleId, platform);
     if (!titleIdentity) {
         return {
             ok: false,
-            error: 'titleId query parameter must be a Wii U title ID, 3DS title ID, or Wii product code',
+            error: 'titleId query parameter must be a recognized platform title ID',
         };
     }
 

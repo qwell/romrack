@@ -16,6 +16,7 @@
         "wiiu",
         "wii",
         "3ds",
+        "gamecube",
         "roms"
     ],
     "main": "dist/index.js",

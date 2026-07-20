@@ -1,9 +1,29 @@
 import { randomUUID } from 'node:crypto';
 
 import { broadcastAppSocketEvent } from '../socket.js';
-import { findWudImagePaths, verifyWiiUTitleRoots } from '../platforms/wiiu.js';
-import { clearTitleScanCache } from '../library.js';
-import { verifyWiiTitleRoots } from '../platforms/wii.js';
+import {
+    clearTitleScanCache,
+    logTitleVerificationCompleted,
+    logTitleVerificationStarted,
+} from '../library.js';
+import {
+    findMissingExpectedWiiUVerifications,
+    findWudImagePaths,
+    prepareWiiUTitleVerifications,
+    verifyPreparedWiiUTitle,
+} from '../platforms/wiiu.js';
+import {
+    prepareGameCubeTitleVerifications,
+    verifyPreparedGameCubeTitle,
+} from '../platforms/gamecube.js';
+import {
+    prepareWiiTitleVerifications,
+    verifyPreparedWiiTitle,
+} from '../platforms/wii.js';
+import {
+    prepareThreeDSTitleVerifications,
+    verifyPreparedThreeDSTitle,
+} from '../platforms/3ds.js';
 import { convertWudImages } from '../platforms/wiiu.js';
 import { markTitleCopiesValidating, revalidateTitleCopies } from './titles.js';
 import {
@@ -14,6 +34,7 @@ import { getConfig } from '../routes/config.js';
 import logger from '../../shared/logger.js';
 import { isTerminalActionState } from '../../shared/action.js';
 import { formatLogError } from '../../shared/utils.js';
+import { getTitlePlatformKey } from '../../shared/titles.js';
 import {
     LIBRARY_CONVERT_SOCKET_COMMAND,
     LIBRARY_CONVERT_SOCKET_EVENT,
@@ -30,6 +51,8 @@ const libraryVerifyFailures = new Map<string, LibraryVerifyEvent>();
 let activeLibraryVerifyAbortController: AbortController | null = null;
 let libraryVerifyEventTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingLibraryVerifyEvent: LibraryVerifyEvent | null = null;
+let libraryVerifyProgressPlatform: LibraryVerifyProgress['platform'] | null =
+    null;
 let libraryConversions: LibraryConvertItem[] = [];
 let activeLibraryConvertId: string | null = null;
 let activeLibraryConvertAbortController: AbortController | null = null;
@@ -74,6 +97,10 @@ function clearScheduledLibraryVerifyEvent(): void {
 }
 
 function handleLibraryVerifyProgress(progress: LibraryVerifyProgress): void {
+    const platformChanged = libraryVerifyProgressPlatform !== progress.platform;
+    if (platformChanged) {
+        libraryVerifyProgressPlatform = progress.platform;
+    }
     const event: LibraryVerifyEvent = {
         type: LIBRARY_VERIFY_SOCKET_EVENT.changed,
         state: 'in-progress',
@@ -81,8 +108,13 @@ function handleLibraryVerifyProgress(progress: LibraryVerifyProgress): void {
     };
     if (progress.result === 'failed') {
         clearScheduledLibraryVerifyEvent();
-        libraryVerifyFailures.set(progress.titleId, event);
+        libraryVerifyFailures.set(
+            getTitlePlatformKey(progress.platform, progress.titleId),
+            event
+        );
         broadcastAppSocketEvent(event);
+    } else if (platformChanged) {
+        broadcastLibraryVerifyEvent(event);
     } else {
         scheduleLibraryVerifyEvent(event);
     }
@@ -108,19 +140,94 @@ export async function verifyLibrary(): Promise<LibraryVerifyResponse> {
             reset: true,
         });
         libraryVerifyFailures.clear();
+        libraryVerifyProgressPlatform = null;
         const config = getConfig();
-        const titles = [
-            ...(await verifyWiiTitleRoots(
-                config.wiiRoots,
+        const prepared = (
+            await Promise.all([
+                prepareThreeDSTitleVerifications(
+                    config['3dsRoots'],
+                    abortController.signal
+                ),
+                prepareGameCubeTitleVerifications(
+                    config.gamecubeRoots,
+                    abortController.signal
+                ),
+                prepareWiiTitleVerifications(
+                    config.wiiRoots,
+                    abortController.signal
+                ),
+                prepareWiiUTitleVerifications(
+                    config.wiiuRoots,
+                    abortController.signal
+                ),
+            ])
+        )
+            .flat()
+            .sort((a, b) => {
+                const options: Intl.CollatorOptions = {
+                    sensitivity: 'base',
+                };
+                return (
+                    a.name.localeCompare(b.name, undefined, options) ||
+                    (a.region ?? '').localeCompare(
+                        b.region ?? '',
+                        undefined,
+                        options
+                    ) ||
+                    a.directory.localeCompare(b.directory, undefined, options)
+                );
+            });
+        const titles = [];
+        for (const [index, item] of prepared.entries()) {
+            abortController.signal.throwIfAborted();
+            logTitleVerificationStarted({
+                logNamespace: item.platform,
+                platform: item.platform,
+                name: item.name,
+                titleId: item.titleId,
+                version: item.version,
+                sizeText: item.sizeText,
+            });
+            const args = [
+                item,
+                index,
+                prepared.length,
                 handleLibraryVerifyProgress,
-                abortController.signal
-            )),
-            ...(await verifyWiiUTitleRoots(
+                abortController.signal,
+            ] as const;
+            let verifiedTitles;
+            switch (item.platform) {
+                case '3ds':
+                    verifiedTitles = await verifyPreparedThreeDSTitle(...args);
+                    break;
+                case 'gamecube':
+                    verifiedTitles = await verifyPreparedGameCubeTitle(...args);
+                    break;
+                case 'wii':
+                    verifiedTitles = await verifyPreparedWiiTitle(...args);
+                    break;
+                case 'wiiu':
+                    verifiedTitles = await verifyPreparedWiiUTitle(...args);
+                    break;
+            }
+            titles.push(...verifiedTitles);
+            for (const verifiedTitle of verifiedTitles) {
+                logTitleVerificationCompleted({
+                    logNamespace: item.platform,
+                    platform: item.platform,
+                    name: item.name,
+                    titleId: item.titleId,
+                    version: item.version,
+                    status: verifiedTitle.status,
+                });
+            }
+        }
+        titles.push(
+            ...(await findMissingExpectedWiiUVerifications(
                 config.wiiuRoots,
-                handleLibraryVerifyProgress,
-                abortController.signal
-            )),
-        ];
+                titles
+            ))
+        );
         const failed = titles.filter((title) => title.status !== 'ok').length;
         clearTitleScanCache();
         broadcastLibraryVerifyEvent({
@@ -238,7 +345,12 @@ function cancelLibraryConversion(id: string): void {
     if (isActive) {
         activeLibraryConvertAbortController?.abort();
         clearTitleScanCache();
-        markTitleCopiesValidating([...activeLibraryConvertSourcePaths.keys()]);
+        markTitleCopiesValidating(
+            [...activeLibraryConvertSourcePaths.keys()].map((titleId) => ({
+                platform: 'wiiu',
+                titleId,
+            }))
+        );
     }
     broadcastLibraryConversions();
     void processLibraryConvertQueue();
@@ -321,6 +433,7 @@ async function processLibraryConvertQueue(): Promise<void> {
         revalidateTitleCopies(
             result.converted.flatMap((image) =>
                 image.titles.map((title) => ({
+                    platform: 'wiiu' as const,
                     titleId: title.titleId,
                     sourcePaths: [title.outputDir],
                 }))
@@ -344,6 +457,7 @@ async function processLibraryConvertQueue(): Promise<void> {
         revalidateTitleCopies(
             [...activeLibraryConvertSourcePaths].map(
                 ([titleId, sourcePaths]) => ({
+                    platform: 'wiiu' as const,
                     titleId,
                     sourcePaths: [...sourcePaths],
                 })
@@ -355,6 +469,7 @@ async function processLibraryConvertQueue(): Promise<void> {
             revalidateTitleCopies(
                 [...activeLibraryConvertSourcePaths].map(
                     ([titleId, sourcePaths]) => ({
+                        platform: 'wiiu' as const,
                         titleId,
                         sourcePaths: [...sourcePaths],
                     })

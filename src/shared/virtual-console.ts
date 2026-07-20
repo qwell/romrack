@@ -87,6 +87,7 @@ export function getVirtualConsolePlatform(
 ): VirtualConsolePlatform | null {
     switch (platform) {
         case '3ds':
+        case 'gamecube':
             return null;
         case 'wii':
             return getWiiVirtualConsolePlatform(productCode);

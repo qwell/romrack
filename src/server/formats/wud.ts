@@ -1,7 +1,7 @@
 import { createDecipheriv } from 'node:crypto';
 
 import { getEncryptedContentFileSize, isHashedContent } from './content.js';
-import { findFstEntry, looksLikeFst, readFstContentInfos } from './fst.js';
+import { findFstEntry, looksLikeFst, readFstContentInfos } from './wiiu-fst.js';
 import { type Tmd } from './tmd.js';
 
 export type WuxInfo = {
@@ -32,16 +32,11 @@ export type WudGamePartition = {
     partitionOffset: bigint;
     header: Buffer;
     contentKey: Buffer;
-    contentKeyPassword: string | null;
-    rawTmd: Buffer;
-    rawTicket: Buffer;
-    rawCert: Buffer;
     tmd: Tmd;
     fst: Buffer;
     contentOffsets: Map<number, bigint>;
 };
 
-export const WUD_FILE_EXTENSIONS = new Set(['.wud', '.wux']);
 export const WUD_DECRYPTED_AREA_OFFSET = 0x18000n;
 export const WUD_SECTOR_SIZE = 0x8000;
 export const WUD_CLUSTER_SIZE = 0x10000;
@@ -198,10 +193,6 @@ export async function readWudGamePartition(
     image: WudImage,
     partition: WudPartitionReference,
     contentKey: Buffer,
-    contentKeyPassword: string | null,
-    rawTmd: Buffer,
-    rawCert: Buffer,
-    rawTicket: Buffer,
     tmd: Tmd
 ): Promise<WudGamePartition | null> {
     const headerMeta = await readWudImageRange(
@@ -244,10 +235,6 @@ export async function readWudGamePartition(
         partitionOffset,
         header,
         contentKey,
-        contentKeyPassword,
-        rawTmd,
-        rawCert,
-        rawTicket,
         tmd,
         fst,
         contentOffsets: new Map(

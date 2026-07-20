@@ -813,7 +813,8 @@ select {
     aspect-ratio: 350 / 500;
 }
 
-.sidebar-thumbnail-placeholder.platform-wii {
+.sidebar-thumbnail-placeholder.platform-wii,
+.sidebar-thumbnail-placeholder.platform-gamecube {
     aspect-ratio: 160 / 224;
 }
 

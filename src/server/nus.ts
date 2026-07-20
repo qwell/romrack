@@ -2,7 +2,6 @@ import path from 'path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import forge from 'node-forge';
 import {
-    createContentIv,
     createTitleKeyIv,
     decryptContentWithBigIntIv,
     decryptContentWithIv,
@@ -17,6 +16,7 @@ import {
     type DownloadOptions,
 } from './download.js';
 import {
+    createContentIv,
     formatContentId,
     decryptHashedContent,
     extractHashedContentSlice,
@@ -27,16 +27,18 @@ import {
     looksLikeFst,
     parseTitleFstEntries,
     type TitleFstEntry,
-} from './formats/fst.js';
+} from './formats/wiiu-fst.js';
 import {
-    META_XML_FILES,
     findXmlStartByte,
     readMetaXml,
     readMetaXmlJson,
-    type NUSTitleInformation,
+    type MetaXmlInformation,
 } from './formats/meta.js';
 import { inspectNcch } from './formats/ncch.js';
-import { inspectSmdhMetadata } from './formats/smdh.js';
+import {
+    inspectSmdhMetadata,
+    SMDH_TITLE_ENGLISH_INDEX,
+} from './formats/smdh.js';
 import { readTmdFromBuffer, type Tmd, type TmdContent } from './formats/tmd.js';
 import {
     createTikFromTemplate,
@@ -56,14 +58,17 @@ import logger from '../shared/logger.js';
 import { isHttpErrorStatus } from '../shared/download.js';
 import { isFileNotFoundError } from '../shared/file.js';
 import { normalizeRegion } from '../shared/regions.js';
-import { formatLogError } from '../shared/utils.js';
+import { formatLogError, getPreferredValue } from '../shared/utils.js';
 
 export { type DownloadOptions } from './download.js';
+
+type NUSTitleInformation = MetaXmlInformation;
 
 export const WII_U_NUS_BASE_URL =
     'http://ccs.cdn.wup.shop.nintendo.net/ccs/download';
 export const THREE_DS_NUS_BASE_URL =
     'https://ccs.c.shop.nintendowifi.net/ccs/download/';
+export const WIIU_META_XML_PATHS = ['meta/meta.xml', 'meta.xml'] as const;
 
 export const DEFAULT_CERT_TITLE_ID = '000500101000400a'; // OSv10
 
@@ -548,6 +553,13 @@ export async function downloadNusTitleMetadata(
                 titleId,
             });
         }
+        if (tmd.header.systemType !== 'wiiu') {
+            logger.warn(
+                'metadata',
+                `unsupported ${tmd.header.systemType} TMD for ${titleId}`
+            );
+            return createBasicNusTitleMetadata(titleId, tmd);
+        }
 
         const commonKey = Buffer.from(await loadKeys('wiiu'), 'hex');
         const encryptedFst = await downloadContent(
@@ -713,7 +725,9 @@ async function enrichNusTitleMetadata({
                 downloadOptions
             );
             return {
-                info: metaXml ? readMetaXml(metaXml) : null,
+                info: metaXml
+                    ? normalizeMetaXmlInformation(readMetaXml(metaXml))
+                    : null,
                 raw: metaXml ? readMetaXmlJson(metaXml) : null,
             };
         }
@@ -1005,11 +1019,15 @@ function inspectThreeDSContentMetadata(
         };
     }
 
+    const title = getPreferredValue(
+        smdhResult.metadata.titles,
+        SMDH_TITLE_ENGLISH_INDEX
+    );
     return {
         ok: true,
         metadata: {
-            name: smdhResult.metadata.name,
-            publisher: smdhResult.metadata.publisher,
+            name: title?.longDescription || title?.shortDescription || null,
+            publisher: title?.publisher || null,
             region: normalizeRegion(
                 smdhResult.metadata.region,
                 ncch.productCode
@@ -1017,6 +1035,17 @@ function inspectThreeDSContentMetadata(
             productCode: ncch.productCode,
         },
     };
+}
+
+function normalizeMetaXmlInformation(
+    info: MetaXmlInformation | null
+): MetaXmlInformation | null {
+    return info
+        ? {
+              ...info,
+              region: normalizeRegion(info.region, info.productCode) || null,
+          }
+        : null;
 }
 
 export async function getUpdateMetadata(
@@ -1158,7 +1187,7 @@ export async function extractMetaXmlFromContentReader(
     const entries = parseFstEntries(decryptedFst, tmd);
     const metaEntry =
         entries.find((entry) =>
-            META_XML_FILES.some((file) => file === entry.fullPath)
+            WIIU_META_XML_PATHS.some((file) => file === entry.fullPath)
         ) ?? null;
 
     if (!metaEntry || metaEntry.isDirectory) {

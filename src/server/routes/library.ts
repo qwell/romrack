@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import { scanThreeDSTitleRoots } from '../platforms/3ds.js';
+import { scanGameCubeTitleRoots } from '../platforms/gamecube.js';
 import { scanWiiUTitleRoots } from '../platforms/wiiu.js';
 import {
     clearTitleScanCache,
@@ -35,14 +36,19 @@ export function createLibraryRouter(): Router {
         }
         try {
             const config = getConfig();
-            const [threeDSGroups, wiiuGroups, wiiGroups] = await Promise.all([
-                scanThreeDSTitleRoots(config['3dsRoots']),
-                scanWiiUTitleRoots(config.wiiuRoots),
-                scanWiiTitleRoots(config.wiiRoots),
-            ]);
-            const groups = [...threeDSGroups, ...wiiuGroups, ...wiiGroups].sort(
-                (a, b) => a.name.localeCompare(b.name)
-            );
+            const [threeDSGroups, gameCubeGroups, wiiuGroups, wiiGroups] =
+                await Promise.all([
+                    scanThreeDSTitleRoots(config['3dsRoots']),
+                    scanGameCubeTitleRoots(config.gamecubeRoots),
+                    scanWiiUTitleRoots(config.wiiuRoots),
+                    scanWiiTitleRoots(config.wiiRoots),
+                ]);
+            const groups = [
+                ...threeDSGroups,
+                ...gameCubeGroups,
+                ...wiiuGroups,
+                ...wiiGroups,
+            ].sort((a, b) => a.name.localeCompare(b.name));
             setLibraryCacheGroups(groups);
             const response: LibraryResponse = { groups };
             res.json(response);

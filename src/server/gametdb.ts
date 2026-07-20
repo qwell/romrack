@@ -9,6 +9,7 @@ import * as cheerio from 'cheerio';
 import logger from '../shared/logger.js';
 import { isFileExistsError, isFileNotFoundError } from '../shared/file.js';
 import {
+    getProductCodeMediaKey,
     TITLE_PLATFORM_IDS,
     type TitleGroup,
     type TitlePlatform,
@@ -28,11 +29,12 @@ import { downloadBytes } from './download.js';
 
 const GAME_TDB_MEDIA_TYPES = ['icons', 'covers'] as const;
 const GAME_TDB_MEDIA_EXTENSIONS = ['.png', '.jpg', '.jpeg'] as const;
-const SKIPPED_GAME_TDB_TYPES = new Set(['CUSTOM', 'Homebrew']);
+const SKIPPED_GAME_TDB_TYPES = new Set(['custom', 'homebrew']);
 
 type GameTdbMediaType = (typeof GAME_TDB_MEDIA_TYPES)[number];
 
 type GameTdbPlatformConfig = {
+    archivePlatform?: TitlePlatform;
     downloadsPage: string;
     media: Partial<
         Record<
@@ -215,6 +217,20 @@ const platforms: Record<TitlePlatform, GameTdbPlatformConfig> = {
             },
         },
     },
+    gamecube: {
+        archivePlatform: 'wii',
+        downloadsPage: 'https://www.gametdb.com/Wii/Downloads',
+        media: {
+            icons: {
+                archiveName: 'disc',
+                regions: WII_DISC_MEDIA_REGIONS,
+            },
+            covers: {
+                archiveName: 'cover',
+                regions: WII_COVER_MEDIA_REGIONS,
+            },
+        },
+    },
     wii: {
         downloadsPage: 'https://www.gametdb.com/Wii/Downloads',
         media: {
@@ -248,11 +264,6 @@ const mediaCacheRoot = path.join(getUserAppRoot(), '.cache');
 const DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
 const STALE_TEMP_ARCHIVE_MS = DOWNLOAD_TIMEOUT_MS;
 const ZIP_CACHE_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000;
-const MEDIA_KEY_LENGTHS: Record<TitlePlatform, number> = {
-    '3ds': 4,
-    wii: 4,
-    wiiu: 4,
-};
 const mediaArchives = new Map<string, Promise<GameTdbDownloadedArchive>>();
 const mediaExtractions = new Map<string, GameTdbArchiveExtraction>();
 const mediaRefreshes = new Map<string, GameTdbArchiveRefresh>();
@@ -274,7 +285,17 @@ export function isGameTdbGame(value: unknown): value is GameTdbGame {
 }
 
 export function isSkippedGameTdbTitle(game: GameTdbGame): boolean {
-    return game.type ? SKIPPED_GAME_TDB_TYPES.has(game.type) : false;
+    return game.type
+        ? SKIPPED_GAME_TDB_TYPES.has(normalizeGameTdbType(game.type))
+        : false;
+}
+
+export function isGameCubeGameTdbTitle(game: GameTdbGame): boolean {
+    return normalizeGameTdbType(game.type) === 'gamecube';
+}
+
+function normalizeGameTdbType(type: string | undefined): string {
+    return type?.trim().toLowerCase() ?? '';
 }
 
 export function getGameTdbLocales(game: GameTdbGame): GameTdbLocale[] {
@@ -331,7 +352,8 @@ export function getPreferredGameTdbSynopsis(
 }
 
 async function readDownloadsPage(platform: TitlePlatform): Promise<string> {
-    let pending = downloadsPageCache.get(platform);
+    const archivePlatform = platforms[platform].archivePlatform ?? platform;
+    let pending = downloadsPageCache.get(archivePlatform);
     if (!pending) {
         logger.log(
             'gametdb',
@@ -340,7 +362,7 @@ async function readDownloadsPage(platform: TitlePlatform): Promise<string> {
         pending = downloadBuffer(platforms[platform].downloadsPage).then(
             (body) => body.toString('utf8')
         );
-        downloadsPageCache.set(platform, pending);
+        downloadsPageCache.set(archivePlatform, pending);
     }
 
     return pending;
@@ -353,7 +375,7 @@ function getMediaArchivePath(
 ): string {
     return path.join(
         mediaCacheRoot,
-        `GameTDB-${platform}-${type}-${region}.zip`
+        `GameTDB-${platforms[platform].archivePlatform ?? platform}-${type}-${region}.zip`
     );
 }
 
@@ -366,7 +388,7 @@ function getArchiveIndexKey(
     type: GameTdbMediaType,
     region: GameTdbRegion
 ): string {
-    return `${platform}:${type}:${region}`;
+    return `${platforms[platform].archivePlatform ?? platform}:${type}:${region}`;
 }
 
 function getMediaCacheDir(
@@ -402,10 +424,10 @@ function getMediaCacheFilename(
     filename: string;
 } | null {
     const parsed = path.parse(path.basename(filename));
-    const key = parsed.name.slice(0, MEDIA_KEY_LENGTHS[platform]).toUpperCase();
+    const key = parsed.name.trim().toUpperCase();
     const extension = parsed.ext.toLowerCase();
 
-    return key.length === MEDIA_KEY_LENGTHS[platform] && extension
+    return /^[A-Z0-9]{4,6}$/.test(key) && extension
         ? {
               mediaKey: key,
               filename: `${key}${extension}`,
@@ -414,7 +436,21 @@ function getMediaCacheFilename(
 }
 
 function getMediaKey(platform: TitlePlatform, id: string): string {
-    return id.slice(0, MEDIA_KEY_LENGTHS[platform]).toUpperCase();
+    return getProductCodeMediaKey(platform, id) ?? id.trim().toUpperCase();
+}
+
+function isArchiveMediaKeyMatch(
+    platform: TitlePlatform,
+    archiveKey: string,
+    wantedKey: string
+): boolean {
+    return (
+        archiveKey === wantedKey ||
+        (platform === 'wiiu' &&
+            wantedKey.length === 4 &&
+            archiveKey.length === 6 &&
+            archiveKey.startsWith(wantedKey))
+    );
 }
 
 function formatFileCount(count: number): string {
@@ -692,7 +728,8 @@ async function findZipFilename(
 
     const html = await readDownloadsPage(platform);
     const query = cheerio.load(html);
-    const prefix = `GameTDB-${platform}_${media.archiveName}-${region}-`;
+    const archivePlatform = config.archivePlatform ?? platform;
+    const prefix = `GameTDB-${archivePlatform}_${media.archiveName}-${region}-`;
 
     return query(`a[title^="${prefix}"]`).attr('title') ?? null;
 }
@@ -702,8 +739,12 @@ function getZipFilenamePrefix(
     type: GameTdbMediaType,
     region: GameTdbRegion
 ): string | null {
-    const media = platforms[platform].media[type];
-    return media ? `GameTDB-${platform}_${media.archiveName}-${region}-` : null;
+    const config = platforms[platform];
+    const media = config.media[type];
+    const archivePlatform = config.archivePlatform ?? platform;
+    return media
+        ? `GameTDB-${archivePlatform}_${media.archiveName}-${region}-`
+        : null;
 }
 
 async function downloadFile(url: string, filePath: string): Promise<number> {
@@ -1022,12 +1063,20 @@ async function extractArchive(
 
         productCodes.add(filename.mediaKey);
 
-        if (mediaKeys && !mediaKeys.has(filename.mediaKey)) {
+        const matchedMediaKey = mediaKeys
+            ? [...mediaKeys].find((mediaKey) =>
+                  isArchiveMediaKeyMatch(platform, filename.mediaKey, mediaKey)
+              )
+            : filename.mediaKey;
+        if (!matchedMediaKey) {
             continue;
         }
 
         await writeMediaFile(
-            path.join(outputDir, filename.filename),
+            path.join(
+                outputDir,
+                `${matchedMediaKey}${path.extname(filename.filename)}`
+            ),
             await readLocalZipEntryData(archivePath, entry),
             overwrite
         );
@@ -1222,9 +1271,11 @@ function getMediaSteps(): GameTdbMediaStep[] {
                 getMediaStep('wiiu', 'icons', index),
                 getMediaStep('wii', 'icons', index),
                 getMediaStep('3ds', 'icons', index),
+                getMediaStep('gamecube', 'icons', index),
                 getMediaStep('wiiu', 'covers', index),
                 getMediaStep('wii', 'covers', index),
                 getMediaStep('3ds', 'covers', index),
+                getMediaStep('gamecube', 'covers', index),
             ].filter((step): step is GameTdbMediaStep => step !== null)
         );
     }
@@ -1370,7 +1421,9 @@ async function getKnownArchiveMatches(
 
     const matches = new Map(
         [...missing].filter(([productCode]) =>
-            index.productCodes.has(productCode)
+            [...index.productCodes].some((archiveKey) =>
+                isArchiveMediaKeyMatch(step.platform, archiveKey, productCode)
+            )
         )
     );
     return matches.size > 0 ? matches : new Map();

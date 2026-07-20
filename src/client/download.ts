@@ -69,7 +69,8 @@ export function formatDownloadTitle(item: DownloadQueueItem): string {
     return formatTitleDisplay(
         item.installedTitleName ?? item.groupName,
         item.titleId,
-        null
+        null,
+        item.platform
     );
 }
 

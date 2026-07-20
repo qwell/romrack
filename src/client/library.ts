@@ -17,6 +17,7 @@ import {
 } from '../shared/action.js';
 import { formatSize, formatTitleDisplay } from '../shared/utils.js';
 import {
+    getTitlePlatformKey,
     identifyTitle,
     type AvailableTitleEntry,
     type ChildKind,
@@ -96,11 +97,15 @@ export function mergeFailedVerificationsIntoAvailable(
             continue;
         }
 
-        const family = identifyTitle(entry.titleId)?.family;
+        const family = identifyTitle(entry.titleId, title.platform)?.family;
         if (!family) {
             continue;
         }
-        const group = groups.find((candidate) => candidate.family === family);
+        const group = groups.find(
+            (candidate) =>
+                candidate.platform === title.platform &&
+                candidate.family === family
+        );
         if (!group) {
             continue;
         }
@@ -351,7 +356,7 @@ function formatLibraryVerifyFileCount(item: LibraryVerifyEvent): string {
             item.titleId
                 ? Math.min(item.current + 1, item.total)
                 : item.current;
-        return `${current}/${item.total} titles`;
+        return `${current}/${item.total} entries`;
     }
 
     return '';
@@ -370,7 +375,12 @@ function formatLibraryVerifyState(item: LibraryVerifyEvent): string {
 
 function formatLibraryVerifyTitle(item: LibraryVerifyEvent): string {
     if (isLibraryVerifyTitleEvent(item)) {
-        return formatTitleDisplay(item.name, item.titleId, item.version);
+        return formatTitleDisplay(
+            item.name,
+            item.titleId,
+            item.version,
+            item.platform
+        );
     }
 
     return '';
@@ -390,14 +400,14 @@ function formatLibraryVerifyDetails(item: LibraryVerifyEvent): string {
     }
 
     if (item.state === 'complete') {
-        return `${item.total} titles`;
+        return `${item.total} entries`;
     }
 
     return '';
 }
 
 function getLibraryVerifyFailureKey(item: LibraryVerifyFailure): string {
-    return item.titleId;
+    return getTitlePlatformKey(item.platform, item.titleId);
 }
 
 function getLibraryVerifyId(item: LibraryVerifyEvent): string {
@@ -484,7 +494,8 @@ export function renderLibrarySidebarWud(
     content.className = 'sidebar-download-content sidebar-wud-content';
     const titles = group.wudEntries.flatMap((entry) => entry.titles);
     const baseTitle = titles.find(
-        (title) => identifyTitle(title.titleId)?.kind === TitleKinds.Base
+        (title) =>
+            identifyTitle(title.titleId, 'wiiu')?.kind === TitleKinds.Base
     );
     const conversionTitle = baseTitle ?? titles[0];
 
@@ -515,7 +526,7 @@ export function renderLibrarySidebarWud(
         const space = document.createElement('span');
         const slot = document.createElement('span');
         slot.className = 'sidebar-download-slot';
-        slot.textContent = `${identifyTitle(title.titleId)?.kind ?? TitleKinds.Unknown} v${title.version}`;
+        slot.textContent = `${identifyTitle(title.titleId, 'wiiu')?.kind ?? TitleKinds.Unknown} v${title.version}`;
         const id = document.createElement('span');
         id.className = 'sidebar-download-id';
         id.textContent = title.titleId;
@@ -536,7 +547,7 @@ export function getLibraryVerifyActionBarEntries(
         const id = getLibraryVerifyId(item);
         let downloadDisabled = false;
         if (isLibraryVerifyFailure(item)) {
-            const family = identifyTitle(item.titleId)?.family;
+            const family = identifyTitle(item.titleId, item.platform)?.family;
             downloadDisabled = downloads.some(
                 (candidate) =>
                     candidate.state !== 'complete' &&
@@ -546,6 +557,8 @@ export function getLibraryVerifyActionBarEntries(
                     candidate.titleId === item.titleId
             );
         }
+        const canDownloadFailure =
+            isLibraryVerifyFailure(item) && item.platform === 'wiiu';
 
         const title = formatLibraryVerifyTitle(item);
         return {
@@ -582,7 +595,7 @@ export function getLibraryVerifyActionBarEntries(
                         ? formatLibraryVerifyDetails(item)
                         : undefined,
                 buttons: [
-                    ...(isLibraryVerifyFailure(item)
+                    ...(canDownloadFailure
                         ? [
                               {
                                   text: 'Download',
@@ -744,8 +757,10 @@ export function handleLibraryActionBarCommand(
             const queued = queueVerificationDownloads([
                 {
                     id: crypto.randomUUID(),
-                    platform: identifyTitle(item.titleId)?.platform ?? 'wiiu',
-                    family: identifyTitle(item.titleId)?.family ?? item.titleId,
+                    platform: item.platform,
+                    family:
+                        identifyTitle(item.titleId, item.platform)?.family ??
+                        item.titleId,
                     groupName: item.name ?? item.titleId,
                     kind: item.kind,
                     label: item.kind,

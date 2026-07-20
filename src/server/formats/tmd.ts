@@ -1,5 +1,4 @@
 import { Region, RegionNames } from '../../shared/regions.js';
-import { type TitlePlatform } from '../../shared/titles.js';
 
 export type Tmd = {
     header: TmdHeader;
@@ -11,7 +10,7 @@ export type TmdHeader = {
     titleId: Buffer;
     titleVersion: number;
     region: string;
-    systemType: SystemType;
+    systemType: TmdSystemType;
     contentCount: number;
 };
 
@@ -53,7 +52,7 @@ type CertificateKeyType =
     | typeof CERT_KEY_RSA_2048
     | typeof CERT_KEY_ECC;
 
-type SystemType = TitlePlatform | typeof SYSTEM_TYPE_UNKNOWN;
+export type TmdSystemType = '3ds' | 'wii' | 'wiiu' | typeof SYSTEM_TYPE_UNKNOWN;
 
 export const TMD_TITLE_FILE = 'title.tmd';
 
@@ -77,6 +76,9 @@ const TMD_CONTENT_COUNT_OFFSET = 0x1de;
 const TMD_CONTENT_COUNT_SIZE = 2;
 const TMD_CONTENT_OFFSET = 0xb04;
 const TMD_CONTENT_SIZE = 0x30;
+const WII_TMD_CONTENT_OFFSET = 0x1e4;
+const WII_TMD_CONTENT_SIZE = 0x24;
+const WII_TMD_CONTENT_HASH_SIZE = 0x14;
 const TMD_CERTIFICATE_1_SIZE = 0x400;
 const TMD_CERTIFICATE_2_SIZE = 0x300;
 const TMD_CONTENT_HASH_SIZE = 0x20;
@@ -104,16 +106,27 @@ export function readTmdFromBuffer(buffer: Buffer): Tmd | null {
     if (!header) {
         return null;
     }
-    const contentTableSize = header.contentCount * TMD_CONTENT_SIZE;
-    if (buffer.length < TMD_CONTENT_OFFSET + contentTableSize) {
+    const contentOffset =
+        header.systemType === 'wii'
+            ? WII_TMD_CONTENT_OFFSET
+            : TMD_CONTENT_OFFSET;
+    const contentSize =
+        header.systemType === 'wii' ? WII_TMD_CONTENT_SIZE : TMD_CONTENT_SIZE;
+    const hashSize =
+        header.systemType === 'wii'
+            ? WII_TMD_CONTENT_HASH_SIZE
+            : TMD_CONTENT_HASH_SIZE;
+    const contentTableSize = header.contentCount * contentSize;
+    if (buffer.length < contentOffset + contentTableSize) {
         return null;
     }
     const contents = readTmdContents(
-        buffer.subarray(TMD_CONTENT_OFFSET),
-        header.contentCount
+        buffer.subarray(contentOffset),
+        header.contentCount,
+        contentSize,
+        hashSize
     );
-    const certificateOffset =
-        TMD_CONTENT_OFFSET + header.contentCount * TMD_CONTENT_SIZE;
+    const certificateOffset = contentOffset + contentTableSize;
     const certificates = readTmdCertificates(
         buffer.subarray(certificateOffset)
     );
@@ -130,17 +143,13 @@ export function readTmdHeader(buffer: Buffer): TmdHeader | null {
             TMD_TITLE_ID_OFFSET + TMD_TITLE_ID_SIZE
         )
     );
-    const systemType = getSystemType(titleId);
-    if (!isReadableTmdSystem(systemType)) {
-        return null;
-    }
     return {
         titleId,
         titleVersion: buffer.readUintBE(TMD_VERSION_OFFSET, TMD_VERSION_SIZE),
         region: getRegionName(
             buffer.readUintBE(TMD_REGION_OFFSET, TMD_REGION_SIZE)
         ),
-        systemType,
+        systemType: getSystemType(titleId),
         contentCount: buffer.readUIntBE(
             TMD_CONTENT_COUNT_OFFSET,
             TMD_CONTENT_COUNT_SIZE
@@ -204,18 +213,26 @@ export function getTitleIdNumber(value: Buffer): bigint {
     return Buffer.from(value).readBigUInt64BE(0);
 }
 
-function readTmdContents(buffer: Buffer, contentCount: number): TmdContent[] {
+function readTmdContents(
+    buffer: Buffer,
+    contentCount: number,
+    contentSize: number,
+    hashSize: number
+): TmdContent[] {
     const contents: TmdContent[] = [];
     for (let i = 0; i < contentCount; i += 1) {
-        const offset = i * TMD_CONTENT_SIZE;
+        const offset = i * contentSize;
         contents.push(
-            readTmdContent(buffer.subarray(offset, offset + TMD_CONTENT_SIZE))
+            readTmdContent(
+                buffer.subarray(offset, offset + contentSize),
+                hashSize
+            )
         );
     }
     return contents;
 }
 
-function readTmdContent(buffer: Buffer): TmdContent {
+function readTmdContent(buffer: Buffer, hashSize: number): TmdContent {
     return {
         id: buffer.readUInt32BE(0),
         index: buffer.readUInt16BE(4),
@@ -224,7 +241,7 @@ function readTmdContent(buffer: Buffer): TmdContent {
         hash: Buffer.from(
             buffer.subarray(
                 TMD_CONTENT_HASH_OFFSET,
-                TMD_CONTENT_HASH_OFFSET + TMD_CONTENT_HASH_SIZE
+                TMD_CONTENT_HASH_OFFSET + hashSize
             )
         ),
     };
@@ -299,7 +316,7 @@ function getRegionName(region: number): string {
     return RegionNames[region] ?? Region.UNK;
 }
 
-function getSystemType(titleId: Buffer): SystemType {
+function getSystemType(titleId: Buffer): TmdSystemType {
     if (!titleId || titleId.length < 2) {
         return SYSTEM_TYPE_UNKNOWN;
     }
@@ -313,15 +330,4 @@ function getSystemType(titleId: Buffer): SystemType {
         return 'wii';
     }
     return SYSTEM_TYPE_UNKNOWN;
-}
-
-function isReadableTmdSystem(systemType: SystemType): boolean {
-    switch (systemType) {
-        case '3ds':
-        case 'wiiu':
-            return true;
-        case 'wii':
-        case SYSTEM_TYPE_UNKNOWN:
-            return false;
-    }
 }

@@ -43,19 +43,6 @@ export function createTitleKeyIv(titleId: Buffer): Buffer {
     return iv;
 }
 
-export function createContentIv(contentIndex: number): Buffer {
-    if (
-        !Number.isInteger(contentIndex) ||
-        contentIndex < 0 ||
-        contentIndex > 0xffff
-    ) {
-        throw new Error(`contentIndex must be a uint16, got ${contentIndex}`);
-    }
-    const iv = Buffer.alloc(AES_BLOCK_SIZE);
-    iv.writeUInt16BE(contentIndex, 0);
-    return iv;
-}
-
 export function createBigIntIv(value: bigint | number): Buffer {
     const iv = Buffer.alloc(AES_BLOCK_SIZE);
     iv.writeBigUInt64BE(

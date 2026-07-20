@@ -5,7 +5,11 @@ import {
 import { type Fat32Volume, type RuntimeOs } from './os/types.js';
 import { type StorageCopyItem, type StorageDeleteItem } from './storage.js';
 import { type LibraryConvertItem } from './socket.js';
-import { type TitleGroup, type TitleKinds } from './titles.js';
+import {
+    type TitleGroup,
+    type TitleKinds,
+    type TitlePlatform,
+} from './titles.js';
 import { HttpError } from './download.js';
 import { isObject } from './utils.js';
 
@@ -28,6 +32,7 @@ export type LibraryResponse = {
 };
 
 export type LibraryVerifyTitle = {
+    platform: TitlePlatform;
     root: string | null;
     directory: string | null;
     name: string;
@@ -43,6 +48,7 @@ export type LibraryVerifyTitle = {
 export type LibraryVerifyProgress =
     | {
           titleId: string;
+          platform: TitlePlatform;
           name: string;
           kind: TitleKinds;
           version: number | null;
@@ -54,6 +60,7 @@ export type LibraryVerifyProgress =
       }
     | {
           titleId: string;
+          platform: TitlePlatform;
           name: string;
           kind: TitleKinds;
           version: number | null;

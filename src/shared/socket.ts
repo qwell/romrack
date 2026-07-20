@@ -5,7 +5,7 @@ import {
 import { type ActionState } from './action.js';
 
 import { type StorageCopyItem, type StorageDeleteItem } from './storage.js';
-import { TitleKinds } from './titles.js';
+import { TitleKinds, type TitlePlatform } from './titles.js';
 
 export const SOCKET_COMMAND = {
     downloadQueue: 'download.queue',
@@ -176,6 +176,7 @@ export type TitleValidationSocketCommand = {
     type: typeof TITLE_VALIDATE_SOCKET_COMMAND.queue;
     id: string;
     name: string;
+    platform: TitlePlatform;
 };
 
 export type SocketCommand =
@@ -215,6 +216,7 @@ export type LibraryVerifyProgress = {
     type: typeof SOCKET_EVENT.libraryVerifyChanged;
     state: 'in-progress';
     titleId: string;
+    platform: TitlePlatform;
     name: string;
     kind: TitleKinds;
     version: number | null;
@@ -298,6 +300,7 @@ export type TitleValidationCopyResult = {
 
 export type TitleValidationSocketEvent = {
     type: typeof SOCKET_EVENT.titleValidateChanged;
+    platform: TitlePlatform;
     titleId: string;
     status: 'validating' | 'complete' | 'failed';
     copies: TitleValidationCopyResult[];

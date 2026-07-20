@@ -22,8 +22,10 @@ import {
     PARENT_KINDS,
     mergeTitleEntry,
     identifyTitle,
-    getWiiProductCode,
+    getDiscProductCode,
+    getDiscTitleId,
     getWiiUProductCode,
+    getProductCodeMediaKey,
     normalizeTitleName,
     TitleKinds,
     type TitleDatabaseEntry,
@@ -45,6 +47,8 @@ import {
     mergeLibraryTitleGroups,
     parseGameTdbInputControls,
     parseGameTdbNumber,
+    prepareTitleVerifications,
+    type PreparedTitleVerification,
     readGameTdb as readLibraryGameTdb,
     readTitleDatabase as readLibraryTitleDatabase,
     readTitleDatabaseByProductCode,
@@ -58,7 +62,6 @@ import {
 import {
     formatLogError,
     formatSize,
-    formatTitleDisplay,
     mapConcurrent,
     safeDirectoryName,
 } from '../../shared/utils.js';
@@ -74,7 +77,6 @@ import {
     type TmdContent,
 } from '../formats/tmd.js';
 import logger from '../../shared/logger.js';
-import { ansi } from '../../shared/ansi.js';
 import {
     type LibraryVerifyProgress,
     type LibraryVerifyTitle,
@@ -92,7 +94,6 @@ import {
     WUD_CLUSTER_SIZE,
     WUD_DECRYPTED_AREA_OFFSET,
     WUD_DECRYPTED_AREA_SIGNATURE,
-    WUD_FILE_EXTENSIONS,
     WUD_SECTOR_SIZE,
     type WudDataPartition,
     type WudGamePartition,
@@ -111,10 +112,9 @@ import {
 } from '../gametdb.js';
 import { readCachedTitleMedia, type CachedImage } from '../image-cache.js';
 import {
-    META_XML_FILES,
     findXmlStartByte,
     readMetaXml,
-    type NUSTitleInformation,
+    type MetaXmlInformation,
 } from '../formats/meta.js';
 import { readWiiGameTdb, readWiiTitleDatabase } from './wii.js';
 import { decryptTitleKey } from '../decryption.js';
@@ -125,6 +125,7 @@ import {
     downloadOptionalTicket,
     downloadTmd,
     WII_U_NUS_BASE_URL,
+    WIIU_META_XML_PATHS,
     CERT_TITLE_FILE,
     createGeneratedCert,
     createGeneratedTik,
@@ -151,7 +152,7 @@ import { readTik, TIK_TITLE_FILE, type Tik } from '../formats/tik.js';
 import {
     getRootDirectoryChildren,
     parseTitleFstEntries,
-} from '../formats/fst.js';
+} from '../formats/wiiu-fst.js';
 
 const LIBRARY_SCAN_CONCURRENCY = 8;
 const WUX_HEADER_SIZE = 0x20;
@@ -160,6 +161,13 @@ const WUX_MAGIC_1 = 0x1099d02e;
 const WUX_SECTOR_SIZE_OFFSET = 0x08;
 const WUX_UNCOMPRESSED_SIZE_OFFSET = 0x10;
 const WUX_INDEX_TABLE_ENTRY_SIZE = 0x04;
+const WUD_FILE_EXTENSIONS = new Set(['.wud', '.wux']);
+type NUSTitleInformation = MetaXmlInformation;
+type PreparedWudGamePartition = WudGamePartition & {
+    rawTmd: Buffer;
+    rawTicket: Buffer;
+    rawCert: Buffer;
+};
 
 const PARENT_KIND_SET: ReadonlySet<TitleKinds> = new Set(PARENT_KINDS);
 const availableOnCdnByTitleId = new Map<string, boolean>();
@@ -571,10 +579,10 @@ async function verifyWiiUTitles(
         const titleName = titleEntry?.name ?? directory;
         const titleKind = titleEntry?.kind ?? TitleKinds.Unknown;
         const titleVersion = titleEntry?.version ?? null;
-
         const sizeText = formatSize(sizeBytes);
 
         onProgress?.({
+            platform: 'wiiu',
             titleId,
             name: titleName,
             kind: titleKind,
@@ -583,18 +591,11 @@ async function verifyWiiUTitles(
             total,
         });
 
-        logger.log(
-            'wiiu',
-            `verifying title: ${formatTitleDisplay(
-                titleName,
-                titleId,
-                titleVersion
-            )} (${sizeText})`
-        );
         const verification = await verifyWupTitleFiles(
             dirPath,
             (progress) => {
                 onProgress?.({
+                    platform: 'wiiu',
                     titleId,
                     name: titleName,
                     kind: titleKind,
@@ -609,22 +610,8 @@ async function verifyWiiUTitles(
         );
         throwIfLibraryVerifyCancelled(options.signal);
         const result = verification.status === 'ok' ? 'ok' : 'failed';
-        const status =
-            verification.status === 'failed'
-                ? `${ansi.red}failed${ansi.reset}`
-                : `${ansi.green}${verification.status}${ansi.reset}`;
-
-        // Keep the extra space, for alignment purposes
-        logger.log(
-            'wiiu',
-            `verified title:  ${formatTitleDisplay(
-                titleName,
-                titleId,
-                verification.titleVersion
-            )} (${status})`
-        );
-
         onProgress?.({
+            platform: 'wiiu',
             titleId,
             name: titleName,
             kind: titleKind,
@@ -636,6 +623,7 @@ async function verifyWiiUTitles(
         });
 
         verifications.push({
+            platform: 'wiiu',
             root,
             directory,
             name: titleName,
@@ -671,6 +659,44 @@ export async function verifyWiiUTitleRoots(
                 verifications
             ),
     });
+}
+
+export function prepareWiiUTitleVerifications(
+    roots: string[],
+    signal?: AbortSignal
+): Promise<PreparedTitleVerification[]> {
+    return prepareTitleVerifications({
+        roots,
+        signal,
+        platform: 'wiiu',
+        logNamespace: 'wiiu',
+        findItems: findTitleDirs,
+    });
+}
+
+export function verifyPreparedWiiUTitle(
+    item: PreparedTitleVerification,
+    index: number,
+    total: number,
+    onProgress?: (progress: LibraryVerifyProgress) => void,
+    signal?: AbortSignal
+): Promise<LibraryVerifyTitle[]> {
+    return verifyWiiUTitles(item.root, onProgress, {
+        directories: [item.directory],
+        offset: index,
+        total,
+        signal,
+    });
+}
+
+export async function findMissingExpectedWiiUVerifications(
+    roots: string[],
+    existing: LibraryVerifyTitle[]
+): Promise<LibraryVerifyTitle[]> {
+    return createMissingExpectedChildVerifications(
+        await scanWiiUTitleRoots(roots),
+        existing
+    );
 }
 
 export async function readWiiUTitleIdentity(
@@ -908,8 +934,8 @@ function getWiiFallbackTitleId(
     family?: string
 ): string | null {
     return (
-        getWiiUProductCode(value) ??
-        getWiiProductCode(value) ??
+        getProductCodeMediaKey('wiiu', value) ??
+        getDiscTitleId(value) ??
         getWiiProductCodeFromFamily(family)
     );
 }
@@ -921,14 +947,14 @@ function getWiiProductCodeFromFamily(
         return null;
     }
 
-    return getWiiProductCode(Buffer.from(family, 'hex').toString('ascii'));
+    return getDiscTitleId(Buffer.from(family, 'hex').toString('ascii'));
 }
 
 async function readLocalMetaXml(
     dirPath: string,
     tmd: Tmd
 ): Promise<ReturnType<typeof readMetaXml>> {
-    for (const relativePath of META_XML_FILES) {
+    for (const relativePath of WIIU_META_XML_PATHS) {
         const metaXml = await readOptionalFile(
             path.join(dirPath, relativePath)
         );
@@ -980,7 +1006,9 @@ function getParentProductCode(group: TitleGroup): string | null {
 
 function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
     const database = JSON.parse(jsonText) as Record<string, unknown>;
-    const json = database.wiiu as RawTitleDatabaseEntry[];
+    const json = database.wiiu as Array<
+        RawTitleDatabaseEntry & { titleId: string }
+    >;
 
     if (!Array.isArray(json)) {
         throw new Error('titles.json must contain a wiiu array');
@@ -1005,11 +1033,14 @@ function parseTitleDatabaseEntries(jsonText: string): TitleDatabaseEntry[] {
                 platform: title.platform,
                 titleId,
                 name: normalizeTitleName(entry.name),
-                region: normalizeRegion(entry.region, entry.productCode),
+                region: normalizeRegion(
+                    entry.region,
+                    entry.productCode ?? null
+                ),
                 companyCode: entry.companyCode?.length
                     ? entry.companyCode
                     : null,
-                productCode: getWiiUProductCode(entry.productCode),
+                productCode: getWiiUProductCode(entry.productCode ?? null),
                 iconUrl: entry.iconUrl,
                 bannerUrl: entry.bannerUrl ?? null,
 
@@ -1033,7 +1064,9 @@ function getGameTdbDetails(
     gameTdb: Map<string, TitleDetails>,
     entry: TitleDatabaseEntry
 ): TitleDetails | null {
-    const id = entry.productCode;
+    const id = entry.productCode
+        ? getProductCodeMediaKey('wiiu', entry.productCode)
+        : null;
     return id ? (gameTdb.get(id) ?? null) : null;
 }
 
@@ -1153,6 +1186,7 @@ function createMissingExpectedChildVerifications(
             }
 
             missing.push({
+                platform: 'wiiu',
                 root: null,
                 directory: null,
                 name: group.name,
@@ -1913,7 +1947,7 @@ async function readWudGamePartitions(
     discKey: Buffer,
     commonKey: Buffer,
     requestedFamily: string | null
-): Promise<WudGamePartition[]> {
+): Promise<PreparedWudGamePartition[]> {
     const partitionTocBlock = await readDecryptedWudRange(
         image,
         WUD_DECRYPTED_AREA_OFFSET,
@@ -1947,7 +1981,7 @@ async function readWudGamePartitions(
         logger.warn('wud', `failed to read SI partition in ${image.filePath}`);
         return [];
     }
-    const gamePartitions: WudGamePartition[] = [];
+    const gamePartitions: PreparedWudGamePartition[] = [];
     logger.log(
         'wud',
         `read partition table for ${image.filePath}; found ${partitions.length} partition(s)`
@@ -1979,7 +2013,7 @@ async function readWudGamePartitionChild(
     discKey: Buffer,
     commonKey: Buffer,
     requestedFamily: string | null
-): Promise<WudGamePartition | null> {
+): Promise<PreparedWudGamePartition | null> {
     try {
         logger.log('wud', `reading WUD title metadata from ${child}`);
         const rawTicket = await readWudFstFile(
@@ -2059,16 +2093,15 @@ async function readWudGamePartitionChild(
             'wud',
             `reading game partition ${partitionReference.name} for ${titleId}`
         );
-        return await readWudGamePartition(
+        const gamePartition = await readWudGamePartition(
             image,
             partitionReference,
             contentKey,
-            null,
-            rawTmd,
-            rawCert,
-            rawTicket,
             tmd
         );
+        return gamePartition
+            ? { ...gamePartition, rawTmd, rawCert, rawTicket }
+            : null;
     } catch (error) {
         logger.warn('wud', `skipping ${child}: ${formatLogError(error)}`);
         return null;
@@ -2083,7 +2116,7 @@ async function convertWudGamePartition({
     signal,
 }: {
     image: WudImage;
-    partition: WudGamePartition;
+    partition: PreparedWudGamePartition;
     outputRoot: string;
     onProgress?: (progress: WudConvertProgress) => void;
     signal?: AbortSignal;
@@ -2210,7 +2243,7 @@ async function convertWudGamePartition({
         name,
         titleVersion: partition.tmd.header.titleVersion,
         titleKey: Buffer.from(titleKey).toString('hex'),
-        titleKeyPassword: partition.contentKeyPassword,
+        titleKeyPassword: null,
         outputDir,
         sizeBytes: await getImmediatePathSizeBytes(outputDir),
         files,
@@ -2262,7 +2295,7 @@ async function extractMetaXmlFromPartition(
     const entries = parseTitleFstEntries(partition.fst, partition.tmd);
     const entry =
         entries.find((candidate) =>
-            META_XML_FILES.some((file) => file === candidate.fullPath)
+            WIIU_META_XML_PATHS.some((file) => file === candidate.fullPath)
         ) ?? null;
     if (!entry) {
         return null;

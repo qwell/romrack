@@ -72,10 +72,15 @@ type UiOptions = {
     onVerifyLibrary: () => void | Promise<void>;
     queueStorageCopy: (
         titleId: string,
-        destination: string
+        destination: string,
+        platform: TitleGroup['platform']
     ) => Promise<unknown>;
     queueLibraryConvert: (titleId: string) => Promise<unknown>;
-    requestTitleValidation: (titleId: string, name: string) => void;
+    requestTitleValidation: (
+        titleId: string,
+        name: string,
+        platform: TitleGroup['platform']
+    ) => void;
     populateFat32DeviceSelect: (
         select: HTMLSelectElement,
         button: HTMLButtonElement
@@ -94,7 +99,8 @@ function getBusyKinds(options: UiOptions, group: TitleGroup): Set<TitleKinds> {
     }
     for (const item of options.libraryConversions) {
         if (
-            identifyTitle(item.titleId)?.family === group.family &&
+            group.platform === 'wiiu' &&
+            identifyTitle(item.titleId, 'wiiu')?.family === group.family &&
             running(item.state)
         ) {
             busyKinds.add(item.kind);
@@ -103,7 +109,9 @@ function getBusyKinds(options: UiOptions, group: TitleGroup): Set<TitleKinds> {
     for (const item of [...options.storageDeletes, ...options.storageCopies]) {
         if (
             !item.titleId ||
-            identifyTitle(item.titleId)?.family !== group.family ||
+            item.platform !== group.platform ||
+            identifyTitle(item.titleId, item.platform)?.family !==
+                group.family ||
             !running(item.state)
         ) {
             continue;

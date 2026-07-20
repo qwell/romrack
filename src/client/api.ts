@@ -10,6 +10,7 @@ import {
     type StorageTransferQueuedResponse,
 } from '../shared/api.js';
 import { type AppConfigUpdate } from '../shared/config.js';
+import { type TitlePlatform } from '../shared/titles.js';
 
 export function getLibrary(
     options: { clearScanCache?: boolean } = {}
@@ -39,19 +40,22 @@ export function listFat32Volumes(): Promise<StorageFat32ListResponse> {
 
 export function queueStorageCopy(
     titleId: string,
-    destination: string
+    destination: string,
+    platform: TitlePlatform
 ): Promise<StorageTransferQueuedResponse> {
     const params = new URLSearchParams({
         titleId,
         dest: destination,
+        platform,
     });
     return requestJson(`/api/storage/copy?${params}`);
 }
 
 export function queueStorageDelete(
-    titleId: string
+    titleId: string,
+    platform: TitlePlatform
 ): Promise<StorageDeleteQueuedResponse> {
-    const params = new URLSearchParams({ titleId });
+    const params = new URLSearchParams({ titleId, platform });
     return requestJson(`/api/storage/delete?${params}`);
 }
 

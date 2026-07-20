@@ -17,7 +17,7 @@ import {
 import { clearTitleScanCache } from '../library.js';
 import { findFirstReadableWiiURoot } from '../platforms/wiiu.js';
 import { markTitleCopiesValidating, revalidateTitleCopies } from './titles.js';
-import { type TitlePlatform } from '../../shared/titles.js';
+import { TitlePlatform } from '../../shared/titles.js';
 
 let downloadQueue: DownloadQueueItem[] = [];
 
@@ -36,6 +36,8 @@ export async function downloadTitle(
     switch (platform) {
         case '3ds':
             return downloadThreeDSTitle(titleId);
+        case 'gamecube':
+            return downloadGameCubeTitle(titleId);
         case 'wii':
             return downloadWiiTitle(titleId);
         case 'wiiu':
@@ -68,13 +70,17 @@ function downloadWiiTitle(titleId: string): never {
     throwUnsupportedTitleDownload('wii', titleId, 'WAD');
 }
 
+function downloadGameCubeTitle(titleId: string): never {
+    throwUnsupportedTitleDownload('gamecube', titleId, 'disc image');
+}
+
 function throwUnsupportedTitleDownload(
     platform: TitlePlatform,
     titleId: string,
     representation: string
 ): never {
     throw new Error(
-        `${platform} title download is unavailable for ${titleId}: ${representation} writing is not implemented`
+        `${TitlePlatform[platform]} title download is unavailable for ${titleId}: ${representation} writing is not implemented`
     );
 }
 
@@ -207,6 +213,7 @@ async function processDownloadQueue(): Promise<void> {
         broadcastDownloadQueue();
         revalidateTitleCopies([
             {
+                platform: nextItem.platform,
                 titleId: nextItem.titleId,
                 sourcePaths: [result.outputDir],
             },
@@ -259,7 +266,9 @@ function cancelActiveDownload(item: DownloadQueueItem): void {
     abortController?.abort();
     clearTitleScanCache();
     if (activeDownloadSourcePaths.has(item.id)) {
-        markTitleCopiesValidating([item.titleId]);
+        markTitleCopiesValidating([
+            { platform: item.platform, titleId: item.titleId },
+        ]);
     }
 
     logger.log(
@@ -277,7 +286,11 @@ function revalidateCancelledDownload(item: DownloadQueueItem): void {
     }
 
     revalidateTitleCopies([
-        { titleId: item.titleId, sourcePaths: [sourcePath] },
+        {
+            platform: item.platform,
+            titleId: item.titleId,
+            sourcePaths: [sourcePath],
+        },
     ]);
 }
 

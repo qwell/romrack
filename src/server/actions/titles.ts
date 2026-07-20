@@ -2,6 +2,7 @@ import { broadcastAppSocketEvent } from '../socket.js';
 import { findWiiUTitleSourcePaths } from '../platforms/wiiu.js';
 import {
     identifyTitle,
+    getTitlePlatformKey,
     type TitleIdentity,
     TitleKinds,
 } from '../../shared/titles.js';
@@ -21,13 +22,27 @@ import {
     validateThreeDSTitleFile,
 } from '../platforms/3ds.js';
 import { getConfig } from '../routes/config.js';
+import {
+    findGameCubeTitleSourcePaths,
+    validateGameCubeTitleFile,
+} from '../platforms/gamecube.js';
+import {
+    findWiiTitleSourcePaths,
+    validateWiiTitleFile,
+} from '../platforms/wii.js';
 
 const activeTitleValidations = new Map<string, AbortController>();
 const titleValidationResults = new Map<string, TitleValidationSocketEvent>();
 
+function getValidationKey(title: TitleIdentity): string {
+    return getTitlePlatformKey(title.platform, title.titleId);
+}
+
 function supportsTitleValidation(title: TitleIdentity): boolean {
     switch (title.platform) {
         case '3ds':
+        case 'gamecube':
+        case 'wii':
         case 'wiiu':
             return true;
     }
@@ -44,13 +59,16 @@ export function handleTitleValidationSocketCommand(
 ): void {
     switch (command.type) {
         case TITLE_VALIDATE_SOCKET_COMMAND.queue:
-            void validateTitleCopies(command.id);
+            void validateTitleCopies(command.id, command.platform);
             return;
     }
 }
 
-async function validateTitleCopies(titleId: string): Promise<void> {
-    const title = identifyTitle(titleId);
+async function validateTitleCopies(
+    titleId: string,
+    platform: TitleIdentity['platform']
+): Promise<void> {
+    const title = identifyTitle(titleId, platform);
     if (!title) {
         logger.warn('server', `Invalid title validation request: ${titleId}`);
         return;
@@ -59,11 +77,12 @@ async function validateTitleCopies(titleId: string): Promise<void> {
         return;
     }
 
-    if (activeTitleValidations.has(title.titleId)) {
+    const validationKey = getValidationKey(title);
+    if (activeTitleValidations.has(validationKey)) {
         return;
     }
 
-    const cached = titleValidationResults.get(title.titleId);
+    const cached = titleValidationResults.get(validationKey);
     if (cached) {
         broadcastAppSocketEvent(cached);
         return;
@@ -77,10 +96,12 @@ async function runTitleCopyValidation(
     sourcePaths: string[] | null
 ): Promise<void> {
     const { titleId } = title;
+    const validationKey = getValidationKey(title);
     const abortController = new AbortController();
-    activeTitleValidations.set(titleId, abortController);
+    activeTitleValidations.set(validationKey, abortController);
     broadcastAppSocketEvent({
         type: TITLE_VALIDATE_SOCKET_EVENT.changed,
+        platform: title.platform,
         titleId,
         status: 'validating',
         copies: [],
@@ -101,7 +122,10 @@ async function runTitleCopyValidation(
                 abortController.signal
             );
             const verifiedTitleId = validation.titleId ?? titleId;
-            const verifiedTitle = identifyTitle(verifiedTitleId);
+            const verifiedTitle = identifyTitle(
+                verifiedTitleId,
+                title.platform
+            );
             copies.push({
                 sourcePath: readableSourcePath,
                 titleId: validation.titleId,
@@ -116,13 +140,14 @@ async function runTitleCopyValidation(
 
         const event: TitleValidationSocketEvent = {
             type: TITLE_VALIDATE_SOCKET_EVENT.changed,
+            platform: title.platform,
             titleId,
             status: 'complete',
             copies,
         };
 
         abortController.signal.throwIfAborted();
-        titleValidationResults.set(titleId, event);
+        titleValidationResults.set(validationKey, event);
 
         broadcastAppSocketEvent(event);
     } catch (error) {
@@ -136,14 +161,15 @@ async function runTitleCopyValidation(
         );
         broadcastAppSocketEvent({
             type: TITLE_VALIDATE_SOCKET_EVENT.changed,
+            platform: title.platform,
             titleId,
             status: 'failed',
             copies: [],
             error: message,
         });
     } finally {
-        if (activeTitleValidations.get(titleId) === abortController) {
-            activeTitleValidations.delete(titleId);
+        if (activeTitleValidations.get(validationKey) === abortController) {
+            activeTitleValidations.delete(validationKey);
         }
     }
 }
@@ -151,21 +177,23 @@ async function runTitleCopyValidation(
 async function findTitleValidationSourcePaths(
     title: TitleIdentity
 ): Promise<string[]> {
+    const config = getConfig();
+
     switch (title.platform) {
         case '3ds':
             return findThreeDSTitleSourcePaths(
-                getConfig()['3dsRoots'],
+                config['3dsRoots'],
                 title.titleId
             );
-
         case 'wiiu':
-            return findWiiUTitleSourcePaths(
-                getConfig().wiiuRoots,
+            return findWiiUTitleSourcePaths(config.wiiuRoots, title.titleId);
+        case 'gamecube':
+            return findGameCubeTitleSourcePaths(
+                config.gamecubeRoots,
                 title.titleId
             );
-
         case 'wii':
-            return [];
+            return findWiiTitleSourcePaths(config.wiiRoots, title.titleId);
     }
 }
 
@@ -189,7 +217,10 @@ async function validateTitleCopy(
             return validateWupTitleFileSizes(sourcePath, signal);
 
         case 'wii':
-            throw new Error('Wii title validation is not implemented');
+            return validateWiiTitleFile(sourcePath, title.titleId, signal);
+
+        case 'gamecube':
+            return validateGameCubeTitleFile(sourcePath, title.titleId, signal);
     }
 }
 
@@ -216,10 +247,14 @@ async function validateThreeDSTitleCopy(
 }
 
 export function revalidateTitleCopies(
-    titles: Array<{ titleId: string; sourcePaths: string[] }>
+    titles: Array<{
+        platform: TitleIdentity['platform'];
+        titleId: string;
+        sourcePaths: string[];
+    }>
 ): void {
     for (const title of titles) {
-        const titleIdentity = identifyTitle(title.titleId);
+        const titleIdentity = identifyTitle(title.titleId, title.platform);
         if (!titleIdentity) {
             logger.warn(
                 'server',
@@ -231,30 +266,41 @@ export function revalidateTitleCopies(
             continue;
         }
 
-        activeTitleValidations.get(titleIdentity.titleId)?.abort();
-        titleValidationResults.delete(titleIdentity.titleId);
+        const validationKey = getValidationKey(titleIdentity);
+        activeTitleValidations.get(validationKey)?.abort();
+        titleValidationResults.delete(validationKey);
         void runTitleCopyValidation(titleIdentity, [
             ...new Set(title.sourcePaths),
         ]);
     }
 }
 
-export function markTitleCopiesValidating(titleIds: string[]): void {
-    for (const requestedTitleId of new Set(titleIds)) {
-        const title = identifyTitle(requestedTitleId);
+export function markTitleCopiesValidating(
+    titles: Array<{ platform: TitleIdentity['platform']; titleId: string }>
+): void {
+    const uniqueTitles = new Map(
+        titles.map((title) => [
+            getTitlePlatformKey(title.platform, title.titleId),
+            title,
+        ])
+    );
+    for (const requested of uniqueTitles.values()) {
+        const title = identifyTitle(requested.titleId, requested.platform);
         if (!title) {
             logger.warn(
                 'server',
-                `Invalid title validating marker: ${requestedTitleId}`
+                `Invalid title validating marker: ${requested.titleId}`
             );
             continue;
         }
         const { titleId } = title;
+        const validationKey = getValidationKey(title);
 
-        activeTitleValidations.get(titleId)?.abort();
-        titleValidationResults.delete(titleId);
+        activeTitleValidations.get(validationKey)?.abort();
+        titleValidationResults.delete(validationKey);
         broadcastAppSocketEvent({
             type: TITLE_VALIDATE_SOCKET_EVENT.changed,
+            platform: title.platform,
             titleId,
             status: 'validating',
             copies: [],

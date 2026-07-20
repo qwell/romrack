@@ -11,7 +11,7 @@ export const RegionNames = [
     'RUS',
     'SPA',
     'TWN',
-    'ALL',
+    'WLD',
     'UNK',
 ] as const;
 export type RegionNames = (typeof RegionNames)[number];
@@ -33,16 +33,24 @@ const RegionCountries: Record<RegionNames, string> = {
     SPA: 'Spain',
     TWN: 'Taiwan',
     USA: 'USA',
-    ALL: 'World',
+    WLD: 'World',
     UNK: 'Unknown',
 };
 
 const RegionAliases: Record<string, RegionNames> = {
-    'NTSC-K': Region.KOR,
+    /* Wii / Wii U / 3DS */
     'NTSC-J': Region.JPN,
+    'NTSC-K': Region.KOR,
+    'NTSC-T': Region.TWN,
     'NTSC-U': Region.USA,
     PAL: Region.EUR,
-    WLD: Region.ALL,
+    'PAL-R': Region.RUS,
+
+    /* Switch */
+    DEU: Region.GER,
+    ESP: Region.SPA,
+
+    ALL: Region.WLD,
 };
 
 const RegionMasks: Record<number, RegionNames> = {
@@ -53,11 +61,11 @@ const RegionMasks: Record<number, RegionNames> = {
     0x10: Region.CHN,
     0x20: Region.KOR,
     0x40: Region.TWN,
-    0x7fffffff: Region.ALL,
+    0x7fffffff: Region.WLD,
 };
 
 const ProductCodeRegions: Record<string, RegionNames> = {
-    A: Region.ALL,
+    A: Region.WLD,
     C: Region.CHN,
     D: Region.GER,
     E: Region.USA,

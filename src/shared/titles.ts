@@ -4,10 +4,10 @@ export {
 } from './virtual-console.js';
 
 const TITLE_ID_PATTERN = /^[a-f0-9]{16}$/;
-const PRODUCT_CODE_PATTERN = /^[A-Z0-9]{4}$/;
-const WII_PRODUCT_CODE_PATTERN = /^([A-Z0-9]{4})[A-Z0-9]{2}$/;
+const DISC_PRODUCT_CODE_PATTERN = /^[A-Z0-9]{4}(?:[A-Z0-9]{2})?$/;
 const WII_U_PRODUCT_CODE_PATTERN = /^WUP-[PN]-([A-Z0-9]{4})$/;
-const THREE_DS_PRODUCT_CODE_PATTERN = /^(?:CTR|KTR)-[A-Z0-9]-([A-Z0-9]{4})$/;
+const THREE_DS_PRODUCT_CODE_PATTERN =
+    /^(?:(?:CTR|KTR)-[A-Z0-9]-)?([A-Z0-9]{4})$/;
 
 export enum TitleKinds {
     vWii = 'vWii',
@@ -77,12 +77,20 @@ export type TitleGroupStatus =
 
 export const TitlePlatform = {
     '3ds': '3DS',
+    gamecube: 'GameCube',
     wii: 'Wii',
     wiiu: 'Wii U',
 } as const;
 export type TitlePlatform = keyof typeof TitlePlatform;
 
 export const TITLE_PLATFORM_IDS = Object.keys(TitlePlatform) as TitlePlatform[];
+
+export function getTitlePlatformKey(
+    platform: TitlePlatform,
+    titleId: string
+): string {
+    return `${platform}:${titleId}`;
+}
 
 export const TITLE_MEDIA_TYPES = ['icons', 'covers'] as const;
 export type TitleMediaType = (typeof TITLE_MEDIA_TYPES)[number];
@@ -94,19 +102,29 @@ export type TitleIdentity = {
     family: string;
 };
 
-export type RawTitleDatabaseEntry = {
-    titleId: string;
+type RawTitleDatabaseEntryFields = {
     name: string;
     region: string | null;
     iconUrl: string | null;
     bannerUrl?: string | null;
     companyCode: string | null;
-    productCode: string | null;
     baseVersions: number[];
     updateVersions: number[];
     dlcVersions: number[];
     availableOnCdn?: boolean;
 };
+
+export type RawTitleDatabaseEntry = RawTitleDatabaseEntryFields &
+    (
+        | {
+              titleId: string;
+              productCode?: string | null;
+          }
+        | {
+              titleId?: string | null;
+              productCode: string;
+          }
+    );
 
 export type TitleDatabaseEntry = {
     platform: TitlePlatform;
@@ -201,6 +219,7 @@ function getTitlePrefix(platform: TitlePlatform, kind: TitleKinds): string {
         case 'wiiu':
             prefix = WII_U_TITLE_PREFIX_BY_KIND[kind];
             break;
+        case 'gamecube':
         case 'wii':
             break;
     }
@@ -217,14 +236,20 @@ export function getTitleId(
     familyOrTitleId: string,
     kind: TitleKinds
 ): string {
-    const family = getTitleFamily(familyOrTitleId);
+    const family =
+        platform === 'gamecube' || platform === 'wii'
+            ? familyOrTitleId
+            : getTitleFamily(familyOrTitleId);
     let titleId: string;
 
     switch (platform) {
+        case 'gamecube':
         case 'wii': {
             titleId = family.toUpperCase();
-            if (!PRODUCT_CODE_PATTERN.test(titleId)) {
-                throw new Error(`Cannot format Wii title ID: ${family}`);
+            if (!DISC_PRODUCT_CODE_PATTERN.test(titleId)) {
+                throw new Error(
+                    `Cannot format ${TitlePlatform[platform]} title ID: ${family}`
+                );
             }
             break;
         }
@@ -337,37 +362,46 @@ export function getWiiUProductCode(
     value: string | null | undefined
 ): string | null {
     const code = value?.trim().toUpperCase() ?? '';
-    const match = WII_U_PRODUCT_CODE_PATTERN.exec(code);
-
-    if (match) {
-        return match[1];
-    }
-
-    return PRODUCT_CODE_PATTERN.test(code) ? code : null;
+    return WII_U_PRODUCT_CODE_PATTERN.test(code) ||
+        DISC_PRODUCT_CODE_PATTERN.test(code)
+        ? code
+        : null;
 }
 
-export function getWiiProductCode(
+export function getDiscProductCode(
     value: string | null | undefined
 ): string | null {
     const code = value?.trim().toUpperCase() ?? '';
-    const match = WII_PRODUCT_CODE_PATTERN.exec(code);
+    return DISC_PRODUCT_CODE_PATTERN.test(code) ? code : null;
+}
 
-    if (match) {
-        return match[1];
-    }
-
-    return PRODUCT_CODE_PATTERN.test(code) ? code : null;
+export function getDiscTitleId(
+    value: string | null | undefined
+): string | null {
+    return getDiscProductCode(value)?.slice(0, 4) ?? null;
 }
 
 export function getThreeDSProductCode(value: string | null): string | null {
     const code = value?.trim().toUpperCase() ?? '';
-    const match = THREE_DS_PRODUCT_CODE_PATTERN.exec(code);
+    return THREE_DS_PRODUCT_CODE_PATTERN.test(code) ? code : null;
+}
 
-    if (match) {
-        return match[1];
+export function getProductCodeMediaKey(
+    platform: TitlePlatform,
+    value: string | null | undefined
+): string | null {
+    const code = value?.trim().toUpperCase() ?? '';
+    switch (platform) {
+        case '3ds':
+            return THREE_DS_PRODUCT_CODE_PATTERN.exec(code)?.[1] ?? null;
+        case 'wiiu':
+            return (
+                WII_U_PRODUCT_CODE_PATTERN.exec(code)?.[1] ??
+                (DISC_PRODUCT_CODE_PATTERN.test(code) ? code : null)
+            );
+        default:
+            return /^[A-Z0-9]{4,6}$/.test(code) ? code : null;
     }
-
-    return PRODUCT_CODE_PATTERN.test(code) ? code : null;
 }
 
 export function normalizeTitleName(name: string): string {
@@ -382,6 +416,8 @@ export function identifyTitle(
     switch (platform) {
         case '3ds':
             return identifyThreeDSTitle(titleId);
+        case 'gamecube':
+            return identifyGameCubeTitle(titleId);
         case 'wii':
             return identifyWiiTitle(titleId);
         case 'wiiu':
@@ -448,11 +484,27 @@ export function identifyThreeDSTitle(titleId: string): TitleIdentity | null {
     };
 }
 
+export function identifyGameCubeTitle(titleId: string): TitleIdentity | null {
+    const titleIdNormalized =
+        typeof titleId === 'string' ? titleId.toUpperCase() : '';
+
+    if (!DISC_PRODUCT_CODE_PATTERN.test(titleIdNormalized)) {
+        return null;
+    }
+
+    return {
+        titleId: titleIdNormalized,
+        platform: 'gamecube',
+        kind: TitleKinds.Base,
+        family: titleIdNormalized,
+    };
+}
+
 export function identifyWiiTitle(titleId: string): TitleIdentity | null {
     const titleIdNormalized =
         typeof titleId === 'string' ? titleId.toUpperCase() : '';
 
-    if (!PRODUCT_CODE_PATTERN.test(titleIdNormalized)) {
+    if (!DISC_PRODUCT_CODE_PATTERN.test(titleIdNormalized)) {
         return null;
     }
 

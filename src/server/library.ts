@@ -36,10 +36,13 @@ import {
 } from '../shared/api.js';
 import {
     formatLogError,
+    formatSize,
+    formatTitleDisplay,
     latestVersion,
     mapConcurrent,
     toArray,
 } from '../shared/utils.js';
+import { ansi } from '../shared/ansi.js';
 import { getAppRoot } from './paths.js';
 import {
     cacheTitleMedia,
@@ -107,6 +110,7 @@ export type ReadTitleDatabaseOptions = {
 export type GameTdbDetailsOptions<TGame extends GameTdbGame> = {
     fileName: string;
     logNamespace: Subsystems;
+    includeGame?: (game: TGame) => boolean;
     getId: (game: TGame) => string | null;
     parseDetails: (game: TGame) => TitleDetails;
 };
@@ -152,6 +156,116 @@ export type VerifyTitleRootsOptions = {
     ) => Promise<LibraryVerifyTitle[]> | LibraryVerifyTitle[];
 };
 
+export type PreparedTitleVerification = {
+    platform: TitlePlatform;
+    root: string;
+    directory: string;
+    name: string;
+    region: string | null;
+    titleId: string;
+    version: number | null;
+    sizeText: string;
+};
+
+export function logTitleVerificationStarted(options: {
+    logNamespace: Subsystems;
+    platform: TitlePlatform;
+    name: string;
+    titleId: string;
+    version: number | null;
+    sizeText: string;
+}): void {
+    logger.log(
+        options.logNamespace,
+        `verifying title: ${formatTitleDisplay(
+            options.name,
+            options.titleId,
+            options.version,
+            options.platform
+        )} (${options.sizeText})`
+    );
+}
+
+export function logTitleVerificationCompleted(options: {
+    logNamespace: Subsystems;
+    platform: TitlePlatform;
+    name: string;
+    titleId: string;
+    version: number | null;
+    status: 'ok' | 'failed';
+}): void {
+    const status =
+        options.status === 'ok'
+            ? `${ansi.green}ok${ansi.reset}`
+            : `${ansi.red}failed${ansi.reset}`;
+    logger.log(
+        options.logNamespace,
+        `verified title:  ${formatTitleDisplay(
+            options.name,
+            options.titleId,
+            options.version,
+            options.platform
+        )} (${status})`
+    );
+}
+
+export async function prepareTitleVerifications(
+    options: Pick<
+        VerifyTitleRootsOptions,
+        'roots' | 'platform' | 'logNamespace' | 'findItems' | 'signal'
+    >
+): Promise<PreparedTitleVerification[]> {
+    const prepared: PreparedTitleVerification[] = [];
+    for (const root of options.roots) {
+        throwIfLibraryVerifyCancelled(options.signal);
+        try {
+            const readableRoot = await resolveReadablePath(root);
+            await assertReadableDirectory(readableRoot);
+            const cachedEntries = titleScanCache.get(readableRoot) ?? [];
+            const detailsBySourcePath = new Map(
+                cachedEntries
+                    .filter((entry) => entry.platform === options.platform)
+                    .map((entry) => [
+                        entry.sourcePath,
+                        {
+                            name: entry.name,
+                            region: entry.region,
+                            titleId: entry.titleId,
+                            version: entry.version,
+                            sizeText: formatSize(entry.sizeBytes),
+                        },
+                    ])
+            );
+            for (const directory of await options.findItems(readableRoot)) {
+                const details = detailsBySourcePath.get(
+                    path.join(readableRoot, directory)
+                );
+                prepared.push({
+                    platform: options.platform,
+                    root: readableRoot,
+                    directory,
+                    name: details?.name ?? directory,
+                    region: details?.region ?? null,
+                    titleId: details?.titleId ?? 'unknown',
+                    version: details?.version ?? null,
+                    sizeText:
+                        details?.sizeText ??
+                        formatSize(
+                            (await stat(path.join(readableRoot, directory)))
+                                .size
+                        ),
+                });
+            }
+        } catch {
+            logger.warn(
+                options.logNamespace,
+                `skipping ${TitlePlatform[options.platform]} root ${root}`
+            );
+        }
+    }
+    return prepared;
+}
+
 export type ReadTitleMediaOptions = {
     type: TitleMediaType;
     platform: TitlePlatform;
@@ -176,14 +290,17 @@ export function setLibraryCacheGroups(groups: TitleGroup[]): void {
     libraryGroups = groups;
 }
 
-export function getLibraryCacheEntry(titleId: string): {
+export function getLibraryCacheEntry(
+    titleId: string,
+    platform?: TitlePlatform
+): {
     platform: TitlePlatform;
     name: string;
     productCode: string | null;
     version: number | null;
     kind: TitleKinds | null;
 } | null {
-    const titleIdentity = identifyTitle(titleId);
+    const titleIdentity = identifyTitle(titleId, platform);
     if (!titleIdentity) {
         return null;
     }
@@ -193,12 +310,17 @@ export function getLibraryCacheEntry(titleId: string): {
         case '3ds':
         case 'wiiu':
             group = libraryGroups.find(
-                (candidate) => candidate.family === titleIdentity.family
+                (candidate) =>
+                    candidate.platform === titleIdentity.platform &&
+                    candidate.family === titleIdentity.family
             );
             break;
+        case 'gamecube':
         case 'wii':
-            group = libraryGroups.find((candidate) =>
-                candidate.entries.some((entry) => entry.titleId === titleId)
+            group = libraryGroups.find(
+                (candidate) =>
+                    candidate.platform === titleIdentity.platform &&
+                    candidate.entries.some((entry) => entry.titleId === titleId)
             );
             break;
     }
@@ -327,12 +449,19 @@ export async function readTitleMedia(
     );
 }
 
-export function getCachedTitleSourcePaths(titleId: string): string[] {
+export function getCachedTitleSourcePaths(
+    titleId: string,
+    platform?: TitlePlatform
+): string[] {
     return [
         ...new Set(
             [...titleScanCache.values()]
                 .flat()
-                .filter((entry) => entry.titleId === titleId)
+                .filter(
+                    (entry) =>
+                        entry.titleId === titleId &&
+                        (!platform || entry.platform === platform)
+                )
                 .flatMap((entry) => [
                     entry.sourcePath,
                     ...(entry.extraSourcePaths ?? []),
@@ -399,9 +528,12 @@ export async function scanTitleRoots(
     }
 
     const groups = options.mergeTitleGroups(scannedGroups);
+    const discoveredCount = groups.filter(
+        (group) => group.entries.length > 0
+    ).length;
     logger.log(
         options.logNamespace,
-        `finished scanning ${TitlePlatform[options.platform]} roots: ${groups.length} ${options.resultLabel}`
+        `finished scanning ${TitlePlatform[options.platform]} roots: ${groups.length} ${options.resultLabel}, ${discoveredCount} discovered`
     );
     return groups;
 }
@@ -418,9 +550,27 @@ export async function verifyTitleRoots(
         try {
             const readableRoot = await resolveReadablePath(root);
             await assertReadableDirectory(readableRoot);
+            const directories = await options.findItems(readableRoot);
+            const cachedEntries = titleScanCache.get(readableRoot) ?? [];
+            const namesBySourcePath = new Map(
+                cachedEntries
+                    .filter((entry) => entry.platform === options.platform)
+                    .map((entry) => [entry.sourcePath, entry.name])
+            );
+            directories.sort((a, b) => {
+                const nameA =
+                    namesBySourcePath.get(path.join(readableRoot, a)) ?? a;
+                const nameB =
+                    namesBySourcePath.get(path.join(readableRoot, b)) ?? b;
+                return (
+                    nameA.localeCompare(nameB, undefined, {
+                        sensitivity: 'base',
+                    }) || a.localeCompare(b, undefined, { sensitivity: 'base' })
+                );
+            });
             readableRoots.push({
                 root: readableRoot,
-                directories: await options.findItems(readableRoot),
+                directories,
             });
         } catch {
             logger.warn(
@@ -648,6 +798,7 @@ export async function readGameTdb<TGame extends GameTdbGame>(
 
         return new Map(
             games
+                .filter((game) => options.includeGame?.(game) ?? true)
                 .map((game): [string, TitleDetails] | null => {
                     const id = options.getId(game);
                     return id ? [id, options.parseDetails(game)] : null;

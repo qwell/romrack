@@ -214,6 +214,7 @@ export async function confirmAndQueueStorageDeletes(
     titleIds: string[],
     entries: TitleEntry[],
     button: HTMLButtonElement,
+    platform: TitleEntry['platform'],
     label = 'local'
 ): Promise<void> {
     const selected = new Set(titleIds);
@@ -226,7 +227,12 @@ export async function confirmAndQueueStorageDeletes(
 
     const names = selectedEntries
         .map((entry) =>
-            formatTitleDisplay(entry.name, entry.titleId, entry.version)
+            formatTitleDisplay(
+                entry.name,
+                entry.titleId,
+                entry.version,
+                platform
+            )
         )
         .join('\n');
     const confirmed = window.confirm(
@@ -240,7 +246,9 @@ export async function confirmAndQueueStorageDeletes(
 
     button.disabled = true;
     try {
-        await Promise.all(titleIds.map(queueStorageDelete));
+        await Promise.all(
+            titleIds.map((titleId) => queueStorageDelete(titleId, platform))
+        );
     } finally {
         button.disabled = false;
     }

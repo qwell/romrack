@@ -1,4 +1,8 @@
-import { identifyTitle, normalizeTitleName } from './titles.js';
+import {
+    identifyTitle,
+    normalizeTitleName,
+    type TitlePlatform,
+} from './titles.js';
 
 export function toArray<T>(value: T | readonly T[] | null | undefined): T[] {
     if (value == null) {
@@ -93,9 +97,10 @@ export function formatSize(sizeBytes: number | null): string {
 export function formatTitleDisplay(
     name: string | null,
     titleId: string,
-    version: number | null = null
+    version: number | null = null,
+    platform?: TitlePlatform
 ): string {
-    const title = identifyTitle(titleId);
+    const title = identifyTitle(titleId, platform);
     if (!title) {
         return '';
     }
@@ -105,11 +110,11 @@ export function formatTitleDisplay(
     let kindText = '';
     if (title.kind) {
         switch (title.platform) {
-            case '3ds':
-                break;
             case 'wiiu':
                 kindText = ` [${title.kind}]`;
                 break;
+            case '3ds':
+            case 'gamecube':
             case 'wii':
                 break;
         }
@@ -128,6 +133,15 @@ export function nullableString(value: unknown): string | null {
 
 export function nullableNumber(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+export function getPreferredValue<T>(
+    values: Array<T | null | undefined>,
+    preferredIndex: number
+): T | null {
+    return (
+        values[preferredIndex] ?? values.find((value) => value != null) ?? null
+    );
 }
 
 export function readNullTerminatedString(

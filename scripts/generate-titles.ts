@@ -8,15 +8,16 @@ import { XMLParser } from 'fast-xml-parser';
 
 import { normalizeRegion } from '../src/shared/regions.js';
 import {
-    getWiiProductCode,
+    getDiscProductCode,
     identifyTitle,
     identifyThreeDSTitle,
     identifyWiiUTitle,
     normalizeTitleName,
     replaceTitleKind,
-    RawTitleDatabaseEntry,
+    type RawTitleDatabaseEntry,
     TitleKinds,
 } from '../src/shared/titles.js';
+
 import { toArray } from '../src/shared/utils.js';
 import { requestJson, type TitleLookupResponse } from '../src/shared/api.js';
 import { HttpError, isHttpErrorStatus } from '../src/shared/download.js';
@@ -25,6 +26,7 @@ import {
     getGameTdbLocales,
     getGameTdbTitle,
     getPreferredGameTdbLocale,
+    isGameCubeGameTdbTitle,
     isGameTdbGame,
     isSkippedGameTdbTitle,
     type GameTdbXmlFile,
@@ -64,6 +66,7 @@ type ThreeDSHShopRow = {
 
 type GeneratedTitleDatabase = {
     '3ds': RawTitleDatabaseEntry[];
+    gamecube: RawTitleDatabaseEntry[];
     wiiu: RawTitleDatabaseEntry[];
     wii: RawTitleDatabaseEntry[];
 };
@@ -176,6 +179,22 @@ function titleIdSet(entries: unknown[]): Set<string> {
     }
 
     return titleIds;
+}
+
+function getRawTitleIdentity(entry: RawTitleDatabaseEntry): string {
+    const identity = entry.titleId ?? entry.productCode;
+    if (!identity) {
+        throw new Error('Raw title is missing an identity');
+    }
+    return identity;
+}
+
+function sortRawTitlesByIdentity<T extends RawTitleDatabaseEntry>(
+    entries: T[]
+): T[] {
+    return entries.toSorted((a, b) =>
+        getRawTitleIdentity(a).localeCompare(getRawTitleIdentity(b))
+    );
 }
 
 function sortByTitleId<T extends { titleId: string }>(entries: T[]): T[] {
@@ -338,11 +357,11 @@ function generateTitleIds(excluded: Set<string>): GeneratedTitleId[] {
         let current = start;
 
         while (current <= end) {
-            const title = identifyTitle(
-                current.toString(16).padStart(16, '0'),
-                range.platform
-            );
-            if (title && !excluded.has(title.titleId)) {
+            const title = identifyTitle(current.toString(16).padStart(16, '0'));
+            if (
+                title?.platform === range.platform &&
+                !excluded.has(title.titleId)
+            ) {
                 titleIds.push({
                     platform: range.platform,
                     titleId: title.titleId,
@@ -466,7 +485,7 @@ async function processNusCacheTitle(
 
     const title = createNusTitleFromMetadata(platform, metadata);
     const supplementalTitle =
-        supplementalTitleById.get(title.titleId) ??
+        supplementalTitleById.get(getRawTitleIdentity(title)) ??
         supplementalTitleById.get(titleId);
 
     logTitleResult(
@@ -528,14 +547,25 @@ async function loadTitles(
     excluded: Set<string>,
     options: GenerateOptions
 ): Promise<GeneratedTitleDatabase> {
-    const supplementalTitles = mergeTitleEntries([
-        ...(await loadWiiTitles()),
-        ...(await loadWiiUTitles()),
-        ...(await loadThreeDSTitles()),
-    ]).filter((title) => !excluded.has(title.titleId));
+    const discTitles = await loadDiscTitles();
+    const supplementalTitles: GeneratedTitleDatabase = {
+        '3ds': mergeTitleEntries(await loadThreeDSTitles()),
+        gamecube: mergeTitleEntries(discTitles.gamecube),
+        wiiu: mergeTitleEntries(await loadWiiUTitles()),
+        wii: mergeTitleEntries(discTitles.wii),
+    };
+    for (const platform of Object.keys(supplementalTitles) as Array<
+        keyof GeneratedTitleDatabase
+    >) {
+        supplementalTitles[platform] = supplementalTitles[platform].filter(
+            (title) => !excluded.has(getRawTitleIdentity(title))
+        );
+    }
 
     const supplementalTitleById = new Map(
-        supplementalTitles.map((title) => [title.titleId, title])
+        Object.values(supplementalTitles)
+            .flat()
+            .map((title) => [getRawTitleIdentity(title), title])
     );
 
     const nusTitles = await loadOrRefreshNusTitles(
@@ -544,26 +574,36 @@ async function loadTitles(
         supplementalTitleById
     );
 
-    const database: GeneratedTitleDatabase = {
+    const nusTitlesByPlatform: GeneratedTitleDatabase = {
         '3ds': [],
+        gamecube: [],
         wiiu: [],
         wii: [],
     };
 
-    for (const title of sortByTitleId(
-        mergeTitleEntries([...nusTitles, ...supplementalTitles])
-    )) {
-        const platform = identifyTitle(title.titleId)?.platform;
+    for (const title of mergeTitleEntries(nusTitles)) {
+        const platform = identifyTitle(getRawTitleIdentity(title))?.platform;
         if (platform) {
-            database[platform].push(title);
+            nusTitlesByPlatform[platform].push(title);
         }
     }
 
-    return database;
-}
+    const merged = (
+        platform: keyof GeneratedTitleDatabase
+    ): RawTitleDatabaseEntry[] =>
+        sortRawTitlesByIdentity(
+            mergeTitleEntries([
+                ...supplementalTitles[platform],
+                ...nusTitlesByPlatform[platform],
+            ])
+        );
 
-async function loadWiiTitles(): Promise<RawTitleDatabaseEntry[]> {
-    return [...(await loadWiiTdbTitles())];
+    return {
+        '3ds': merged('3ds'),
+        gamecube: merged('gamecube'),
+        wiiu: merged('wiiu'),
+        wii: merged('wii'),
+    };
 }
 
 async function loadWiiUTitles(): Promise<RawTitleDatabaseEntry[]> {
@@ -638,7 +678,7 @@ async function scrapeNusPlatformTitles(
         )
     ).filter((title): title is RawTitleDatabaseEntry => title !== null);
 
-    return sortByTitleId(mergeTitleEntries(titles));
+    return sortRawTitlesByIdentity(mergeTitleEntries(titles));
 }
 
 function getActiveNusCacheFiles(
@@ -662,7 +702,10 @@ async function readNusCache(
 ): Promise<RawTitleDatabaseEntry[]> {
     const titles = (await readJsonArray(file))
         .filter(isRawTitleDatabaseEntry)
-        .filter((title) => getLookupPlatform(title.titleId) === platform);
+        .filter(
+            (title) =>
+                getLookupPlatform(getRawTitleIdentity(title)) === platform
+        );
 
     console.log(`[nus] ${platform} cached titles:`, titles.length);
 
@@ -673,7 +716,7 @@ function filterExcludedTitles(
     titles: RawTitleDatabaseEntry[],
     excluded: Set<string>
 ): RawTitleDatabaseEntry[] {
-    return titles.filter((title) => !excluded.has(title.titleId));
+    return titles.filter((title) => !excluded.has(getRawTitleIdentity(title)));
 }
 
 function isRawTitleDatabaseEntry(
@@ -714,13 +757,14 @@ function mergeTitleEntries(
     const byTitleId = new Map<string, RawTitleDatabaseEntry>();
 
     for (const title of titles) {
-        const existing = byTitleId.get(title.titleId);
+        const titleIdentity = getRawTitleIdentity(title);
+        const existing = byTitleId.get(titleIdentity);
         if (!existing) {
-            byTitleId.set(title.titleId, title);
+            byTitleId.set(titleIdentity, title);
             continue;
         }
 
-        byTitleId.set(title.titleId, {
+        const merged = {
             ...existing,
             ...title,
             name: title.name !== '' ? title.name : existing.name,
@@ -738,7 +782,17 @@ function mergeTitleEntries(
             ),
             dlcVersions: mergeVersions(existing.dlcVersions, title.dlcVersions),
             availableOnCdn: existing.availableOnCdn || title.availableOnCdn,
-        });
+        };
+        byTitleId.set(
+            titleIdentity,
+            merged.titleId
+                ? { ...merged, titleId: merged.titleId }
+                : {
+                      ...merged,
+                      titleId: undefined,
+                      productCode: merged.productCode ?? titleIdentity,
+                  }
+        );
     }
 
     return [...byTitleId.values()];
@@ -748,9 +802,12 @@ function mergeVersions(a: number[], b: number[]): number[] {
     return [...new Set([...a, ...b])].sort((x, y) => x - y);
 }
 
-async function loadWiiTdbTitles(): Promise<RawTitleDatabaseEntry[]> {
+async function loadDiscTitles(): Promise<{
+    gamecube: RawTitleDatabaseEntry[];
+    wii: RawTitleDatabaseEntry[];
+}> {
     if (!(await fileExists(wiiTdbFile))) {
-        return [];
+        return { gamecube: [], wii: [] };
     }
 
     const parsed = parser.parse(
@@ -759,16 +816,19 @@ async function loadWiiTdbTitles(): Promise<RawTitleDatabaseEntry[]> {
     const games = toArray(parsed.datafile?.game)
         .filter(isGameTdbGame)
         .filter((game) => !isSkippedGameTdbTitle(game));
-    const titles: RawTitleDatabaseEntry[] = [];
+    const titles = {
+        gamecube: [] as RawTitleDatabaseEntry[],
+        wii: [] as RawTitleDatabaseEntry[],
+    };
 
     for (const game of games) {
-        const productCode = getWiiProductCode(game.id ?? null);
+        const productCode = getDiscProductCode(game.id ?? null);
         if (!productCode) {
             continue;
         }
 
-        titles.push({
-            titleId: productCode,
+        const platform = isGameCubeGameTdbTitle(game) ? 'gamecube' : 'wii';
+        titles[platform].push({
             name: normalizeTitleName(
                 getGameTdbTitle(
                     getPreferredGameTdbLocale(getGameTdbLocales(game))
@@ -786,8 +846,6 @@ async function loadWiiTdbTitles(): Promise<RawTitleDatabaseEntry[]> {
             availableOnCdn: false,
         });
     }
-
-    console.log('[wiitdb] titles:', titles.length);
 
     return titles;
 }
@@ -1085,11 +1143,14 @@ async function applyIcons(file: string, icons: Icon[]): Promise<void> {
     ): RawTitleDatabaseEntry[] =>
         titles.map((title) => ({
             ...title,
-            iconUrl: iconByTitleId.get(title.titleId) ?? null,
+            iconUrl:
+                iconByTitleId.get(title.titleId ?? title.productCode ?? '') ??
+                null,
         }));
 
     await writeJson(file, {
         '3ds': applyPlatformIcons(database['3ds']),
+        gamecube: applyPlatformIcons(database.gamecube),
         wiiu: applyPlatformIcons(database.wiiu),
         wii: applyPlatformIcons(database.wii),
     });

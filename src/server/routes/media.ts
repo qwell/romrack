@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import { sendServerError } from '../request.js';
 import { readThreeDSTitleMedia } from '../platforms/3ds.js';
+import { readGameCubeTitleMedia } from '../platforms/gamecube.js';
 import { readWiiTitleMedia } from '../platforms/wii.js';
 import { readWiiUTitleMedia } from '../platforms/wiiu.js';
 import logger from '../../shared/logger.js';
@@ -21,6 +22,8 @@ function readTitleMedia(
     switch (platform) {
         case '3ds':
             return readThreeDSTitleMedia(type, platform, productCode);
+        case 'gamecube':
+            return readGameCubeTitleMedia(type, platform, productCode);
         case 'wii':
             return readWiiTitleMedia(type, platform, productCode);
         case 'wiiu':

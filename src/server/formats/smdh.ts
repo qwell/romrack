@@ -3,8 +3,7 @@ import { deflateSync } from 'node:zlib';
 import { Region, type RegionNames } from '../../shared/regions.js';
 
 export type SmdhMetadata = {
-    name: string | null;
-    publisher: string | null;
+    titles: Array<SmdhTitle | null>;
     region: string | null;
 };
 
@@ -18,7 +17,7 @@ export type SmdhReadResult =
           reason: string;
       };
 
-type SmdhTitle = {
+export type SmdhTitle = {
     shortDescription: string;
     longDescription: string;
     publisher: string;
@@ -38,8 +37,7 @@ const SMDH_REGION_LOCKOUT_OFFSET = 0x2018;
 const SMDH_LARGE_ICON_OFFSET = 0x24c0;
 const SMDH_LARGE_ICON_SIZE = 48;
 const SMDH_RGB565_BYTES_PER_PIXEL = 2;
-
-const SMDH_TITLE_ENGLISH = 1;
+export const SMDH_TITLE_ENGLISH_INDEX = 1;
 
 const SMDH_REGION_BITS: Array<[number, RegionNames]> = [
     [0x01, Region.JPN],
@@ -110,10 +108,10 @@ export function inspectSmdhMetadata(smdh: Buffer): SmdhReadResult {
         };
     }
 
-    const title = readSmdhTitle(smdh);
+    const titles = readSmdhTitles(smdh);
     const region = readSmdhRegion(smdh);
 
-    if (!title && !region) {
+    if (!titles.some((title) => title !== null) && !region) {
         return {
             ok: false,
             reason: 'SMDH had no title or region metadata',
@@ -122,23 +120,13 @@ export function inspectSmdhMetadata(smdh: Buffer): SmdhReadResult {
 
     return {
         ok: true,
-        metadata: {
-            name: title?.longDescription || title?.shortDescription || null,
-            publisher: title?.publisher || null,
-            region,
-        },
+        metadata: { titles, region },
     };
 }
 
-function readSmdhTitle(smdh: Buffer): SmdhTitle | null {
-    const titles = Array.from({ length: SMDH_TITLE_COUNT }, (_, index) =>
-        readSmdhTitleAt(smdh, index)
-    );
-
-    return (
-        nonEmptySmdhTitle(titles[SMDH_TITLE_ENGLISH]) ??
-        titles.find(nonEmptySmdhTitle) ??
-        null
+function readSmdhTitles(smdh: Buffer): Array<SmdhTitle | null> {
+    return Array.from({ length: SMDH_TITLE_COUNT }, (_, index) =>
+        nonEmptySmdhTitle(readSmdhTitleAt(smdh, index))
     );
 }
 
