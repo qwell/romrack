@@ -67,6 +67,7 @@ import {
     type StorageCopySocketCommand,
     type StorageDeleteSocketCommand,
 } from '../../shared/socket.js';
+import { verifyLibraryTitle } from './library.js';
 import { markTitleCopiesValidating, revalidateTitleCopies } from './titles.js';
 
 type RouteResult<TBody> = {
@@ -559,7 +560,8 @@ async function processStorageCopyQueue(): Promise<void> {
         error: nextItem.error,
     });
 
-    let moveMutationStarted = false;
+    let storageMutationStarted = false;
+    let storageMutationCompleted = false;
 
     try {
         const [runtimeOs, volumes] = await Promise.all([
@@ -729,8 +731,8 @@ async function processStorageCopyQueue(): Promise<void> {
         let currentFilePath: string | null = null;
         let currentFileSizeBytes: number | null = null;
 
-        moveMutationStarted = nextItem.operation === 'move';
-        if (moveMutationStarted) {
+        storageMutationStarted = true;
+        if (nextItem.operation === 'move') {
             markStorageTitleCopiesValidating(
                 nextItem.requestedPlatform,
                 nextItem.requestedTitleId
@@ -798,6 +800,7 @@ async function processStorageCopyQueue(): Promise<void> {
                 });
             },
         });
+        storageMutationCompleted = true;
 
         if (
             cancelledStorageCopyIds.has(nextItem.id) ||
@@ -849,12 +852,19 @@ async function processStorageCopyQueue(): Promise<void> {
             message: nextItem.message,
         });
     } finally {
-        if (moveMutationStarted) {
+        if (storageMutationStarted) {
             clearTitleScanCache();
-            await rediscoverAndRevalidateStorageTitleCopies(
-                nextItem.requestedPlatform,
-                nextItem.requestedTitleId
-            );
+            if (nextItem.operation === 'copy' && storageMutationCompleted) {
+                await verifyLibraryTitle(
+                    nextItem.requestedPlatform,
+                    nextItem.requestedTitleId
+                );
+            } else if (nextItem.operation === 'move') {
+                await rediscoverAndRevalidateStorageTitleCopies(
+                    nextItem.requestedPlatform,
+                    nextItem.requestedTitleId
+                );
+            }
         }
 
         cancelledStorageCopyIds.delete(nextItem.id);

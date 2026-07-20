@@ -5,6 +5,7 @@ import {
     clearTitleScanCache,
     logTitleVerificationCompleted,
     logTitleVerificationStarted,
+    type PreparedTitleVerification,
 } from '../library.js';
 import {
     findMissingExpectedWiiUVerifications,
@@ -34,7 +35,10 @@ import { getConfig } from '../routes/config.js';
 import logger from '../../shared/logger.js';
 import { isTerminalActionState } from '../../shared/action.js';
 import { formatLogError } from '../../shared/utils.js';
-import { getTitlePlatformKey } from '../../shared/titles.js';
+import {
+    getTitlePlatformKey,
+    type TitleIdentity,
+} from '../../shared/titles.js';
 import {
     LIBRARY_CONVERT_SOCKET_COMMAND,
     LIBRARY_CONVERT_SOCKET_EVENT,
@@ -49,6 +53,12 @@ import {
 let latestLibraryVerifyEvent: LibraryVerifyEvent | null = null;
 const libraryVerifyFailures = new Map<string, LibraryVerifyEvent>();
 let activeLibraryVerifyAbortController: AbortController | null = null;
+type PendingLibraryTitleVerification = {
+    platform: TitleIdentity['platform'];
+    titleId: string;
+    resolve: () => void;
+};
+const pendingLibraryTitleVerifications: PendingLibraryTitleVerification[] = [];
 let libraryVerifyEventTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingLibraryVerifyEvent: LibraryVerifyEvent | null = null;
 let libraryVerifyProgressPlatform: LibraryVerifyProgress['platform'] | null =
@@ -181,51 +191,11 @@ export async function verifyLibrary(): Promise<LibraryVerifyResponse> {
                     a.directory.localeCompare(b.directory, undefined, options)
                 );
             });
-        const titles = [];
-        for (const [index, item] of prepared.entries()) {
-            abortController.signal.throwIfAborted();
-            logTitleVerificationStarted({
-                logNamespace: item.platform,
-                platform: item.platform,
-                name: item.name,
-                titleId: item.titleId,
-                version: item.version,
-                sizeText: item.sizeText,
-            });
-            const args = [
-                item,
-                index,
-                prepared.length,
-                handleLibraryVerifyProgress,
-                abortController.signal,
-            ] as const;
-            let verifiedTitles;
-            switch (item.platform) {
-                case '3ds':
-                    verifiedTitles = await verifyPreparedThreeDSTitle(...args);
-                    break;
-                case 'gamecube':
-                    verifiedTitles = await verifyPreparedGameCubeTitle(...args);
-                    break;
-                case 'wii':
-                    verifiedTitles = await verifyPreparedWiiTitle(...args);
-                    break;
-                case 'wiiu':
-                    verifiedTitles = await verifyPreparedWiiUTitle(...args);
-                    break;
-            }
-            titles.push(...verifiedTitles);
-            for (const verifiedTitle of verifiedTitles) {
-                logTitleVerificationCompleted({
-                    logNamespace: item.platform,
-                    platform: item.platform,
-                    name: item.name,
-                    titleId: item.titleId,
-                    version: item.version,
-                    status: verifiedTitle.status,
-                });
-            }
-        }
+        const titles = await verifyPreparedLibraryTitles(
+            prepared,
+            abortController.signal,
+            runPendingLibraryTitleVerifications
+        );
         titles.push(
             ...(await findMissingExpectedWiiUVerifications(
                 config.wiiuRoots,
@@ -264,7 +234,220 @@ export async function verifyLibrary(): Promise<LibraryVerifyResponse> {
         if (activeLibraryVerifyAbortController === abortController) {
             activeLibraryVerifyAbortController = null;
         }
+        void processPendingLibraryTitleVerifications();
     }
+}
+
+export async function verifyLibraryTitle(
+    platform: TitleIdentity['platform'],
+    titleId: string
+): Promise<void> {
+    if (activeLibraryVerifyAbortController) {
+        return new Promise((resolve) => {
+            pendingLibraryTitleVerifications.push({
+                platform,
+                titleId,
+                resolve,
+            });
+        });
+    }
+
+    await runStandaloneLibraryTitleVerification(platform, titleId);
+}
+
+async function runStandaloneLibraryTitleVerification(
+    platform: TitleIdentity['platform'],
+    titleId: string
+): Promise<void> {
+    const abortController = new AbortController();
+    activeLibraryVerifyAbortController = abortController;
+    try {
+        broadcastLibraryVerifyEvent({
+            type: LIBRARY_VERIFY_SOCKET_EVENT.changed,
+            state: 'in-progress',
+            reset: true,
+        });
+        libraryVerifyProgressPlatform = null;
+
+        await runLibraryTitleVerification(
+            platform,
+            titleId,
+            abortController.signal,
+            true
+        );
+    } catch (error) {
+        if (abortController.signal.aborted) {
+            broadcastLibraryVerifyEvent({
+                type: LIBRARY_VERIFY_SOCKET_EVENT.changed,
+                state: 'cancelled',
+            });
+            return;
+        }
+        broadcastLibraryVerifyEvent({
+            type: LIBRARY_VERIFY_SOCKET_EVENT.changed,
+            state: 'failed',
+            error: formatLogError(error),
+        });
+        logger.warn(
+            'server',
+            `Copied title verification failed: ${formatLogError(error)}`
+        );
+    } finally {
+        if (activeLibraryVerifyAbortController === abortController) {
+            activeLibraryVerifyAbortController = null;
+        }
+        void processPendingLibraryTitleVerifications();
+    }
+}
+
+async function runLibraryTitleVerification(
+    platform: TitleIdentity['platform'],
+    titleId: string,
+    signal: AbortSignal,
+    broadcastCompletion: boolean
+): Promise<void> {
+    const prepared = (
+        await preparePlatformTitleVerifications(platform, signal)
+    ).filter((item) => item.titleId === titleId);
+    const titles = await verifyPreparedLibraryTitles(prepared, signal);
+
+    if (broadcastCompletion) {
+        broadcastLibraryVerifyEvent({
+            type: LIBRARY_VERIFY_SOCKET_EVENT.changed,
+            state: 'complete',
+            total: prepared.length,
+            failed: titles.filter((title) => title.status !== 'ok').length,
+        });
+    }
+}
+
+async function runPendingLibraryTitleVerifications(): Promise<void> {
+    while (pendingLibraryTitleVerifications.length > 0) {
+        const pending = pendingLibraryTitleVerifications.shift();
+        if (!pending) {
+            return;
+        }
+        try {
+            await runLibraryTitleVerification(
+                pending.platform,
+                pending.titleId,
+                new AbortController().signal,
+                false
+            );
+        } catch (error) {
+            logger.warn(
+                'server',
+                `Priority title verification failed: ${formatLogError(error)}`
+            );
+        } finally {
+            pending.resolve();
+        }
+    }
+}
+
+async function processPendingLibraryTitleVerifications(): Promise<void> {
+    if (
+        activeLibraryVerifyAbortController ||
+        pendingLibraryTitleVerifications.length === 0
+    ) {
+        return;
+    }
+
+    const pending = pendingLibraryTitleVerifications.shift();
+    if (!pending) {
+        return;
+    }
+    try {
+        await runStandaloneLibraryTitleVerification(
+            pending.platform,
+            pending.titleId
+        );
+    } finally {
+        pending.resolve();
+    }
+}
+
+async function preparePlatformTitleVerifications(
+    platform: TitleIdentity['platform'],
+    signal: AbortSignal
+) {
+    const config = getConfig();
+    switch (platform) {
+        case '3ds':
+            return prepareThreeDSTitleVerifications(config['3dsRoots'], signal);
+        case 'gamecube':
+            return prepareGameCubeTitleVerifications(
+                config.gamecubeRoots,
+                signal
+            );
+        case 'wii':
+            return prepareWiiTitleVerifications(config.wiiRoots, signal);
+        case 'wiiu':
+            return prepareWiiUTitleVerifications(config.wiiuRoots, signal);
+    }
+}
+
+async function verifyPreparedPlatformTitle(
+    item: PreparedTitleVerification,
+    index: number,
+    total: number,
+    signal: AbortSignal
+) {
+    const args = [
+        item,
+        index,
+        total,
+        handleLibraryVerifyProgress,
+        signal,
+    ] as const;
+    switch (item.platform) {
+        case '3ds':
+            return verifyPreparedThreeDSTitle(...args);
+        case 'gamecube':
+            return verifyPreparedGameCubeTitle(...args);
+        case 'wii':
+            return verifyPreparedWiiTitle(...args);
+        case 'wiiu':
+            return verifyPreparedWiiUTitle(...args);
+    }
+}
+
+async function verifyPreparedLibraryTitles(
+    prepared: PreparedTitleVerification[],
+    signal: AbortSignal,
+    afterEach?: () => Promise<void>
+) {
+    const titles = [];
+    for (const [index, item] of prepared.entries()) {
+        signal.throwIfAborted();
+        logTitleVerificationStarted({
+            logNamespace: item.platform,
+            platform: item.platform,
+            name: item.name,
+            titleId: item.titleId,
+            version: item.version,
+            sizeText: item.sizeText,
+        });
+        const verifiedTitles = await verifyPreparedPlatformTitle(
+            item,
+            index,
+            prepared.length,
+            signal
+        );
+        titles.push(...verifiedTitles);
+        for (const verifiedTitle of verifiedTitles) {
+            logTitleVerificationCompleted({
+                logNamespace: item.platform,
+                platform: item.platform,
+                name: item.name,
+                titleId: item.titleId,
+                version: item.version,
+                status: verifiedTitle.status,
+            });
+        }
+        await afterEach?.();
+    }
+    return titles;
 }
 
 export function queueLibraryConversion(
