@@ -1,5 +1,5 @@
 import { createReadStream, createWriteStream } from 'fs';
-import { mkdir, realpath, rm, stat, statfs, unlink } from 'fs/promises';
+import { mkdir, realpath, rm, rmdir, stat, statfs, unlink } from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { pipeline } from 'stream/promises';
@@ -1737,18 +1737,7 @@ export function handleStorageDeleteSocketCommand(
 export async function getSafeStorageDeletePaths(
     sourcePaths: string[]
 ): Promise<string[]> {
-    const config = getConfig();
-    const rootPaths = await Promise.all(
-        [
-            ...config['3dsRoots'],
-            ...config.gamecubeRoots,
-            ...config.wiiuRoots,
-            ...config.wiiRoots,
-        ].map(async (root) => {
-            const readableRoot = await resolveReadablePath(root);
-            return realpath(readableRoot);
-        })
-    );
+    const rootPaths = await getStorageDeleteRootPaths();
 
     const deletePaths: string[] = [];
 
@@ -1777,6 +1766,21 @@ export async function getSafeStorageDeletePaths(
     return [...new Set(deletePaths)];
 }
 
+async function getStorageDeleteRootPaths(): Promise<string[]> {
+    const config = getConfig();
+    return Promise.all(
+        [
+            ...config['3dsRoots'],
+            ...config.gamecubeRoots,
+            ...config.wiiuRoots,
+            ...config.wiiRoots,
+        ].map(async (root) => {
+            const readableRoot = await resolveReadablePath(root);
+            return realpath(readableRoot);
+        })
+    );
+}
+
 export async function deleteStorageTitleSourcePaths(
     sourcePaths: string[],
     onProgress?: (deletedCount: number) => void,
@@ -1793,6 +1797,7 @@ async function deleteSafeStorageTitleSourcePaths(
     signal?: AbortSignal
 ): Promise<number> {
     let deletedCount = 0;
+    const rootPaths = await getStorageDeleteRootPaths();
 
     for (const deletePath of deletePaths) {
         signal?.throwIfAborted();
@@ -1800,9 +1805,43 @@ async function deleteSafeStorageTitleSourcePaths(
             recursive: true,
             force: true,
         });
+        await removeEmptyStorageParentDirectory(
+            deletePath,
+            rootPaths,
+            signal
+        );
         deletedCount += 1;
         onProgress?.(deletedCount);
     }
 
     return deletedCount;
+}
+
+async function removeEmptyStorageParentDirectory(
+    deletedPath: string,
+    rootPaths: string[],
+    signal?: AbortSignal
+): Promise<void> {
+    const containingRoot = rootPaths.find((rootPath) =>
+        isSameOrNestedPath(rootPath, deletedPath)
+    );
+    if (!containingRoot) {
+        return;
+    }
+
+    const parentPath = path.dirname(deletedPath);
+    if (parentPath === containingRoot) {
+        return;
+    }
+
+    signal?.throwIfAborted();
+    try {
+        await rmdir(parentPath);
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT' || code === 'ENOTEMPTY' || code === 'EEXIST') {
+            return;
+        }
+        throw error;
+    }
 }

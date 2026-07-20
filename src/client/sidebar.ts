@@ -666,8 +666,7 @@ function renderLocalCopyRow(
     checkbox.value = entry.titleId;
     checkbox.dataset.titleId = entry.titleId;
     checkbox.dataset.copySizeBytes = String(entry.sizeBytes);
-    checkbox.disabled =
-        group.platform === '3ds' || getBusyKinds(group).has(entry.kind);
+    checkbox.disabled = getBusyKinds(group).has(entry.kind);
     if (downloadData) {
         checkbox.dataset.family = downloadData.group.family;
         checkbox.dataset.platform = downloadData.group.platform;
