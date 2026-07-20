@@ -29,7 +29,9 @@ export function createStorageRouter(): Router {
 
     router.get('/delete', (req, res) => {
         const title = requireTitleQuery(req, res);
-        if (title === null) return;
+        if (title === null) {
+            return;
+        }
 
         try {
             const result = queueStorageDelete(title);
@@ -73,7 +75,9 @@ function queueStorageTransferRoute(
     move: boolean
 ): void {
     const title = requireTitleQuery(req, res);
-    if (title === null) return;
+    if (title === null) {
+        return;
+    }
 
     try {
         const result = queueStorageTransfer(

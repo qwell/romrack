@@ -77,10 +77,14 @@ function broadcastLibraryVerifyEvent(event: LibraryVerifyEvent): void {
 
 function scheduleLibraryVerifyEvent(event: LibraryVerifyEvent): void {
     pendingLibraryVerifyEvent = event;
-    if (libraryVerifyEventTimer !== null) return;
+    if (libraryVerifyEventTimer !== null) {
+        return;
+    }
     libraryVerifyEventTimer = setTimeout(() => {
         libraryVerifyEventTimer = null;
-        if (!pendingLibraryVerifyEvent) return;
+        if (!pendingLibraryVerifyEvent) {
+            return;
+        }
         const nextEvent = pendingLibraryVerifyEvent;
         pendingLibraryVerifyEvent = null;
         latestLibraryVerifyEvent = nextEvent;

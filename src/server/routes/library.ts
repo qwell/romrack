@@ -87,7 +87,9 @@ export function createLibraryRouter(): Router {
 
     router.get('/convert', (req, res) => {
         const title = requireWiiUTitleQuery(req, res);
-        if (title === null) return;
+        if (title === null) {
+            return;
+        }
         const cached = getLibraryCacheEntry(title.titleId);
         const item = queueLibraryConversion({
             titleId: title.titleId,

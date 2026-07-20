@@ -116,21 +116,27 @@ export async function inspectGameCubeDiscStructure(
         });
     }
 
-    if (!fstRangeValid) return { header: discHeader, checks };
+    if (!fstRangeValid) {
+        return { header: discHeader, checks };
+    }
     signal?.throwIfAborted();
     const fst = await reader.read(fstOffset, fstSize);
     checks.push({
         ok: fst.length === fstSize,
         message: 'read the complete GameCube FST',
     });
-    if (fst.length !== fstSize) return { header: discHeader, checks };
+    if (fst.length !== fstSize) {
+        return { header: discHeader, checks };
+    }
 
     const fstInspection = inspectDiscFst(fst, fileSize);
     checks.push({
         ok: fstInspection !== null,
         message: 'GameCube FST root and entry table are valid',
     });
-    if (!fstInspection) return { header: discHeader, checks };
+    if (!fstInspection) {
+        return { header: discHeader, checks };
+    }
 
     const { entryCount, invalidEntries } = fstInspection;
     checks.push({

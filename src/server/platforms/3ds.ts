@@ -1080,7 +1080,9 @@ async function verifyCiaContentHashes(
             : null;
         if (firstContent && firstOffset !== null && firstOffset !== undefined) {
             for (const commonKeyY of keys.commonKeyYs) {
-                if (!commonKeyY) continue;
+                if (!commonKeyY) {
+                    continue;
+                }
                 const commonKey = deriveThreeDSNormalKey(
                     decodeHexKey(keys.slot0x3dKeyX),
                     decodeHexKey(commonKeyY),
@@ -1121,7 +1123,9 @@ async function verifyCiaContentHashes(
                 content.size
             );
             const contentOffset = contentOffsets.get(content.index);
-            if (contentOffset === undefined) continue;
+            if (contentOffset === undefined) {
+                continue;
+            }
             const iv = Buffer.alloc(16);
             iv.writeUInt16BE(content.index, 0);
             const hash = createHash('sha256');
@@ -1138,7 +1142,9 @@ async function verifyCiaContentHashes(
                     position,
                     length
                 );
-                if (decrypted.length !== length) break;
+                if (decrypted.length !== length) {
+                    break;
+                }
                 hash.update(decrypted);
                 position += length;
             }
