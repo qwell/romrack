@@ -545,9 +545,7 @@ function renderDownloadAvailabilityRow(
     }
 
     checkbox.disabled =
-        group.platform === '3ds' ||
-        !entry.availableOnCdn ||
-        getBusyKinds(group).has(entry.kind);
+        !entry.availableOnCdn || getBusyKinds(group).has(entry.kind);
     if (!entry.availableOnCdn) {
         row.classList.add('sidebar-download-row-unavailable');
     }
@@ -928,7 +926,7 @@ function renderAvailableActions(
     actions.className = 'sidebar-download-actions sidebar-available-actions';
 
     const spacer = document.createElement('div');
-    if (group.platform === '3ds') {
+    if (!entries.some((entry) => entry.availableOnCdn)) {
         actions.append(spacer);
         return actions;
     }

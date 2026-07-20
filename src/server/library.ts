@@ -325,17 +325,26 @@ export function getLibraryCacheEntry(
             break;
     }
 
-    if (!group || !group.name) {
+    const cachedEntry =
+        [...titleScanCache.values()]
+            .flat()
+            .find(
+                (candidate) =>
+                    candidate.platform === titleIdentity.platform &&
+                    candidate.titleId === titleId
+            ) ?? null;
+    const entry =
+        group?.entries.find((candidate) => candidate.titleId === titleId) ??
+        cachedEntry;
+    const name = group?.name || entry?.name;
+    if (!name) {
         return null;
     }
 
-    const entry =
-        group.entries.find((candidate) => candidate.titleId === titleId) ??
-        null;
     return {
-        platform: group.platform,
-        name: group.name,
-        productCode: group.productCode,
+        platform: titleIdentity.platform,
+        name,
+        productCode: group?.productCode ?? cachedEntry?.productCode ?? null,
         version: entry?.version ?? null,
         kind: entry?.kind ?? null,
     };

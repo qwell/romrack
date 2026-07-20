@@ -120,9 +120,6 @@ function reconcileCompletedLibraryConversions(
                 });
             }
 
-            group.availableEntries = group.availableEntries.filter(
-                (entry) => entry.titleId !== converted.titleId
-            );
             titleValidations.delete(
                 getTitlePlatformKey('wiiu', converted.titleId)
             );

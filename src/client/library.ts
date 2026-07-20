@@ -157,7 +157,8 @@ function isAvailableEntryKind(
 }
 
 export function createAvailableEntry(
-    entry: TitleEntry
+    entry: TitleEntry,
+    availableOnCdn = false
 ): AvailableTitleEntry | null {
     if (!isAvailableEntryKind(entry.kind)) {
         return null;
@@ -168,7 +169,7 @@ export function createAvailableEntry(
         titleId: entry.titleId,
         versions:
             entry.version !== null && entry.version > 0 ? [entry.version] : [],
-        availableOnCdn: true,
+        availableOnCdn,
     };
 }
 

@@ -357,10 +357,6 @@ function markDownloadComplete(
         }
     }
 
-    group.availableEntries = group.availableEntries.filter(
-        (entry) => !(entry.kind === item.kind && entry.titleId === item.titleId)
-    );
-
     syncGroupStatusFromSlots(group);
     onGroupChanged(group);
 }
