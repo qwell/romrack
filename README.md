@@ -1,12 +1,13 @@
 # [ROM Rack](https://romrack.com/)
 
-ROM Rack is a web-based application that allows users to manage and organize their Wii U, Wii, and 3DS game libraries. It provides features such as game categorization, search and filter functionality, the ability to track title statuses (e.g., complete, incomplete, etc.), download homebrew and other titles, and copy titles to an SD card. The application is built using TypeScript and Node.js, with the aim to be cross-platform.
+ROM Rack is a web-based application that allows users to manage and organize their Wii U, Wii, GameCube, and 3DS game libraries. It provides features such as game categorization, search and filter functionality, the ability to track title statuses (e.g., complete, incomplete, etc.), download homebrew and other titles, and copy titles to an SD card. The application is built with the aim to be cross-platform.
 
 Work in Progress
 
 ## Table of Contents
 
 - [Features](#features)
+- [Supported Platforms](#supported-platforms)
 - [Prerequisites](#prerequisites)
 - [Release](#release)
 - [Configuration](#configuration)
@@ -22,12 +23,21 @@ Work in Progress
 
 - Browse library - view your games grouped by title.
 - Search & filters - find games by name, region, or download status.
-- Download titles - select versions and start downloads.
+- Download titles - select versions and start downloads on supported platforms.
 - Manage downloads - see progress, retry, or clear failed items.
 - Manage local copies - list stored titles and delete unwanted ones.
 - Copy to SD card - select titles and copy to an inserted FAT32 SD.
 - Title verification - view broken files and delete or re-download them.
 - Detail sidebar - quick access to synopsis, version, size, and status.
+
+## Supported Platforms
+
+| Platform | Formats                         |
+| -------- | ------------------------------- |
+| 3DS      | `.3ds`, `.cci`, `.cia`          |
+| GameCube | `.iso`, `.gcm`                  |
+| Wii      | `.iso`, `.wbfs`                 |
+| Wii U    | `.wud`, `.wux`, WUP directories |
 
 ## Prerequisites
 
@@ -37,7 +47,7 @@ Development from source requires [Node 24](https://nodejs.org/) and [Yarn](https
 
 ## Configuration
 
-`config.json` lives at `~/.romrack/config.json`. If it does not exist, ROM Rack creates it with default values on startup.
+`config.json` lives at `~/.romrack/config.json`. ROM Rack creates it on first startup. By default, every library root is the same `~/.romrack` directory; change the roots to the directories containing your games.
 
 Available options:
 
@@ -46,11 +56,14 @@ Available options:
     "host": "127.0.0.1",
     "port": 3000,
     "openBrowser": true,
-    "wiiuRoots": [],
-    "wiiRoots": [],
-    "3dsRoots": []
+    "3dsRoots": ["<home>/.romrack"],
+    "gamecubeRoots": ["<home>/.romrack"],
+    "wiiRoots": ["<home>/.romrack"],
+    "wiiuRoots": ["<home>/.romrack"]
 }
 ```
+
+`<home>` above represents your actual home directory; the generated file contains its absolute path.
 
 `host` sets the network host ROM Rack binds to.
 
@@ -58,13 +71,23 @@ Available options:
 
 `openBrowser` controls whether ROM Rack opens your browser on startup using the configured host and port.
 
-`wiiuRoots` is a list of Wii U title directories.
+`3dsRoots` is a list of 3DS library directories.
+
+`gamecubeRoots` is a list of GameCube library directories.
 
 `wiiRoots` is a list of Wii library directories.
 
-`3dsRoots` is a list of 3DS library directories.
+`wiiuRoots` is a list of Wii U title directories.
 
-For title metadata generation or title downloads, put `common.key` in `~/.romrack/common.key`. If no key is found, ROM Rack will try to download one and save it there. The key may be raw 16-byte binary, hex text, or comma-separated byte literals.
+### Keys
+
+ROM Rack looks for these key files only when a format needs them:
+
+- `~/.romrack/aes_keys.txt` contains 3DS AES keys. They are used to read metadata from encrypted NCCH content and to decrypt and verify CIA contents. ROM Rack tries to download this file if it is missing. The file must include `generatorConstant`; current 3DS operations use `slot0x2CKeyX`, `slot0x3DKeyX`, and the applicable `common0` through `common5` keys.
+- `~/.romrack/common.key` contains the Wii U common key. It is used to decrypt Wii U title metadata and content. ROM Rack tries to download it if it is missing. It may be raw 16-byte binary or 32 hexadecimal characters.
+- `<disc-name>.key` next to a `.wud` or `.wux`, or `game.key` in the same directory, contains that image's 16-byte Wii U disc key. The disc key is required to open, verify, or convert that specific disc image; the common key cannot be used in its place. WUD/WUX processing uses both keys: the disc key opens the image and the common key decrypts the title content inside it. ROM Rack does not download per-disc keys.
+
+GameCube and Wii disc images do not require separate key files.
 
 ## Release
 
@@ -72,10 +95,10 @@ From a packaged release:
 
 1. Download the latest release zip from GitHub.
 2. Extract the release zip.
-3. Edit `~/.romrack/config.json` if needed.
-4. Run `start.bat` on Windows or `./start.sh` on macOS/Linux.
+3. Run `romrack.exe` on Windows or `./romrack` on macOS/Linux.
+4. Set your library directories in Settings, or edit the generated `~/.romrack/config.json`.
 
-By default, the server listens on the host and port configured in `config.json`, then opens the app in your browser when `openBrowser` is `true`.
+The default configuration listens only on `127.0.0.1:3000`, opens the app in your browser, and scans `~/.romrack` for every supported platform.
 
 ## Development
 
@@ -161,12 +184,14 @@ yarn generate:titles
 - `GET /api/library`: Scan the configured library.
 - `GET /api/library/verify`: Fully verify library file integrity and report progress.
 - `GET /api/library/convert?titleId=...`: Queue WUD/WUX conversion for a title.
-- `GET /api/title-icon/:family`: Proxy/cache a title icon from the title database.
-- `GET /api/title?titleId=...`: Fetch base NUS metadata plus update and DLC availability.
+- `GET /api/media/:type/:platform/:productCode`: Read or cache title icon/cover media.
+- `GET /api/title/:platform?titleId=...`: Fetch available title metadata for a supported platform.
+- `GET/POST /api/config`: Read or update configuration.
+- `POST /api/config/validate-root`: Validate a proposed library directory.
 - `GET /api/storage/list-fat32`: List FAT32 storage destinations. On WSL, unmounted Windows-only drives are returned for display but must be mounted in WSL before use.
-- `GET /api/storage/copy?titleId=...&dest=...`: Queue a local title copy to a FAT32 destination.
-- `GET /api/storage/move?titleId=...&dest=...`: Queue a local title move to a FAT32 destination and remove the local source after a successful copy.
-- `GET /api/storage/delete?titleId=...`: Queue deletion of all local copies for a title ID.
+- `GET /api/storage/copy?titleId=...&platform=...&dest=...`: Queue a local title copy to a FAT32 destination.
+- `GET /api/storage/move?titleId=...&platform=...&dest=...`: Queue a local title move to a FAT32 destination and remove the local source after a successful copy.
+- `GET /api/storage/delete?titleId=...&platform=...`: Queue deletion of all local copies for a title ID. `platform` is optional when the title ID identifies the platform unambiguously.
 
 ## WebSocket API
 
@@ -200,7 +225,7 @@ Client commands:
 - `library.convert.cancel`: Cancel a WUD/WUX conversion queue entry (payload: id).
 - `library.convert.clear`: Clear a WUD/WUX conversion queue entry.
 - `library.convert.retry`: Retry a failed WUD/WUX conversion.
-- `title.validate.queue`: Queue size-only validation for a title (payload: `{ id, name }`).
+- `title.validate.queue`: Queue validation for a local title (payload: `{ id, name, platform }`).
 
 ## Title Data
 
@@ -213,7 +238,7 @@ Files in `titles/`:
 - `wiiu/nus.json`: Cached Wii U NUS scan results.
 - `3ds/nus.json`: Cached 3DS NUS scan results.
 
-- `wii/tdb.xml`: Source Wii TDB XML from [GameTDB](https://www.gametdb.com/wiitdb.zip), used for Wii supplemental title data and UI details.
+- `wii/tdb.xml`: Source Wii TDB XML from [GameTDB](https://www.gametdb.com/wiitdb.zip), used for Wii and GameCube supplemental title data and UI details.
 - `wiiu/tdb.xml`: Source Wii U TDB XML from [GameTDB](https://www.gametdb.com/wiiutdb.zip), used by the UI for title details.
 - `3ds/tdb.xml`: Source 3DS TDB XML from [GameTDB](https://www.gametdb.com/3dstdb.zip), used by the UI for title details.
 
@@ -238,3 +263,5 @@ ROM Rack is licensed under the [GNU General Public License v3.0](https://www.gnu
 Thanks to [GameTDB](https://gametdb.com/) for the supplemental title databases, icons, and banner images.
 
 Thanks to [hShop](https://hshop.erista.me/) for the supplemental 3DS title database.
+
+Thanks to [WiiUBrew](https://wiiubrew.org/) for the supplemental Wii U title database.
