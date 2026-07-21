@@ -17,6 +17,8 @@ const TIK_CERT_1_SIZE = 0x300;
 const TIK_CERT_0_OFFSET = 0x650;
 const TIK_CERT_0_SIZE = 0x400;
 
+export const TIK_FILE_SIZE = TIK_CERT_1_OFFSET;
+
 const TIK_MIN_READ_SIZE = Math.max(
     TIK_TITLE_ID_OFFSET + TIK_TITLE_ID_SIZE,
     TIK_VERSION_OFFSET + TIK_VERSION_SIZE,
@@ -96,6 +98,12 @@ export function createTikFromTemplate(
 
 export function readTikAuthorityCertificate(ticket: Buffer): Buffer | null {
     return readOptionalRange(ticket, TIK_CERT_1_OFFSET, TIK_CERT_1_SIZE);
+}
+
+export function extractTikFromCetk(cetk: Buffer): Buffer | null {
+    return cetk.length >= TIK_FILE_SIZE
+        ? copyRange(cetk, 0, TIK_FILE_SIZE)
+        : null;
 }
 
 function copyRange(data: Buffer, offset: number, size: number): Buffer {

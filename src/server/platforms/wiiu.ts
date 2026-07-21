@@ -148,7 +148,12 @@ import {
     isHashedContent,
     verifyContent,
 } from '../formats/content.js';
-import { readTik, TIK_TITLE_FILE, type Tik } from '../formats/tik.js';
+import {
+    extractTikFromCetk,
+    readTik,
+    TIK_TITLE_FILE,
+    type Tik,
+} from '../formats/tik.js';
 import {
     getRootDirectoryChildren,
     parseTitleFstEntries,
@@ -1354,15 +1359,23 @@ export async function generateWupTitleFiles(
         downloadableTitleId,
         { signal: options.signal }
     );
-    const ticket = ticketBytes ? readTik(ticketBytes) : null;
-    const { encryptedTitleKey, titleKey, decryptedFst, titleKeyPassword } =
-        resolveTitleKey({
-            commonKey,
-            encryptedFst,
-            normalizedTitleId: downloadableTitleId,
-            ticket,
-            tmd,
-        });
+    const ticketFileBytes = ticketBytes
+        ? extractTikFromCetk(ticketBytes)
+        : null;
+    const ticket = ticketFileBytes ? readTik(ticketFileBytes) : null;
+    const {
+        encryptedTitleKey,
+        titleKey,
+        decryptedFst,
+        titleKeyPassword,
+        source: titleKeySource,
+    } = resolveTitleKey({
+        commonKey,
+        encryptedFst,
+        normalizedTitleId: downloadableTitleId,
+        ticket,
+        tmd,
+    });
 
     if (
         encryptedTitleKey === null ||
@@ -1415,11 +1428,13 @@ export async function generateWupTitleFiles(
         writeFile(tmdFile, tmdBytes),
         writeFile(
             path.join(outputDir, TIK_TITLE_FILE),
-            createGeneratedTik({
-                titleId: tmd.header.titleId,
-                encryptedTitleKey,
-                titleVersion: tmd.header.titleVersion,
-            })
+            titleKeySource === 'ticket' && ticketFileBytes
+                ? ticketFileBytes
+                : createGeneratedTik({
+                      titleId: tmd.header.titleId,
+                      encryptedTitleKey,
+                      titleVersion: tmd.header.titleVersion,
+                  })
         ),
         writeFile(
             certFile,

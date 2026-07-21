@@ -1805,11 +1805,7 @@ async function deleteSafeStorageTitleSourcePaths(
             recursive: true,
             force: true,
         });
-        await removeEmptyStorageParentDirectory(
-            deletePath,
-            rootPaths,
-            signal
-        );
+        await removeEmptyStorageParentDirectory(deletePath, rootPaths, signal);
         deletedCount += 1;
         onProgress?.(deletedCount);
     }
