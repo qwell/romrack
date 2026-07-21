@@ -166,21 +166,10 @@ function parseWiiUKeys(raw: Buffer): WiiUKeys {
         return Buffer.from(raw).toString('hex');
     }
     const text = Buffer.from(raw).toString('utf8').trim();
-    const tokens = text
-        .split(',')
-        .map((token) => token.trim())
-        .filter(Boolean);
-    const literals =
-        tokens.length > 0 &&
-        tokens.every((token) => /^0x[\da-fA-F]{1,2}$/.test(token))
-            ? Buffer.from(
-                  tokens.map((token) => Number.parseInt(token.slice(2), 16))
-              )
-            : null;
     const compact = text.replace(/\s+/g, '');
-    const keyBytes =
-        literals ??
-        (/^[\da-fA-F]{32}$/.test(compact) ? Buffer.from(compact, 'hex') : null);
+    const keyBytes = /^[\da-fA-F]{32}$/.test(compact)
+        ? Buffer.from(compact, 'hex')
+        : null;
     if (!keyBytes || keyBytes.length !== 16) {
         throw new Error('Invalid Wii U common key');
     }
