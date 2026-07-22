@@ -36,6 +36,8 @@ import {
     type GameCubeDiscCheck,
     type GcmDiscHeader,
 } from '../formats/gcm.js';
+import { openRvzReader } from '../formats/rvz.js';
+import { type RandomAccessReader } from '../formats/disc.js';
 import {
     cacheLocalTitleIcon,
     createEmptyTitleGroup,
@@ -61,7 +63,7 @@ import {
 } from '../library.js';
 
 const LIBRARY_SCAN_CONCURRENCY = 8;
-const GAMECUBE_IMAGE_EXTENSIONS = new Set(['.iso', '.gcm']);
+const GAMECUBE_IMAGE_EXTENSIONS = new Set(['.iso', '.gcm', '.rvz']);
 
 type GameCubeDiscInfo = {
     titleId: string;
@@ -93,15 +95,13 @@ function getGameCubeDiscInfo(
 async function readDiscInfo(
     filePath: string
 ): Promise<GameCubeDiscInfo | null> {
-    const file = await open(filePath, 'r');
+    const { reader } = await openGameCubeDisc(filePath);
     try {
-        const buffer = Buffer.alloc(GCM_DISC_HEADER_SIZE);
-        const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
         return getGameCubeDiscInfo(
-            parseGcmDiscHeader(buffer.subarray(0, bytesRead))
+            parseGcmDiscHeader(await reader.read(0, GCM_DISC_HEADER_SIZE))
         );
     } finally {
-        await file.close();
+        await reader.close();
     }
 }
 
@@ -110,24 +110,11 @@ async function inspectGameCubeDisc(
     signal?: AbortSignal
 ): Promise<{ disc: GameCubeDiscInfo | null; checks: GameCubeDiscCheck[] }> {
     signal?.throwIfAborted();
-    const file = await open(filePath, 'r');
+    const { reader, logicalSize } = await openGameCubeDisc(filePath);
     try {
-        const fileSize = (await file.stat()).size;
         const inspection = await inspectGameCubeDiscStructure(
-            {
-                async read(position, length) {
-                    const buffer = Buffer.alloc(length);
-                    const { bytesRead } = await file.read(
-                        buffer,
-                        0,
-                        length,
-                        position
-                    );
-                    return buffer.subarray(0, bytesRead);
-                },
-                close: async () => undefined,
-            },
-            fileSize,
+            reader,
+            logicalSize,
             signal
         );
         return {
@@ -135,7 +122,44 @@ async function inspectGameCubeDisc(
             checks: inspection.checks,
         };
     } finally {
+        await reader.close();
+    }
+}
+
+async function openGameCubeDisc(filePath: string): Promise<{
+    reader: RandomAccessReader;
+    logicalSize: number;
+}> {
+    const file = await open(filePath, 'r');
+    try {
+        const fileSize = (await file.stat()).size;
+        const physical = {
+            async read(position: number, length: number) {
+                const buffer = Buffer.alloc(length);
+                const { bytesRead } = await file.read(
+                    buffer,
+                    0,
+                    length,
+                    position
+                );
+                return buffer.subarray(0, bytesRead);
+            },
+            close: () => file.close(),
+        };
+        if (path.extname(filePath).toLowerCase() === '.rvz') {
+            const { reader, inspection } = await openRvzReader(
+                physical,
+                fileSize
+            );
+            if (!inspection.header) {
+                throw new Error('Invalid RVZ header');
+            }
+            return { reader, logicalSize: inspection.header.isoSize };
+        }
+        return { reader: physical, logicalSize: fileSize };
+    } catch (error) {
         await file.close();
+        throw error;
     }
 }
 

@@ -1,6 +1,6 @@
 import { inspectDiscFst } from './disc-fst.js';
+import { type RandomAccessReader } from './disc.js';
 import { DOL_HEADER_SIZE, parseDolSections } from './dol.js';
-import { type RandomAccessReader } from './reader.js';
 
 const GAMECUBE_MAGIC_OFFSET = 0x1c;
 const GAMECUBE_MAGIC = 0xc2339f3d;

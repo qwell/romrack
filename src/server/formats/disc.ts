@@ -1,8 +1,12 @@
 import { createDecipheriv, createHash } from 'node:crypto';
 import { scheduler } from 'node:timers/promises';
 import { formatLogError } from '../../shared/utils.js';
-import { type RandomAccessReader } from './reader.js';
 import { readTmdFromBuffer } from './tmd.js';
+
+export type RandomAccessReader = {
+    read(position: number, length: number): Promise<Buffer>;
+    close(): Promise<void>;
+};
 
 export type WiiDiscPartition = {
     offset: number;

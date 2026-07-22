@@ -31,8 +31,9 @@ import {
 } from '../gametdb.js';
 import { readCachedTitleMedia, type CachedImage } from '../image-cache.js';
 import { inspectWiiDiscStructure, verifyWiiDisc } from '../formats/disc.js';
-import { type RandomAccessReader } from '../formats/reader.js';
+import { type RandomAccessReader } from '../formats/disc.js';
 import { readWbfsHeader } from '../formats/wbfs.js';
+import { openRvzReader } from '../formats/rvz.js';
 import {
     cacheLocalTitleIcon,
     createEmptyTitleGroup,
@@ -59,7 +60,7 @@ import {
 } from '../library.js';
 
 const LIBRARY_SCAN_CONCURRENCY = 8;
-const WII_DISC_IMAGE_EXTENSIONS = new Set(['.iso', '.wbfs']);
+const WII_DISC_IMAGE_EXTENSIONS = new Set(['.iso', '.wbfs', '.rvz']);
 type WiiDiscReader = RandomAccessReader & { sparse: boolean };
 const WII_COMMON_KEYS = [
     Buffer.from('6+QqIl6Fk+RI2cVFc4Gq9w==', 'base64'),
@@ -759,9 +760,14 @@ function readDiscHeaderText(buffer: Buffer, encoding = 'utf-8'): string | null {
 }
 
 function openWiiDisc(filePath: string): Promise<WiiDiscReader> {
-    return path.extname(filePath).toLowerCase() === '.iso'
-        ? openIso(filePath)
-        : openWbfs(filePath);
+    switch (path.extname(filePath).toLowerCase()) {
+        case '.iso':
+            return openIso(filePath);
+        case '.rvz':
+            return openRvz(filePath);
+        default:
+            return openWbfs(filePath);
+    }
 }
 
 async function openIso(filePath: string): Promise<WiiDiscReader> {
@@ -778,6 +784,33 @@ async function openIso(filePath: string): Promise<WiiDiscReader> {
         },
         close: () => file.close(),
     };
+}
+
+async function openRvz(filePath: string): Promise<WiiDiscReader> {
+    const file = await open(filePath, 'r');
+    try {
+        const fileSize = (await file.stat()).size;
+        const { reader } = await openRvzReader(
+            {
+                async read(position, length) {
+                    const buffer = Buffer.alloc(length);
+                    const { bytesRead } = await file.read(
+                        buffer,
+                        0,
+                        length,
+                        position
+                    );
+                    return buffer.subarray(0, bytesRead);
+                },
+                close: () => file.close(),
+            },
+            fileSize
+        );
+        return { ...reader, sparse: false };
+    } catch (error) {
+        await file.close();
+        throw error;
+    }
 }
 
 function isWbfsSplitPart(filePath: string): boolean {
@@ -966,9 +999,11 @@ async function readDiscInfo(filePath: string): Promise<DiscHeaderInfo | null> {
 }
 
 async function getDiscFilePaths(filePath: string): Promise<string[]> {
-    return path.extname(filePath).toLowerCase() === '.iso'
-        ? [filePath]
-        : getWbfsDiscFilePaths(filePath);
+    if (path.extname(filePath).toLowerCase() === '.wbfs') {
+        return getWbfsDiscFilePaths(filePath);
+    }
+
+    return [filePath];
 }
 
 async function getDiscSizeBytes(filePaths: string[]): Promise<number> {

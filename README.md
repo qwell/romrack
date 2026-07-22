@@ -35,8 +35,8 @@ Work in Progress
 | Platform | Formats                         |
 | -------- | ------------------------------- |
 | 3DS      | `.3ds`, `.cci`, `.cia`          |
-| GameCube | `.iso`, `.gcm`                  |
-| Wii      | `.iso`, `.wbfs`                 |
+| GameCube | `.iso`, `.gcm`, `.rvz`          |
+| Wii      | `.iso`, `.wbfs`, `.rvz`         |
 | Wii U    | `.wud`, `.wux`, WUP directories |
 
 ## Prerequisites

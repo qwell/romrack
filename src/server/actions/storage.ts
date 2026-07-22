@@ -255,11 +255,7 @@ const STORAGE_PLATFORM_ADAPTERS: Record<TitlePlatform, StoragePlatformAdapter> =
                 ]),
         },
         gamecube: {
-            findSourcePaths: (titleId) =>
-                findGameCubeTitleSourcePaths(
-                    getConfig().gamecubeRoots,
-                    titleId
-                ),
+            findSourcePaths: findGameCubeStorageCopySourcePaths,
             readTitleIdentity: readGameCubeTitleIdentity,
             getDestinationExtension: (sourcePath) =>
                 path.extname(sourcePath).toLowerCase(),
@@ -274,8 +270,7 @@ const STORAGE_PLATFORM_ADAPTERS: Record<TitlePlatform, StoragePlatformAdapter> =
                 ]),
         },
         wii: {
-            findSourcePaths: (titleId) =>
-                findWiiTitleSourcePaths(getConfig().wiiRoots, titleId),
+            findSourcePaths: findWiiStorageCopySourcePaths,
             readTitleIdentity: readWiiTitleIdentity,
             getDestinationExtension: getWiiStorageCopyMainExtension,
             getDestinationTitleId: (titleId) => titleId,
@@ -969,6 +964,41 @@ async function findThreeDSStorageCopySourcePaths(
     ];
     throw new Error(
         `${extensions.join(', ')} is not supported for 3DS SD copying; a .cia file is required`
+    );
+}
+
+async function findGameCubeStorageCopySourcePaths(
+    titleId: string
+): Promise<string[]> {
+    const sourcePaths = await findGameCubeTitleSourcePaths(
+        getConfig().gamecubeRoots,
+        titleId
+    );
+    return requireStorageCompatibleDiscImage(sourcePaths, ['.iso', '.gcm']);
+}
+
+async function findWiiStorageCopySourcePaths(
+    titleId: string
+): Promise<string[]> {
+    const sourcePaths = await findWiiTitleSourcePaths(
+        getConfig().wiiRoots,
+        titleId
+    );
+    return requireStorageCompatibleDiscImage(sourcePaths, ['.iso', '.wbfs']);
+}
+
+function requireStorageCompatibleDiscImage(
+    sourcePaths: string[],
+    supportedExtensions: string[]
+): string[] {
+    const compatible = sourcePaths.filter((sourcePath) =>
+        supportedExtensions.includes(path.extname(sourcePath).toLowerCase())
+    );
+    if (compatible.length > 0 || sourcePaths.length === 0) {
+        return compatible;
+    }
+    throw new Error(
+        `RVZ images must be converted to ${supportedExtensions.join(' or ')} before copying to console storage`
     );
 }
 
