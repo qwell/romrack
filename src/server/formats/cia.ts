@@ -76,6 +76,18 @@ export function isCiaContentPresent(
     return byte !== undefined && (byte & mask) !== 0;
 }
 
+export function getCiaPresentContentIndexes(header: CiaHeader): number[] {
+    const indexes: number[] = [];
+    for (const [byteIndex, byte] of header.contentIndex.entries()) {
+        for (let bit = 0; bit < 8; bit += 1) {
+            if ((byte & (0x80 >>> bit)) !== 0) {
+                indexes.push(byteIndex * 8 + bit);
+            }
+        }
+    }
+    return indexes;
+}
+
 export function getCiaContentStorageSize(
     content: Pick<TmdContent, 'size'>
 ): number {

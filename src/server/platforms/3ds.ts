@@ -76,11 +76,12 @@ import {
 } from '../decryption.js';
 import {
     CIA_HEADER_MIN_SIZE,
+    getCiaPresentContentIndexes,
     getCiaContentStorageSize,
     isCiaContentPresent,
     readCiaHeader,
 } from '../formats/cia.js';
-import { readCciPartitions } from '../formats/cci.js';
+import { readCciHeader, readCciPartitions } from '../formats/cci.js';
 import { inspectExeFsFile } from '../formats/exefs.js';
 import { readTmdFromBuffer, type Tmd } from '../formats/tmd.js';
 import { readTik } from '../formats/tik.js';
@@ -1198,13 +1199,34 @@ async function validateCciFileStructure(
         message: 'read CCI header',
     });
 
-    const partitions = readCciPartitions(header);
+    const cci = readCciHeader(header);
+    const partitions = cci?.partitions ?? null;
     checks.push({
-        ok: partitions !== null && partitions.length > 0,
+        ok: partitions !== null,
         message: 'read CCI partition table',
     });
-    if (!partitions) {
+    if (!cci || !partitions) {
         return checks;
+    }
+
+    checks.push({
+        ok: partitions.length > 0,
+        message: 'CCI contains at least one partition',
+    });
+    if (partitions.length === 0) {
+        return checks;
+    }
+
+    const partitionsByOffset = partitions.toSorted(
+        (left, right) => left.offset - right.offset
+    );
+    for (let index = 1; index < partitionsByOffset.length; index += 1) {
+        const previous = partitionsByOffset[index - 1];
+        const current = partitionsByOffset[index];
+        checks.push({
+            ok: previous.offset + previous.size <= current.offset,
+            message: `CCI partitions ${String(index - 1)} and ${String(index)} do not overlap`,
+        });
     }
 
     const handle = await open(titlePath, 'r');
@@ -1214,7 +1236,8 @@ async function validateCciFileStructure(
             const inBounds =
                 partition.size >= NCCH_HEADER_SIZE &&
                 partition.offset >= 0 &&
-                partition.offset + partition.size <= fileSize;
+                partition.offset + partition.size <= fileSize &&
+                partition.offset + partition.size <= cci.mediaSize;
             checks.push({
                 ok: inBounds,
                 message: `${partitionLabel} is within file bounds`,
@@ -1236,6 +1259,53 @@ async function validateCciFileStructure(
                 ok: isNcchHeader(ncchHeader),
                 message: `${partitionLabel} has NCCH magic`,
             });
+            const parsedNcch = readNcchHeader(ncchHeader);
+            checks.push({
+                ok:
+                    parsedNcch !== null &&
+                    parsedNcch.contentSize >= NCCH_HEADER_SIZE &&
+                    parsedNcch.contentSize <= partition.size,
+                message: `${partitionLabel} NCCH content size is within the partition`,
+            });
+            if (!parsedNcch) {
+                continue;
+            }
+
+            const regions = [
+                {
+                    name: 'extended header',
+                    offset: NCCH_HEADER_SIZE,
+                    size: parsedNcch.exheaderSize,
+                },
+                {
+                    name: 'plain region',
+                    offset: parsedNcch.plainOffset,
+                    size: parsedNcch.plainSize,
+                },
+                {
+                    name: 'logo',
+                    offset: parsedNcch.logoOffset,
+                    size: parsedNcch.logoSize,
+                },
+                {
+                    name: 'ExeFS',
+                    offset: parsedNcch.exefsOffset,
+                    size: parsedNcch.exefsSize,
+                },
+                {
+                    name: 'RomFS',
+                    offset: parsedNcch.romfsOffset,
+                    size: parsedNcch.romfsSize,
+                },
+            ].filter((region) => region.size > 0);
+            for (const region of regions) {
+                checks.push({
+                    ok:
+                        region.offset >= NCCH_HEADER_SIZE &&
+                        region.offset + region.size <= parsedNcch.contentSize,
+                    message: `${partitionLabel} ${region.name} is within NCCH content bounds`,
+                });
+            }
         }
     } finally {
         await handle.close();
@@ -1278,12 +1348,38 @@ async function validateCiaFileStructure(
         return checks;
     }
 
+    const ticket =
+        ticketEnd <= fileSize
+            ? await readChunk(
+                  titlePath,
+                  ciaHeader.ticketOffset,
+                  ciaHeader.ticketSize
+              )
+            : Buffer.alloc(0);
+
     const tmd = await readChunk(
         titlePath,
         ciaHeader.tmdOffset,
         ciaHeader.tmdSize
     );
-    const tmdContents = readThreeDSCiaTmd(tmd)?.contents ?? [];
+    const parsedTicket = readTik(ticket);
+    const parsedTmd = readThreeDSCiaTmd(tmd);
+    checks.push({
+        ok: parsedTicket !== null,
+        message: 'read CIA ticket',
+    });
+    checks.push({
+        ok: parsedTmd !== null,
+        message: 'read CIA TMD',
+    });
+    if (parsedTicket && parsedTmd) {
+        checks.push({
+            ok: parsedTicket.titleId.equals(parsedTmd.header.titleId),
+            message: 'CIA ticket title ID matches TMD title ID',
+        });
+    }
+
+    const tmdContents = parsedTmd?.contents ?? [];
     checks.push({
         ok: tmdContents.length > 0,
         message: 'read CIA TMD content table',
@@ -1294,6 +1390,17 @@ async function validateCiaFileStructure(
     checks.push({
         ok: contents.length > 0,
         message: 'CIA contains at least one indexed content',
+    });
+    const contentIndexes = new Set(tmdContents.map((content) => content.index));
+    checks.push({
+        ok: contentIndexes.size === tmdContents.length,
+        message: 'CIA TMD content indexes are unique',
+    });
+    checks.push({
+        ok: getCiaPresentContentIndexes(ciaHeader).every((index) =>
+            contentIndexes.has(index)
+        ),
+        message: 'CIA content-index bitmap only references TMD contents',
     });
 
     let contentOffset = ciaHeader.contentOffset;

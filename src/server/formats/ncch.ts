@@ -6,9 +6,17 @@ const NCCH_PROGRAM_ID_OFFSET = 0x118;
 const NCCH_VERSION_OFFSET = 0x112;
 const NCCH_PRODUCT_CODE_OFFSET = 0x150;
 const NCCH_PRODUCT_CODE_LENGTH = 0x10;
+const NCCH_CONTENT_SIZE_OFFSET = 0x104;
+const NCCH_EXHEADER_SIZE_OFFSET = 0x180;
 const NCCH_FLAGS_OFFSET = 0x188;
+const NCCH_PLAIN_OFFSET_OFFSET = 0x190;
+const NCCH_PLAIN_SIZE_OFFSET = 0x194;
+const NCCH_LOGO_OFFSET_OFFSET = 0x198;
+const NCCH_LOGO_SIZE_OFFSET = 0x19c;
 const NCCH_EXEFS_OFFSET_OFFSET = 0x1a0;
 const NCCH_EXEFS_SIZE_OFFSET = 0x1a4;
+const NCCH_ROMFS_OFFSET_OFFSET = 0x1b0;
+const NCCH_ROMFS_SIZE_OFFSET = 0x1b4;
 
 export const NCCH_HEADER_SIZE = 0x200;
 
@@ -16,8 +24,16 @@ export type NcchHeader = {
     titleId: string;
     productCode: string | null;
     version: number;
+    contentSize: number;
+    exheaderSize: number;
+    plainOffset: number;
+    plainSize: number;
+    logoOffset: number;
+    logoSize: number;
     exefsOffset: number;
     exefsSize: number;
+    romfsOffset: number;
+    romfsSize: number;
     noCrypto: boolean;
     mediaUnitSize: number;
 };
@@ -58,6 +74,8 @@ export function readNcchHeader(header: Buffer): NcchHeader | null {
 
     const view = dataView(header);
     const mediaUnitSize = getNcchMediaUnitSize(header);
+    const readMediaUnits = (offset: number): number =>
+        view.getUint32(offset, true) * mediaUnitSize;
     return {
         titleId: readTitleId(Buffer.from(header), NCCH_PROGRAM_ID_OFFSET),
         productCode:
@@ -67,9 +85,16 @@ export function readNcchHeader(header: Buffer): NcchHeader | null {
                 NCCH_PRODUCT_CODE_LENGTH
             ) || null,
         version: view.getUint16(NCCH_VERSION_OFFSET, true),
-        exefsOffset:
-            view.getUint32(NCCH_EXEFS_OFFSET_OFFSET, true) * mediaUnitSize,
-        exefsSize: view.getUint32(NCCH_EXEFS_SIZE_OFFSET, true) * mediaUnitSize,
+        contentSize: readMediaUnits(NCCH_CONTENT_SIZE_OFFSET),
+        exheaderSize: view.getUint32(NCCH_EXHEADER_SIZE_OFFSET, true),
+        plainOffset: readMediaUnits(NCCH_PLAIN_OFFSET_OFFSET),
+        plainSize: readMediaUnits(NCCH_PLAIN_SIZE_OFFSET),
+        logoOffset: readMediaUnits(NCCH_LOGO_OFFSET_OFFSET),
+        logoSize: readMediaUnits(NCCH_LOGO_SIZE_OFFSET),
+        exefsOffset: readMediaUnits(NCCH_EXEFS_OFFSET_OFFSET),
+        exefsSize: readMediaUnits(NCCH_EXEFS_SIZE_OFFSET),
+        romfsOffset: readMediaUnits(NCCH_ROMFS_OFFSET_OFFSET),
+        romfsSize: readMediaUnits(NCCH_ROMFS_SIZE_OFFSET),
         noCrypto: (header[NCCH_FLAGS_OFFSET + 7] & 0x04) !== 0,
         mediaUnitSize,
     };
