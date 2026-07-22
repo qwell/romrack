@@ -22,14 +22,22 @@ const COMPRESSION_NONE = 0;
 const COMPRESSION_ZSTD = 5;
 type CompressionType = typeof COMPRESSION_NONE | typeof COMPRESSION_ZSTD;
 
-export type RvzCheck = { ok: boolean; message: string };
+export type RvzCheck = {
+    ok: boolean;
+    message: string;
+};
+
 export type RvzHeader = {
     discHeader: Buffer;
     isoSize: number;
     compressionType: CompressionType;
     chunkSize: number;
 };
-export type RvzInspection = { header: RvzHeader | null; checks: RvzCheck[] };
+
+export type RvzInspection = {
+    header: RvzHeader | null;
+    checks: RvzCheck[];
+};
 
 type PartitionDataEntry = {
     firstSector: number;
@@ -37,29 +45,35 @@ type PartitionDataEntry = {
     groupIndex: number;
     numberOfGroups: number;
 };
+
 type PartitionEntry = {
     key: Buffer;
     data: [PartitionDataEntry, PartitionDataEntry];
 };
+
 type RawDataEntry = {
     offset: number;
     size: number;
     groupIndex: number;
     numberOfGroups: number;
 };
+
 type GroupEntry = {
     fileOffset: number;
     dataSize: number;
     compressed: boolean;
     packedSize: number;
 };
+
 type ParsedRvz = {
     header: RvzHeader;
     partitions: PartitionEntry[];
     rawEntries: RawDataEntry[];
     groups: GroupEntry[];
 };
+
 type HashException = { offset: number; hash: Buffer };
+
 type DecodedGroup = { data: Buffer; exceptions: HashException[][] };
 
 function sha1(buffer: Buffer): Buffer {
@@ -104,9 +118,11 @@ async function parseRvz(
 ): Promise<{ parsed: ParsedRvz | null; inspection: RvzInspection }> {
     const header1 = await readExact(reader, 0, HEADER_1_SIZE);
     const magicValid = header1?.subarray(0, 4).equals(RVZ_MAGIC) === true;
+
     const checks: RvzCheck[] = [
         { ok: magicValid, message: 'RVZ magic is valid' },
     ];
+
     if (!header1 || !magicValid) {
         return { parsed: null, inspection: { header: null, checks } };
     }
@@ -126,14 +142,17 @@ async function parseRvz(
         ),
         message: 'RVZ primary header hash is valid',
     });
+
     const header2Size = header1.readUInt32BE(0x0c);
     const header2SizeValid =
         header2Size >= HEADER_2_MIN_SIZE &&
         header2Size <= fileSize - HEADER_1_SIZE;
+
     checks.push({
         ok: header2SizeValid,
         message: 'RVZ secondary header size is valid',
     });
+
     if (!header2SizeValid) {
         return { parsed: null, inspection: { header: null, checks } };
     }
@@ -143,10 +162,12 @@ async function parseRvz(
         checks.push({ ok: false, message: 'RVZ secondary header is readable' });
         return { parsed: null, inspection: { header: null, checks } };
     }
+
     checks.push({
         ok: sha1(header2).equals(header1.subarray(0x10, 0x24)),
         message: 'RVZ secondary header hash is valid',
     });
+
     const declaredFileSize = toSafeNumber(header1.readBigUInt64BE(0x2c));
     checks.push({
         ok: declaredFileSize === fileSize,
@@ -154,24 +175,31 @@ async function parseRvz(
     });
 
     const isoSize = toSafeNumber(header1.readBigUInt64BE(0x24));
+
     const compressionValue = header2.readUInt32BE(0x04);
+
     const chunkSize = header2.readUInt32BE(0x0c);
     const chunkSizeValid =
         chunkSize >= WII_SECTOR_SIZE &&
         (chunkSize < WII_GROUP_SIZE
             ? (chunkSize & (chunkSize - 1)) === 0
             : chunkSize % WII_GROUP_SIZE === 0);
+
     checks.push({ ok: chunkSizeValid, message: 'RVZ chunk size is valid' });
+
     const compressionSupported =
         compressionValue === COMPRESSION_NONE ||
         compressionValue === COMPRESSION_ZSTD;
+
     checks.push({
         ok: compressionSupported,
         message: 'RVZ compression method is supported',
     });
+
     if (isoSize === null || !chunkSizeValid || !compressionSupported) {
         return { parsed: null, inspection: { header: null, checks } };
     }
+
     const compressionType: CompressionType = compressionValue;
     const header: RvzHeader = {
         discHeader: Buffer.from(
@@ -193,10 +221,12 @@ async function parseRvz(
         Number.isSafeInteger(partitionBytes) &&
         (partitionCount === 0 || partitionEntrySize >= PARTITION_ENTRY_SIZE) &&
         rangeIsValid(partitionOffset, partitionBytes, fileSize);
+
     checks.push({
         ok: partitionRangeValid,
         message: 'RVZ partition table range is valid',
     });
+
     let partitionBytesBuffer: Buffer | null = null;
     if (partitionRangeValid && partitionOffset !== null) {
         partitionBytesBuffer = await readExact(
@@ -204,6 +234,7 @@ async function parseRvz(
             partitionOffset,
             partitionBytes
         );
+
         checks.push({
             ok:
                 partitionBytesBuffer !== null &&
@@ -220,6 +251,7 @@ async function parseRvz(
         ok: rawRangeValid,
         message: 'RVZ raw-data table range is valid',
     });
+
     const groupCount = header2.readUInt32BE(0xc4);
     const groupTableOffset = toSafeNumber(header2.readBigUInt64BE(0xc8));
     const groupTableSize = header2.readUInt32BE(0xd0);
@@ -228,10 +260,12 @@ async function parseRvz(
         groupTableSize,
         fileSize
     );
+
     checks.push({
         ok: groupRangeValid,
         message: 'RVZ group table range is valid',
     });
+
     if (
         !partitionBytesBuffer ||
         rawTableOffset === null ||
@@ -249,6 +283,7 @@ async function parseRvz(
         groupTableOffset,
         groupTableSize
     );
+
     let rawTable: Buffer | null = null;
     let groupTable: Buffer | null = null;
     try {
@@ -261,17 +296,20 @@ async function parseRvz(
     } catch {
         // The checks below report malformed compressed tables.
     }
+
     const rawTableValid = rawTable?.length === rawCount * RAW_ENTRY_SIZE;
-    const groupTableValid =
-        groupTable?.length === groupCount * GROUP_ENTRY_SIZE;
     checks.push({
         ok: rawTableValid,
         message: 'RVZ raw-data table decompresses to its declared size',
     });
+
+    const groupTableValid =
+        groupTable?.length === groupCount * GROUP_ENTRY_SIZE;
     checks.push({
         ok: groupTableValid,
         message: 'RVZ group table decompresses to its declared size',
     });
+
     if (!rawTable || !groupTable || !rawTableValid || !groupTableValid) {
         return { parsed: null, inspection: { header, checks } };
     }
@@ -282,6 +320,7 @@ async function parseRvz(
             index * partitionEntrySize,
             index * partitionEntrySize + PARTITION_ENTRY_SIZE
         );
+
         partitions.push({
             key: Buffer.from(entry.subarray(0, 16)),
             data: [
@@ -290,14 +329,18 @@ async function parseRvz(
             ],
         });
     }
+
     const rawEntries: RawDataEntry[] = [];
+
     for (let index = 0; index < rawCount; index += 1) {
         const offset = index * RAW_ENTRY_SIZE;
         const dataOffset = toSafeNumber(rawTable.readBigUInt64BE(offset));
         const size = toSafeNumber(rawTable.readBigUInt64BE(offset + 8));
+
         if (dataOffset === null || size === null) {
             throw new Error('RVZ raw-data range exceeds supported size');
         }
+
         rawEntries.push({
             offset: dataOffset,
             size,
@@ -305,6 +348,7 @@ async function parseRvz(
             numberOfGroups: rawTable.readUInt32BE(offset + 20),
         });
     }
+
     const groups: GroupEntry[] = [];
     for (let index = 0; index < groupCount; index += 1) {
         const offset = index * GROUP_ENTRY_SIZE;
@@ -316,18 +360,22 @@ async function parseRvz(
             packedSize: groupTable.readUInt32BE(offset + 8),
         });
     }
+
     const groupRangesValid = groups.every(
         (group) =>
             group.dataSize === 0 ||
             rangeIsValid(group.fileOffset, group.dataSize, fileSize)
     );
+
     checks.push({
         ok: groupRangesValid,
         message: 'RVZ compressed group ranges are valid',
     });
+
     if (!groupRangesValid) {
         return { parsed: null, inspection: { header, checks } };
     }
+
     const referencesValid = [
         ...rawEntries.map((entry) => ({
             start: entry.groupIndex,
@@ -344,10 +392,12 @@ async function parseRvz(
             reference.start <= groups.length &&
             reference.count <= groups.length - reference.start
     );
+
     checks.push({
         ok: referencesValid,
         message: 'RVZ group references are within the group table',
     });
+
     const logicalRanges = [
         ...rawEntries.map((entry) => ({
             start: entry.offset,
@@ -364,7 +414,9 @@ async function parseRvz(
                 }))
         ),
     ].sort((a, b) => a.start - b.start);
+
     let logicalCursor = DISC_HEADER_SIZE;
+
     const logicalCoverageValid = logicalRanges.every((range) => {
         const valid =
             range.start === logicalCursor &&
@@ -373,10 +425,12 @@ async function parseRvz(
         logicalCursor = range.end;
         return valid;
     });
+
     checks.push({
         ok: logicalCoverageValid && logicalCursor === isoSize,
         message: 'RVZ mappings cover the logical disc without gaps or overlaps',
     });
+
     if (
         !referencesValid ||
         !logicalCoverageValid ||
@@ -384,6 +438,7 @@ async function parseRvz(
     ) {
         return { parsed: null, inspection: { header, checks } };
     }
+
     return {
         parsed: { header, partitions, rawEntries, groups },
         inspection: { header, checks },
@@ -439,6 +494,7 @@ export async function openRvzReader(
             decodedGroups.delete(index);
             decodedGroups.set(index, pending);
         }
+
         return pending;
     };
 
@@ -453,7 +509,9 @@ export async function openRvzReader(
             ) {
                 throw new Error('RVZ read is outside the logical disc image');
             }
+
             const output = Buffer.alloc(length);
+
             let outputOffset = 0;
             while (outputOffset < length) {
                 const logicalPosition = position + outputOffset;
@@ -468,9 +526,11 @@ export async function openRvzReader(
                         logicalPosition,
                         logicalPosition + size
                     );
+
                     outputOffset += size;
                     continue;
                 }
+
                 const partition = findPartition(
                     parsed.partitions,
                     logicalPosition
@@ -480,7 +540,9 @@ export async function openRvzReader(
                         Math.floor(
                             partition.relativeSector / WII_GROUP_SECTORS
                         ) * WII_GROUP_SECTORS;
+
                     const cacheKey = `${partition.index}:${groupStart}`;
+
                     let pending = encryptedGroups.get(cacheKey);
                     if (!pending) {
                         pending = reconstructWiiGroup(
@@ -495,55 +557,67 @@ export async function openRvzReader(
                         encryptedGroups.delete(cacheKey);
                         encryptedGroups.set(cacheKey, pending);
                     }
+
                     const group = await pending;
                     const offsetInGroup =
                         (partition.relativeSector - groupStart) *
                             WII_SECTOR_SIZE +
                         (logicalPosition % WII_SECTOR_SIZE);
+
                     const size = Math.min(
                         length - outputOffset,
                         group.length - offsetInGroup
                     );
+
                     group.copy(
                         output,
                         outputOffset,
                         offsetInGroup,
                         offsetInGroup + size
                     );
+
                     outputOffset += size;
                     continue;
                 }
+
                 const raw = findRawEntry(parsed.rawEntries, logicalPosition);
                 if (!raw) {
                     throw new Error('RVZ logical range is not mapped');
                 }
+
                 const skippedData = raw.offset % WII_SECTOR_SIZE;
+
                 const alignedOffset = raw.offset - skippedData;
                 const alignedSize = raw.size + skippedData;
+
                 const groupInEntry = Math.floor(
                     (logicalPosition - alignedOffset) / parsed.header.chunkSize
                 );
                 if (groupInEntry >= raw.numberOfGroups) {
                     throw new Error('RVZ raw-data group index is invalid');
                 }
+
                 const groupOffset = groupInEntry * parsed.header.chunkSize;
                 const groupSize = Math.min(
                     parsed.header.chunkSize,
                     alignedSize - groupOffset
                 );
+                const offsetInGroup =
+                    logicalPosition - alignedOffset - groupOffset;
+
                 const decoded = await readGroup(
                     raw.groupIndex + groupInEntry,
                     groupSize,
                     0,
                     groupOffset
                 );
-                const offsetInGroup =
-                    logicalPosition - alignedOffset - groupOffset;
+
                 const size = Math.min(
                     length - outputOffset,
                     decoded.data.length - offsetInGroup,
                     raw.offset + raw.size - logicalPosition
                 );
+
                 decoded.data.copy(
                     output,
                     outputOffset,
@@ -552,10 +626,12 @@ export async function openRvzReader(
                 );
                 outputOffset += size;
             }
+
             return output;
         },
         close: () => physical.close(),
     };
+
     return { reader: logical, inspection };
 }
 
@@ -565,6 +641,7 @@ function trimCache<Key, Value>(cache: Map<Key, Value>, maximum: number): void {
         if (oldest === undefined) {
             return;
         }
+
         cache.delete(oldest);
     }
 }
@@ -579,6 +656,7 @@ function findRawEntry(entries: RawDataEntry[], position: number) {
 function findPartition(entries: PartitionEntry[], position: number) {
     for (const [index, entry] of entries.entries()) {
         const firstSector = entry.data[0].firstSector;
+
         for (const data of entry.data) {
             if (
                 position >= data.firstSector * WII_SECTOR_SIZE &&
@@ -608,28 +686,36 @@ async function decodeGroup(
     if (!group) {
         throw new Error('RVZ group index is outside the group table');
     }
+
     if (group.dataSize === 0) {
         return {
             data: Buffer.alloc(outputSize),
             exceptions: Array.from({ length: exceptionLists }, () => []),
         };
     }
+
     const stored = await physical.read(group.fileOffset, group.dataSize);
     if (stored.length !== group.dataSize) {
         throw new Error('Unexpected end of RVZ group data');
     }
+
     const decoded = group.compressed
         ? decompress(stored, parsed.header.compressionType)
         : stored;
     const exceptions: HashException[][] = [];
+
     let offset = 0;
+
     for (let list = 0; list < exceptionLists; list += 1) {
         if (offset + 2 > decoded.length) {
             throw new Error('Invalid RVZ hash exception list');
         }
+
+        const values: HashException[] = [];
+
         const count = decoded.readUInt16BE(offset);
         offset += 2;
-        const values: HashException[] = [];
+
         for (let index = 0; index < count; index += 1) {
             if (offset + 22 > decoded.length) {
                 throw new Error('Invalid RVZ hash exception entry');
@@ -642,19 +728,23 @@ async function decodeGroup(
         }
         exceptions.push(values);
     }
+
     if (!group.compressed && exceptionLists > 0) {
         offset = (offset + 3) & ~3;
     }
+
     const encodedData = decoded.subarray(offset);
     const data =
         group.packedSize === 0
             ? Buffer.from(encodedData)
             : unpackRvz(encodedData, outputSize, dataOffset);
+
     if (data.length !== outputSize) {
         throw new Error(
             `RVZ group decoded to ${data.length} bytes; expected ${outputSize}`
         );
     }
+
     return { data, exceptions };
 }
 
@@ -664,41 +754,52 @@ function unpackRvz(
     dataOffset: number
 ): Buffer {
     const output = Buffer.alloc(outputSize);
+
     let inputOffset = 0;
     let outputOffset = 0;
+
     while (inputOffset < input.length) {
         if (inputOffset + 4 > input.length) {
             throw new Error('Invalid RVZ packed segment header');
         }
+
         const sizeField = input.readUInt32BE(inputOffset);
         inputOffset += 4;
         const generated = (sizeField & 0x80000000) !== 0;
         const size = sizeField & 0x7fffffff;
+
         if (size > output.length - outputOffset) {
             throw new Error('RVZ packed segment exceeds its decoded group');
         }
+
         if (generated) {
             if (inputOffset + 68 > input.length) {
                 throw new Error('Invalid RVZ pseudorandom seed');
             }
+
             fillRvzPseudorandomPadding(
                 input.subarray(inputOffset, inputOffset + 68),
                 output.subarray(outputOffset, outputOffset + size),
                 (dataOffset + outputOffset) % WII_SECTOR_SIZE
             );
+
             inputOffset += 68;
         } else {
             if (inputOffset + size > input.length) {
                 throw new Error('RVZ literal segment exceeds its input');
             }
+
             input.copy(output, outputOffset, inputOffset, inputOffset + size);
             inputOffset += size;
         }
+
         outputOffset += size;
     }
+
     if (outputOffset !== output.length) {
         throw new Error('RVZ packed data does not fill its decoded group');
     }
+
     return output;
 }
 
@@ -708,9 +809,11 @@ function fillRvzPseudorandomPadding(
     byteOffset: number
 ): void {
     const state = new Uint32Array(521);
+
     for (let index = 0; index < 17; index += 1) {
         state[index] = seed.readUInt32BE(index * 4);
     }
+
     for (let index = 17; index < state.length; index += 1) {
         state[index] =
             ((state[index - 17] << 23) ^
@@ -718,18 +821,21 @@ function fillRvzPseudorandomPadding(
                 state[index - 1]) >>>
             0;
     }
+
     for (let index = 0; index < 4; index += 1) {
         advanceRvzPseudorandomState(state);
     }
 
     let wordIndex = 0;
     let byteInWord = 0;
+
     const totalBytes = byteOffset + output.length;
     for (let position = 0; position < totalBytes; position += 1) {
         if (wordIndex === state.length) {
             advanceRvzPseudorandomState(state);
             wordIndex = 0;
         }
+
         const word = state[wordIndex];
         const value =
             byteInWord === 0
@@ -739,9 +845,11 @@ function fillRvzPseudorandomPadding(
                   : byteInWord === 2
                     ? word >>> 8
                     : word;
+
         if (position >= byteOffset) {
             output[position - byteOffset] = value;
         }
+
         byteInWord += 1;
         if (byteInWord === 4) {
             byteInWord = 0;
@@ -754,6 +862,7 @@ function advanceRvzPseudorandomState(state: Uint32Array): void {
     for (let index = 0; index < 32; index += 1) {
         state[index] = (state[index] ^ state[index + 489]) >>> 0;
     }
+
     for (let index = 32; index < state.length; index += 1) {
         state[index] = (state[index] ^ state[index - 32]) >>> 0;
     }
@@ -782,8 +891,10 @@ async function reconstructWiiGroup(
         WII_GROUP_SECTORS,
         totalSectors - firstRelativeSector
     );
+
     const decrypted = Buffer.alloc(WII_GROUP_DATA_SIZE);
     const exceptions: HashException[] = [];
+
     for (const dataEntry of partition.data) {
         const entryRelative = dataEntry.firstSector - partitionFirstSector;
         const overlapStart = Math.max(firstRelativeSector, entryRelative);
@@ -791,11 +902,14 @@ async function reconstructWiiGroup(
             firstRelativeSector + WII_GROUP_SECTORS,
             entryRelative + dataEntry.numberOfSectors
         );
+
         if (overlapStart >= overlapEnd) {
             continue;
         }
+
         const chunkDataSize =
             (parsed.header.chunkSize / WII_SECTOR_SIZE) * WII_DATA_SIZE;
+
         const firstByte = (overlapStart - entryRelative) * WII_DATA_SIZE;
         const lastByte = (overlapEnd - entryRelative) * WII_DATA_SIZE;
         const firstGroup = Math.floor(firstByte / chunkDataSize);
@@ -808,20 +922,24 @@ async function reconstructWiiGroup(
             if (groupInEntry >= dataEntry.numberOfGroups) {
                 throw new Error('RVZ partition group index is invalid');
             }
+
             const groupDataOffset = groupInEntry * chunkDataSize;
             const groupSectors = Math.min(
                 parsed.header.chunkSize / WII_SECTOR_SIZE,
                 dataEntry.numberOfSectors -
                     Math.floor(groupDataOffset / WII_DATA_SIZE)
             );
+
             const decoded = await readGroup(
                 dataEntry.groupIndex + groupInEntry,
                 groupSectors * WII_DATA_SIZE,
                 Math.max(1, parsed.header.chunkSize / WII_GROUP_SIZE),
                 groupDataOffset
             );
+
             const groupRelativeSector =
                 entryRelative + Math.floor(groupDataOffset / WII_DATA_SIZE);
+
             const copyStart = Math.max(
                 firstRelativeSector,
                 groupRelativeSector
@@ -836,6 +954,7 @@ async function reconstructWiiGroup(
                 (copyStart - groupRelativeSector) * WII_DATA_SIZE,
                 (copyEnd - groupRelativeSector) * WII_DATA_SIZE
             );
+
             for (const [listIndex, list] of decoded.exceptions.entries()) {
                 const listRelativeSector =
                     groupRelativeSector + listIndex * WII_GROUP_SECTORS;
@@ -846,6 +965,7 @@ async function reconstructWiiGroup(
                 ) {
                     continue;
                 }
+
                 const additionalOffset =
                     (listRelativeSector - firstRelativeSector) * WII_HASH_SIZE;
                 for (const exception of list) {
@@ -856,6 +976,7 @@ async function reconstructWiiGroup(
                     ) {
                         continue;
                     }
+
                     exceptions.push({
                         offset,
                         hash: exception.hash,
@@ -902,6 +1023,7 @@ function buildWiiHashes(data: Buffer): Buffer[] {
     const hashes = Array.from({ length: WII_GROUP_SECTORS }, () =>
         Buffer.alloc(WII_HASH_SIZE)
     );
+
     for (let sector = 0; sector < WII_GROUP_SECTORS; sector += 1) {
         for (let block = 0; block < WII_DATA_SIZE / 0x400; block += 1) {
             sha1(
@@ -912,6 +1034,7 @@ function buildWiiHashes(data: Buffer): Buffer[] {
             ).copy(hashes[sector], block * 20);
         }
     }
+
     for (let subgroup = 0; subgroup < 8; subgroup += 1) {
         const h1 = Buffer.alloc(8 * 20);
         for (let index = 0; index < 8; index += 1) {
@@ -920,10 +1043,12 @@ function buildWiiHashes(data: Buffer): Buffer[] {
                 index * 20
             );
         }
+
         for (let index = 0; index < 8; index += 1) {
             h1.copy(hashes[subgroup * 8 + index], 0x280);
         }
     }
+
     const h2 = Buffer.alloc(8 * 20);
     for (let subgroup = 0; subgroup < 8; subgroup += 1) {
         sha1(hashes[subgroup * 8].subarray(0x280, 0x320)).copy(
@@ -931,9 +1056,11 @@ function buildWiiHashes(data: Buffer): Buffer[] {
             subgroup * 20
         );
     }
+
     for (const hash of hashes) {
         h2.copy(hash, 0x340);
     }
+
     return hashes;
 }
 
