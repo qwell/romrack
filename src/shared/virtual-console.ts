@@ -1,4 +1,4 @@
-import { type TitlePlatform } from './titles.js';
+import { getProductCodeMediaKey, type TitlePlatform } from './titles.js';
 
 export const VirtualConsolePlatform = {
     Arcade: 'Arcade',
@@ -78,7 +78,10 @@ export function getWiiVirtualConsolePlatform(
 export function getWiiUVirtualConsolePlatform(
     productCode: string | null
 ): VirtualConsolePlatform | null {
-    return getPlatformByPrefix(productCode, getWiiUVirtualConsolePlatforms());
+    return getPlatformByPrefix(
+        getProductCodeMediaKey('wiiu', productCode),
+        getWiiUVirtualConsolePlatforms()
+    );
 }
 
 export function getVirtualConsolePlatform(
