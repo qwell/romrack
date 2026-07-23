@@ -22,9 +22,9 @@ import {
     readWiiUTitleIdentity,
 } from '../platforms/wiiu.js';
 import {
-    clearTitleScanCache,
     getCachedTitleSourcePaths,
     getLibraryCacheEntry,
+    removeTitleScanCacheSourcePaths,
 } from '../library.js';
 import { type TitleIdentity, type TitlePlatform } from '../../shared/titles.js';
 import { getConfig } from '../routes/config.js';
@@ -228,7 +228,6 @@ type StoragePlatformAdapter = {
         titleId: string,
         productCode: string | null
     ) => string;
-    getSelectedSourcePaths: (sourcePath: string) => Promise<string[]>;
     getFileSizes: (
         sourcePath: string,
         destinationPath: string
@@ -245,7 +244,6 @@ const STORAGE_PLATFORM_ADAPTERS: Record<TitlePlatform, StoragePlatformAdapter> =
             getDestinationExtension: () => '',
             getDestinationTitleId: (titleId, productCode) =>
                 productCode ?? titleId,
-            getSelectedSourcePaths: getSingleStorageCopySourcePath,
             getFileSizes: getSingleFileStorageCopySizes,
             markCopiesValidating: (titleId) =>
                 markTitleCopiesValidating([{ platform: '3ds', titleId }]),
@@ -260,7 +258,6 @@ const STORAGE_PLATFORM_ADAPTERS: Record<TitlePlatform, StoragePlatformAdapter> =
             getDestinationExtension: (sourcePath) =>
                 path.extname(sourcePath).toLowerCase(),
             getDestinationTitleId: (titleId) => titleId,
-            getSelectedSourcePaths: getSingleStorageCopySourcePath,
             getFileSizes: getSingleFileStorageCopySizes,
             markCopiesValidating: (titleId) =>
                 markTitleCopiesValidating([{ platform: 'gamecube', titleId }]),
@@ -274,7 +271,6 @@ const STORAGE_PLATFORM_ADAPTERS: Record<TitlePlatform, StoragePlatformAdapter> =
             readTitleIdentity: readWiiTitleIdentity,
             getDestinationExtension: getWiiStorageCopyMainExtension,
             getDestinationTitleId: (titleId) => titleId,
-            getSelectedSourcePaths: getWbfsDiscFilePaths,
             getFileSizes: getWiiStorageCopyFileSizes,
             markCopiesValidating: (titleId) =>
                 markTitleCopiesValidating([{ platform: 'wii', titleId }]),
@@ -289,7 +285,6 @@ const STORAGE_PLATFORM_ADAPTERS: Record<TitlePlatform, StoragePlatformAdapter> =
             readTitleIdentity: readWiiUTitleIdentity,
             getDestinationExtension: () => '',
             getDestinationTitleId: (titleId) => titleId,
-            getSelectedSourcePaths: getSingleStorageCopySourcePath,
             getFileSizes: getWiiUStorageCopyFileSizes,
             markCopiesValidating: (titleId) =>
                 markTitleCopiesValidating([{ platform: 'wiiu', titleId }]),
@@ -595,6 +590,7 @@ async function processStorageCopyQueue(): Promise<void> {
         let sourceIndex: number | null = null;
         let destination: StreamCopyDestination | null = null;
         let selectedSourcePaths: string[] = [];
+        let selectedSourceFileSizes: StreamCopyFile[] = [];
 
         for (const [index, readablePath] of readableSourcePaths.entries()) {
             const candidateDestination = await getStorageCopyDestination(
@@ -602,8 +598,14 @@ async function processStorageCopyQueue(): Promise<void> {
                 readablePath,
                 storageDestination.source
             );
-            const candidateSourcePaths =
-                await getSelectedStorageCopySourcePaths(nextItem, readablePath);
+            const candidateSourceFileSizes = await getStorageCopyFileSizes(
+                nextItem,
+                readablePath,
+                candidateDestination.path
+            );
+            const candidateSourcePaths = candidateSourceFileSizes.map(
+                (file) => file.sourcePath
+            );
             if (
                 candidateSourcePaths.every(
                     (sourcePath) =>
@@ -620,6 +622,7 @@ async function processStorageCopyQueue(): Promise<void> {
                 sourceIndex = index;
                 destination = candidateDestination;
                 selectedSourcePaths = candidateSourcePaths;
+                selectedSourceFileSizes = candidateSourceFileSizes;
                 break;
             }
         }
@@ -674,11 +677,7 @@ async function processStorageCopyQueue(): Promise<void> {
             return;
         }
 
-        const sourceFileSizes = await getStorageCopyFileSizes(
-            nextItem,
-            readableSourcePath,
-            destination.path
-        );
+        const sourceFileSizes = selectedSourceFileSizes;
 
         if (shouldStopStorageCopy(nextItem.id)) {
             return;
@@ -848,7 +847,9 @@ async function processStorageCopyQueue(): Promise<void> {
         });
     } finally {
         if (storageMutationStarted) {
-            clearTitleScanCache();
+            if (nextItem.operation === 'move') {
+                removeTitleScanCacheSourcePaths(nextItem.sourcePaths);
+            }
             if (nextItem.operation === 'copy' && storageMutationCompleted) {
                 await verifyLibraryTitle(
                     nextItem.requestedPlatform,
@@ -1096,15 +1097,6 @@ async function getStorageFreeBytes(
     }
 }
 
-async function getSelectedStorageCopySourcePaths(
-    item: StorageCopyQueueItem,
-    sourcePath: string
-): Promise<string[]> {
-    return getStoragePlatformAdapter(
-        item.requestedPlatform
-    ).getSelectedSourcePaths(sourcePath);
-}
-
 async function getStorageCopyFileSizes(
     item: StorageCopyQueueItem,
     sourcePath: string,
@@ -1114,12 +1106,6 @@ async function getStorageCopyFileSizes(
         sourcePath,
         destinationPath
     );
-}
-
-async function getSingleStorageCopySourcePath(
-    sourcePath: string
-): Promise<string[]> {
-    return [sourcePath];
 }
 
 async function getSingleFileStorageCopySizes(
@@ -1567,7 +1553,7 @@ async function processStorageDelete(
         nextItem.deletedCount = deletedCount;
         nextItem.message = 'Deleted';
         nextItem.error = null;
-        clearTitleScanCache();
+        removeTitleScanCacheSourcePaths(safeSourcePaths);
         await rediscoverAndRevalidateStorageTitleCopies(
             nextItem.title.platform,
             nextItem.titleId
@@ -1600,7 +1586,9 @@ async function processStorageDelete(
             deletedCount: nextItem.deletedCount,
         });
         if (activeStorageDeleteMutations.has(nextItem.id)) {
-            clearTitleScanCache();
+            removeTitleScanCacheSourcePaths(
+                nextItem.sourcePaths.slice(0, nextItem.deletedCount)
+            );
             await rediscoverAndRevalidateStorageTitleCopies(
                 nextItem.title.platform,
                 nextItem.titleId
@@ -1611,7 +1599,9 @@ async function processStorageDelete(
             abortController.signal.aborted &&
             activeStorageDeleteMutations.has(nextItem.id)
         ) {
-            clearTitleScanCache();
+            removeTitleScanCacheSourcePaths(
+                nextItem.sourcePaths.slice(0, nextItem.deletedCount)
+            );
             await rediscoverAndRevalidateStorageTitleCopies(
                 nextItem.title.platform,
                 nextItem.titleId

@@ -299,6 +299,7 @@ export function prepareWiiTitleVerifications(
         platform: 'wii',
         logNamespace: 'wii',
         findItems: findTitleDirs,
+        populateScanCache: scanWiiTitles,
     });
 }
 

@@ -293,7 +293,7 @@ select {
     display: grid;
     grid-template-columns:
         max-content max-content max-content max-content minmax(120px, 420px)
-        max-content max-content 22px 22px 22px;
+        max-content max-content 22px 22px 22px 22px;
     grid-template-rows: auto auto;
     column-gap: 8px;
     row-gap: 2px;
@@ -387,13 +387,19 @@ select {
     grid-row: 2;
 }
 
-.library-field-settings {
+.library-field-rename {
     grid-column: 10;
+    grid-row: 2;
+}
+
+.library-field-settings {
+    grid-column: 11;
     grid-row: 2;
 }
 
 .library-field-refresh,
 .library-field-verify,
+.library-field-rename,
 .library-field-settings {
     width: 22px;
     height: 22px;
@@ -419,6 +425,7 @@ select {
 
 .library-field-refresh:disabled,
 .library-field-verify:disabled,
+.library-field-rename:disabled,
 .library-field-settings:disabled {
     opacity: 0.45;
     cursor: not-allowed;
@@ -426,7 +433,8 @@ select {
 }
 
 .library-field-refresh[aria-busy='true'],
-.library-field-verify[aria-busy='true'] {
+.library-field-verify[aria-busy='true'],
+.library-field-rename[aria-busy='true'] {
     opacity: 1;
     cursor: wait;
     pointer-events: auto;

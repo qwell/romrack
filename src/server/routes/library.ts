@@ -12,7 +12,12 @@ import { scanWiiTitleRoots } from '../platforms/wii.js';
 import { cacheGameTdbMediaForGroups } from '../gametdb.js';
 import { requireWiiUTitleQuery, sendServerError } from '../request.js';
 import { abortAndClearTitleValidations } from '../actions/titles.js';
-import { queueLibraryConversion, verifyLibrary } from '../actions/library.js';
+import {
+    queueLibraryConversion,
+    previewLibraryRenames,
+    renameLibraryTitles,
+    verifyLibrary,
+} from '../actions/library.js';
 import { type LibraryResponse } from '../../shared/api.js';
 import { getConfig } from './config.js';
 import logger from '../../shared/logger.js';
@@ -80,6 +85,51 @@ export function createLibraryRouter(): Router {
                 `Failed to verify library: ${formatLogError(error)}`
             );
             sendServerError(res, 'Failed to verify library', error, {
+                includeDetails: true,
+            });
+        }
+    });
+
+    router.post('/rename', async (req, res) => {
+        const abortController = new AbortController();
+        res.once('close', () => {
+            if (!res.writableEnded) {
+                abortController.abort();
+            }
+        });
+        try {
+            const result = await renameLibraryTitles(abortController.signal);
+            if (result.conflicts.length > 0) {
+                res.status(409).json({
+                    error: `Rename blocked by ${result.conflicts.length} existing destination(s):\n${result.conflicts.join('\n')}`,
+                    ...result,
+                });
+                return;
+            }
+            res.json(result);
+        } catch (error) {
+            if (abortController.signal.aborted) {
+                return;
+            }
+            logger.warn(
+                'server',
+                `Failed to rename library: ${formatLogError(error)}`
+            );
+            sendServerError(res, 'Failed to rename library', error, {
+                includeDetails: true,
+            });
+        }
+    });
+
+    router.get('/rename', async (_req, res) => {
+        try {
+            res.json(await previewLibraryRenames());
+        } catch (error) {
+            logger.warn(
+                'server',
+                `Failed to preview library rename: ${formatLogError(error)}`
+            );
+            sendServerError(res, 'Failed to preview library rename', error, {
                 includeDetails: true,
             });
         }

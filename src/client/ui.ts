@@ -26,10 +26,12 @@ import {
 } from './download.js';
 import {
     getLibraryConvertActionBarEntries,
+    getLibraryRenameActionBarEntries,
     getLibraryVerifyActionBarEntries,
     handleLibraryActionBarCommand,
     renderLibrarySidebarWud,
     isTitleValidationUnavailable,
+    type LibraryRenameAction,
 } from './library.js';
 import {
     closeSettingsSidebar,
@@ -67,9 +69,13 @@ type UiOptions = {
     storageDeletes: StorageDeleteItem[];
     libraryVerifications: LibraryVerifyEvent[];
     libraryConversions: LibraryConvertItem[];
+    libraryRenames: LibraryRenameAction[];
     titleValidations: Map<string, TitleValidationSocketEvent>;
     onRefreshLibrary: () => void | Promise<void>;
     onVerifyLibrary: () => void | Promise<void>;
+    onRenameLibrary: () => void | Promise<void>;
+    onCancelLibraryRename: () => void;
+    onRetryLibraryRename: () => void;
     queueStorageCopy: (
         titleId: string,
         destination: string,
@@ -137,6 +143,7 @@ function setupActionBar(options: UiOptions): void {
                 options.downloads
             ),
             ...getLibraryConvertActionBarEntries(options.libraryConversions),
+            ...getLibraryRenameActionBarEntries(options.libraryRenames),
         ],
         onCommand(action, itemId) {
             if (
@@ -158,6 +165,9 @@ function setupActionBar(options: UiOptions): void {
                 action,
                 itemId,
                 options.libraryVerifications,
+                options.libraryRenames,
+                options.onCancelLibraryRename,
+                options.onRetryLibraryRename,
                 (items) => queueDownloads(options.downloads, items).length > 0
             );
             updateActionBar();
@@ -231,6 +241,7 @@ function setupTitlesUi(options: UiOptions): void {
         downloads: options.downloads,
         onRefresh: options.onRefreshLibrary,
         onVerify: options.onVerifyLibrary,
+        onRename: options.onRenameLibrary,
         onOpenSettings: openSettingsSidebar,
         renderDownloadMarkers: () => renderDownloadMarkers(options.downloads),
         buildDetailSidebar,

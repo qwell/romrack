@@ -927,6 +927,7 @@ export function prepareThreeDSTitleVerifications(
         platform: '3ds',
         logNamespace: '3ds',
         findItems: findTitleFiles,
+        populateScanCache: scanThreeDSTitles,
     });
 }
 

@@ -3,6 +3,8 @@ import {
     listFat32Volumes,
     queueLibraryConvert,
     queueStorageCopy,
+    previewLibraryRenames,
+    renameLibrary,
     verifyLibrary,
 } from './api.js';
 import { type StorageFat32ListResponse } from '../shared/api.js';
@@ -38,6 +40,7 @@ import {
     createAvailableEntry,
     isTitleValidationUnavailable,
     mergeFailedVerificationsIntoAvailable,
+    type LibraryRenameAction,
     removeTitlesFromLibrary,
     syncLibraryVerifyActions,
     syncGroupStatusFromSlots,
@@ -69,6 +72,8 @@ const SOCKET_RECONNECT_MS = 2000;
 let fat32Devices: StorageFat32ListResponse | null = null;
 const libraryVerifications: LibraryVerifyEvent[] = [];
 const libraryConversions: LibraryConvertItem[] = [];
+const libraryRenames: LibraryRenameAction[] = [];
+let activeLibraryRenameAbortController: AbortController | null = null;
 let verifyingLibrary = false;
 let libraryLoading = false;
 let activeLibraryRequestId = 0;
@@ -225,12 +230,15 @@ function populateFat32DeviceSelect(
 }
 
 async function loadLibrary(
-    options: { clearScanCache?: boolean } = {}
+    options: { clearScanCache?: boolean } = {},
+    showLoading = true
 ): Promise<void> {
     const requestId = ++activeLibraryRequestId;
 
     libraryLoading = true;
-    setTitlesStatus({ loading: true });
+    if (showLoading) {
+        setTitlesStatus({ loading: true });
+    }
     resetUiDetailSidebars();
 
     try {
@@ -258,7 +266,9 @@ async function loadLibrary(
     } finally {
         if (requestId === activeLibraryRequestId) {
             libraryLoading = false;
-            setTitlesStatus({ loading: false });
+            if (showLoading) {
+                setTitlesStatus({ loading: false });
+            }
         }
     }
 }
@@ -312,6 +322,80 @@ async function refreshLibrary(
     options: { clearScanCache?: boolean } = {}
 ): Promise<void> {
     await Promise.all([loadLibrary(options), refreshFat32Devices()]);
+}
+
+async function renameLibraryContent(confirmRename = true): Promise<void> {
+    setTitlesStatus({ renaming: true });
+    try {
+        const preview = await previewLibraryRenames();
+        if (preview.conflicts.length > 0) {
+            window.alert(
+                `Rename blocked by ${preview.conflicts.length} existing destination(s):\n\n${preview.conflicts.join('\n')}`
+            );
+            return;
+        }
+        if (preview.renames === 0) {
+            libraryRenames.splice(0, libraryRenames.length, {
+                id: 'library-rename',
+                state: 'complete',
+                total: 0,
+                renamed: 0,
+                unchanged: preview.unchanged,
+                message: '',
+                error: null,
+                canCancel: false,
+            });
+            refreshActionBar();
+            return;
+        }
+        if (
+            confirmRename &&
+            !window.confirm(
+                `Rename ${preview.renames} filesystem item(s)? ${preview.unchanged} already match the standard layout. Existing destinations will never be overwritten.`
+            )
+        ) {
+            return;
+        }
+        const action: LibraryRenameAction = {
+            id: 'library-rename',
+            state: 'in-progress',
+            total: preview.renames,
+            renamed: 0,
+            unchanged: preview.unchanged,
+            message: 'Renaming library...',
+            error: null,
+            canCancel: true,
+        };
+        libraryRenames.splice(0, libraryRenames.length, action);
+        refreshActionBar();
+        const abortController = new AbortController();
+        activeLibraryRenameAbortController = abortController;
+        const result = await renameLibrary(abortController.signal);
+        action.renamed = result.renamed;
+        action.unchanged = result.unchanged;
+        action.canCancel = false;
+        action.state = 'complete';
+        action.message = `${result.renamed} renamed; ${result.unchanged} already matched.`;
+        refreshActionBar();
+    } catch (error) {
+        console.error(error);
+        const action = libraryRenames[0];
+        if (action) {
+            const cancelled =
+                activeLibraryRenameAbortController?.signal.aborted;
+            action.state = cancelled ? 'cancelled' : 'failed';
+            action.message = cancelled ? 'Rename cancelled.' : action.message;
+            action.error = cancelled ? null : formatLogError(error);
+            refreshActionBar();
+        } else {
+            window.alert(
+                `Could not preview the library rename: ${formatLogError(error)}`
+            );
+        }
+    } finally {
+        activeLibraryRenameAbortController = null;
+        setTitlesStatus({ renaming: false });
+    }
 }
 
 function setupVersion(): void {
@@ -496,9 +580,13 @@ setupUi({
     storageDeletes,
     libraryVerifications,
     libraryConversions,
+    libraryRenames,
     titleValidations,
     onRefreshLibrary: refreshLibrary,
     onVerifyLibrary: verifyLibraryContent,
+    onRenameLibrary: renameLibraryContent,
+    onCancelLibraryRename: () => activeLibraryRenameAbortController?.abort(),
+    onRetryLibraryRename: () => void renameLibraryContent(false),
     queueStorageCopy,
     queueLibraryConvert,
     requestTitleValidation(titleId, name, platform) {

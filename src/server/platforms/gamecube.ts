@@ -521,6 +521,7 @@ export function prepareGameCubeTitleVerifications(
         platform: 'gamecube',
         logNamespace: 'gamecube',
         findItems: findGameCubeFiles,
+        populateScanCache: scanGameCubeTitles,
     });
 }
 

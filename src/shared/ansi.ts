@@ -6,7 +6,6 @@ export const Subsystems = [
     'gamecube',
     'wii',
     'wiiu',
-    'wud',
     'download',
     'gametdb',
     'assets',
@@ -73,6 +72,4 @@ export const SubsystemColors: Record<Subsystems, string> = {
     gamecube: lightMagenta,
     wii: lightCyan,
     wiiu: lightBlue,
-
-    wud: lightMagenta,
 };

@@ -31,6 +31,18 @@ export type LibraryResponse = {
     groups: TitleGroup[];
 };
 
+export type LibraryRenameResponse = {
+    renamed: number;
+    unchanged: number;
+    conflicts: string[];
+};
+
+export type LibraryRenamePreviewResponse = {
+    renames: number;
+    unchanged: number;
+    conflicts: string[];
+};
+
 export type LibraryVerifyTitle = {
     platform: TitlePlatform;
     root: string | null;

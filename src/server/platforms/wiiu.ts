@@ -22,7 +22,6 @@ import {
     PARENT_KINDS,
     mergeTitleEntry,
     identifyTitle,
-    getDiscProductCode,
     getDiscTitleId,
     getWiiUProductCode,
     getProductCodeMediaKey,
@@ -347,7 +346,7 @@ export async function findWudImagePaths(roots: string[]): Promise<string[]> {
     for (const root of roots) {
         const readableRoot = await findReadablePath(root);
         if (!readableRoot) {
-            logger.warn('wud', `skipping inaccessible Wii U root ${root}`);
+            logger.warn('wii', `skipping inaccessible Wii U root ${root}`);
             continue;
         }
         for (const imagePath of await findWudImagePathsInRoot(readableRoot)) {
@@ -416,7 +415,7 @@ async function scanWudTitleEntries(roots: string[]): Promise<WudTitleEntry[]> {
             }
         } catch (error) {
             logger.warn(
-                'wud',
+                'wii',
                 `skipping ${imagePath}: ${formatLogError(error)}`
             );
         }
@@ -534,7 +533,7 @@ export async function scanWiiUTitleRoots(
         }
     } catch (error) {
         logger.warn(
-            'wud',
+            'wii',
             `failed to scan WUD/WUX library entries: ${formatLogError(error)}`
         );
     }
@@ -676,6 +675,7 @@ export function prepareWiiUTitleVerifications(
         platform: 'wiiu',
         logNamespace: 'wiiu',
         findItems: findTitleDirs,
+        populateScanCache: scanWiiUTitles,
     });
 }
 
@@ -1887,23 +1887,23 @@ export async function convertWudImages(
     const commonKey = Buffer.from(await loadKeys('wiiu'), 'hex');
     const converted: ConvertedWudImage[] = [];
     logger.log(
-        'wud',
+        'wii',
         `converting WUD/WUX title ${requestedTitleId}; found ${imagePaths.length} image(s)`
     );
 
     for (const imagePath of imagePaths) {
         throwIfAborted(options.signal);
         try {
-            logger.log('wud', `reading ${imagePath}`);
+            logger.log('wii', `reading ${imagePath}`);
             const discKeyHex = await loadKeys('wud', imagePath);
             if (!discKeyHex) {
-                logger.warn('wud', `skipping ${imagePath}: no usable disc key`);
+                logger.warn('wii', `skipping ${imagePath}: no usable disc key`);
                 continue;
             }
             const discKey = Buffer.from(discKeyHex, 'hex');
             const image = await openWudImage(imagePath);
             try {
-                logger.log('wud', `opened ${imagePath}; reading partitions`);
+                logger.log('wii', `opened ${imagePath}; reading partitions`);
                 const partitions = await readWudGamePartitions(
                     image,
                     discKey,
@@ -1911,7 +1911,7 @@ export async function convertWudImages(
                     requestedFamily
                 );
                 logger.log(
-                    'wud',
+                    'wii',
                     `matched ${partitions.length} partition(s) in ${imagePath}`
                 );
                 const outputRoot = path.dirname(imagePath);
@@ -1932,7 +1932,7 @@ export async function convertWudImages(
                     } catch (error) {
                         throwIfAborted(options.signal);
                         logger.warn(
-                            'wud',
+                            'wii',
                             `skipping ${partition.name}: ${formatLogError(error)}`
                         );
                     }
@@ -1950,7 +1950,7 @@ export async function convertWudImages(
         } catch (error) {
             throwIfAborted(options.signal);
             const message = formatLogError(error);
-            logger.warn('wud', `skipping ${imagePath}: ${message}`);
+            logger.warn('wii', `skipping ${imagePath}: ${message}`);
         }
     }
 
@@ -1975,7 +1975,7 @@ async function readWudGamePartitions(
 
     if (partitionTocBlock.readUInt32BE(0) !== WUD_DECRYPTED_AREA_SIGNATURE) {
         logger.warn(
-            'wud',
+            'wii',
             `failed to decrypt partition table for ${image.filePath}`
         );
         return [];
@@ -1987,18 +1987,18 @@ async function readWudGamePartitions(
     );
 
     if (!siPartition) {
-        logger.warn('wud', `no SI partition found in ${image.filePath}`);
+        logger.warn('wii', `no SI partition found in ${image.filePath}`);
         return [];
     }
 
     const si = await readWudDataPartition(image, siPartition, discKey);
     if (!si) {
-        logger.warn('wud', `failed to read SI partition in ${image.filePath}`);
+        logger.warn('wii', `failed to read SI partition in ${image.filePath}`);
         return [];
     }
     const gamePartitions: PreparedWudGamePartition[] = [];
     logger.log(
-        'wud',
+        'wii',
         `read partition table for ${image.filePath}; found ${partitions.length} partition(s)`
     );
 
@@ -2030,7 +2030,7 @@ async function readWudGamePartitionChild(
     requestedFamily: string | null
 ): Promise<PreparedWudGamePartition | null> {
     try {
-        logger.log('wud', `reading WUD title metadata from ${child}`);
+        logger.log('wii', `reading WUD title metadata from ${child}`);
         const rawTicket = await readWudFstFile(
             image,
             si,
@@ -2038,13 +2038,13 @@ async function readWudGamePartitionChild(
             discKey
         );
         if (!rawTicket) {
-            logger.warn('wud', `skipping ${child}: missing ${TIK_TITLE_FILE}`);
+            logger.warn('wii', `skipping ${child}: missing ${TIK_TITLE_FILE}`);
             return null;
         }
 
         const ticket = readTik(rawTicket);
         if (!ticket) {
-            logger.warn('wud', `skipping ${child}: invalid ${TIK_TITLE_FILE}`);
+            logger.warn('wii', `skipping ${child}: invalid ${TIK_TITLE_FILE}`);
             return null;
         }
 
@@ -2067,13 +2067,13 @@ async function readWudGamePartitionChild(
             discKey
         );
         if (!rawTmd) {
-            logger.warn('wud', `skipping ${child}: missing ${TMD_TITLE_FILE}`);
+            logger.warn('wii', `skipping ${child}: missing ${TMD_TITLE_FILE}`);
             return null;
         }
 
         const tmd = readTmdFromBuffer(Buffer.from(rawTmd));
         if (!tmd) {
-            logger.warn('wud', `skipping ${child}: invalid ${TMD_TITLE_FILE}`);
+            logger.warn('wii', `skipping ${child}: invalid ${TMD_TITLE_FILE}`);
             return null;
         }
         const rawCert =
@@ -2089,7 +2089,7 @@ async function readWudGamePartitionChild(
         );
         if (!partitionReference) {
             logger.warn(
-                'wud',
+                'wii',
                 `skipping ${child}: no ${partitionName} partition`
             );
             return null;
@@ -2101,11 +2101,11 @@ async function readWudGamePartitionChild(
             ticket.titleId
         );
         logger.log(
-            'wud',
+            'wii',
             `resolved content key for ${titleId} from existing title.tik`
         );
         logger.log(
-            'wud',
+            'wii',
             `reading game partition ${partitionReference.name} for ${titleId}`
         );
         const gamePartition = await readWudGamePartition(
@@ -2118,7 +2118,7 @@ async function readWudGamePartitionChild(
             ? { ...gamePartition, rawTmd, rawCert, rawTicket }
             : null;
     } catch (error) {
-        logger.warn('wud', `skipping ${child}: ${formatLogError(error)}`);
+        logger.warn('wii', `skipping ${child}: ${formatLogError(error)}`);
         return null;
     }
 }
@@ -2168,7 +2168,7 @@ async function convertWudGamePartition({
         currentFileName: null,
     });
     logger.log(
-        'wud',
+        'wii',
         `writing ${titleId} ${kind} to ${outputDir}; preserving title.tik from WUD`
     );
     await Promise.all([
@@ -2189,7 +2189,7 @@ async function convertWudGamePartition({
         throwIfAborted(signal);
         const installFiles = getContentInstallFiles(outputDir, content);
         logger.log(
-            'wud',
+            'wii',
             `extracting ${titleId} content ${installFiles.contentId} to ${installFiles.appName}`
         );
         onProgress?.({
@@ -2209,7 +2209,7 @@ async function convertWudGamePartition({
             signal
         );
         logger.log(
-            'wud',
+            'wii',
             `wrote ${titleId} content ${installFiles.contentId} app`
         );
         completedFiles += 1;
@@ -2234,7 +2234,7 @@ async function convertWudGamePartition({
             });
             await writeFile(installFiles.h3File, h3);
             logger.log(
-                'wud',
+                'wii',
                 `wrote ${titleId} content ${installFiles.contentId} h3`
             );
             files.h3.push(installFiles.h3Name);
@@ -2242,13 +2242,13 @@ async function convertWudGamePartition({
         }
         files.app.push(installFiles.appName);
         logger.log(
-            'wud',
+            'wii',
             `progress ${titleId}: ${completedFiles}/${totalFiles} install file(s)`
         );
     }
 
     logger.log(
-        'wud',
+        'wii',
         `converted ${titleId} from ${partition.name}; wrote ${files.app.length} app file(s) and ${files.h3.length} h3 file(s)`
     );
 

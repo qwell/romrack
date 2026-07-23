@@ -24,6 +24,9 @@ export const SOCKET_COMMAND = {
     libraryConvertCancel: 'library.convert.cancel',
     libraryConvertClear: 'library.convert.clear',
     libraryConvertRetry: 'library.convert.retry',
+    libraryRenameCancel: 'library.rename.cancel',
+    libraryRenameClear: 'library.rename.clear',
+    libraryRenameRetry: 'library.rename.retry',
     titleValidateQueue: 'title.validate.queue',
 } as const;
 
@@ -60,6 +63,12 @@ export const LIBRARY_VERIFY_SOCKET_COMMAND = {
     cancel: SOCKET_COMMAND.libraryVerifyCancel,
     clear: SOCKET_COMMAND.libraryVerifyClear,
     download: SOCKET_COMMAND.libraryVerifyDownload,
+} as const;
+
+export const LIBRARY_RENAME_SOCKET_COMMAND = {
+    cancel: SOCKET_COMMAND.libraryRenameCancel,
+    clear: SOCKET_COMMAND.libraryRenameClear,
+    retry: SOCKET_COMMAND.libraryRenameRetry,
 } as const;
 
 export const TITLE_VALIDATE_SOCKET_COMMAND = {

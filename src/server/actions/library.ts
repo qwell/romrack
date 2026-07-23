@@ -1,11 +1,16 @@
 import { randomUUID } from 'node:crypto';
+import { mkdir, rename, rmdir, stat } from 'node:fs/promises';
+import path from 'node:path';
 
 import { broadcastAppSocketEvent } from '../socket.js';
 import {
     clearTitleScanCache,
+    getAllTitleScanCacheEntries,
     logTitleVerificationCompleted,
     logTitleVerificationStarted,
+    renameTitleScanCacheSourcePath,
     type PreparedTitleVerification,
+    type LibraryCacheTitleEntry,
 } from '../library.js';
 import {
     findMissingExpectedWiiUVerifications,
@@ -30,13 +35,17 @@ import { markTitleCopiesValidating, revalidateTitleCopies } from './titles.js';
 import {
     type LibraryVerifyProgress,
     type LibraryVerifyResponse,
+    type LibraryRenameResponse,
+    type LibraryRenamePreviewResponse,
 } from '../../shared/api.js';
 import { getConfig } from '../routes/config.js';
 import logger from '../../shared/logger.js';
 import { isTerminalActionState } from '../../shared/action.js';
-import { formatLogError } from '../../shared/utils.js';
+import { formatLogError, safeDirectoryName } from '../../shared/utils.js';
+import { isFileNotFoundError } from '../../shared/file.js';
 import {
     getTitlePlatformKey,
+    TitleKinds,
     type TitleIdentity,
 } from '../../shared/titles.js';
 import {
@@ -49,6 +58,172 @@ import {
     type LibraryVerifySocketCommand,
     type LibraryVerifyEvent,
 } from '../../shared/socket.js';
+
+type LibraryRenamePlan = {
+    root: string;
+    source: string;
+    destination: string;
+};
+type PreparedLibraryRenames = {
+    pending: LibraryRenamePlan[];
+    unchanged: number;
+    conflicts: string[];
+};
+
+function planLibraryEntryRename(
+    root: string,
+    entry: LibraryCacheTitleEntry
+): LibraryRenamePlan[] {
+    const name = safeDirectoryName(entry.name);
+    const extension = path.extname(entry.sourcePath).toLowerCase();
+
+    switch (entry.platform) {
+        case '3ds': {
+            const id = safeDirectoryName(entry.productCode ?? entry.titleId);
+            return [
+                {
+                    root,
+                    source: entry.sourcePath,
+                    destination: path.join(root, `${name} [${id}]${extension}`),
+                },
+            ];
+        }
+        case 'gamecube':
+            return [
+                {
+                    root,
+                    source: entry.sourcePath,
+                    destination: path.join(
+                        root,
+                        `${name} [${entry.titleId}]`,
+                        `game${extension}`
+                    ),
+                },
+            ];
+        case 'wii': {
+            const sources = [
+                entry.sourcePath,
+                ...(entry.extraSourcePaths ?? []),
+            ];
+            return sources.map((source, index) => ({
+                root,
+                source,
+                destination: path.join(
+                    root,
+                    `${name} [${entry.titleId}]`,
+                    `${entry.titleId}${index === 0 ? extension : path.extname(source).toLowerCase()}`
+                ),
+            }));
+        }
+        case 'wiiu':
+            return [
+                {
+                    root,
+                    source: entry.sourcePath,
+                    destination: path.join(
+                        root,
+                        `${name}${entry.kind === TitleKinds.Base ? '' : ` [${entry.kind}]`} [${entry.titleId}]`
+                    ),
+                },
+            ];
+    }
+}
+
+function formatLibraryRenamePath(plan: LibraryRenamePlan): string {
+    const relative = path.relative(plan.root, plan.destination);
+    return path.posix.join('<romroot>', ...relative.split(path.sep));
+}
+
+async function removeEmptyLibrarySourceParents(
+    plans: LibraryRenamePlan[]
+): Promise<void> {
+    const roots = getAllTitleScanCacheEntries().map(({ root }) =>
+        path.resolve(root)
+    );
+    const parents = new Set(
+        plans.map((plan) => path.resolve(path.dirname(plan.source)))
+    );
+
+    for (const initialParent of parents) {
+        let parent = initialParent;
+        while (!roots.includes(parent)) {
+            try {
+                await rmdir(parent);
+            } catch {
+                break;
+            }
+            parent = path.dirname(parent);
+        }
+    }
+}
+
+async function prepareLibraryRenames(): Promise<PreparedLibraryRenames> {
+    const plans = getAllTitleScanCacheEntries().flatMap(({ root, entry }) =>
+        planLibraryEntryRename(root, entry)
+    );
+    const unchanged = plans.filter(
+        (plan) => path.resolve(plan.source) === path.resolve(plan.destination)
+    ).length;
+    const pending = plans.filter(
+        (plan) => path.resolve(plan.source) !== path.resolve(plan.destination)
+    );
+    const destinations = new Set<string>();
+    const conflicts: string[] = [];
+
+    for (const plan of pending) {
+        const destination = path.resolve(plan.destination);
+        let destinationExists = false;
+        try {
+            await stat(destination);
+            destinationExists = true;
+        } catch (error) {
+            if (!isFileNotFoundError(error)) {
+                throw error;
+            }
+        }
+        if (destinations.has(destination) || destinationExists) {
+            conflicts.push(formatLibraryRenamePath(plan));
+        }
+        destinations.add(destination);
+    }
+    if (conflicts.length > 0) {
+        return { pending, unchanged, conflicts };
+    }
+
+    return { pending, unchanged, conflicts: [] };
+}
+
+export async function previewLibraryRenames(): Promise<LibraryRenamePreviewResponse> {
+    const prepared = await prepareLibraryRenames();
+    return {
+        renames: prepared.pending.length,
+        unchanged: prepared.unchanged,
+        conflicts: prepared.conflicts,
+    };
+}
+
+export async function renameLibraryTitles(
+    signal?: AbortSignal
+): Promise<LibraryRenameResponse> {
+    const { pending, unchanged, conflicts } = await prepareLibraryRenames();
+    if (conflicts.length > 0) {
+        return { renamed: 0, unchanged, conflicts };
+    }
+
+    let renamed = 0;
+    for (const plan of pending) {
+        signal?.throwIfAborted();
+
+        await mkdir(path.dirname(plan.destination), { recursive: true });
+        await rename(plan.source, plan.destination);
+        renameTitleScanCacheSourcePath(plan.source, plan.destination);
+
+        renamed += 1;
+    }
+    await removeEmptyLibrarySourceParents(pending);
+
+    return { renamed, unchanged, conflicts: [] };
+}
 
 let latestLibraryVerifyEvent: LibraryVerifyEvent | null = null;
 const libraryVerifyFailures = new Map<string, LibraryVerifyEvent>();

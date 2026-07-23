@@ -25,7 +25,11 @@ import {
     type TitleMediaType,
     TitlePlatform,
 } from '../shared/titles.js';
-import { assertReadableDirectory, readOptionalFile } from '../shared/file.js';
+import {
+    assertReadableDirectory,
+    isSameOrNestedPath,
+    readOptionalFile,
+} from '../shared/file.js';
 import { resolveReadablePath } from '../shared/os.js';
 import logger from '../shared/logger.js';
 import { type Subsystems } from '../shared/ansi.js';
@@ -213,7 +217,7 @@ export async function prepareTitleVerifications(
     options: Pick<
         VerifyTitleRootsOptions,
         'roots' | 'platform' | 'logNamespace' | 'findItems' | 'signal'
-    >
+    > & { populateScanCache: (root: string) => Promise<unknown> }
 ): Promise<PreparedTitleVerification[]> {
     const prepared: PreparedTitleVerification[] = [];
     for (const root of options.roots) {
@@ -221,6 +225,9 @@ export async function prepareTitleVerifications(
         try {
             const readableRoot = await resolveReadablePath(root);
             await assertReadableDirectory(readableRoot);
+            if (!titleScanCache.has(readableRoot)) {
+                await options.populateScanCache(readableRoot);
+            }
             const cachedEntries = titleScanCache.get(readableRoot) ?? [];
             const detailsBySourcePath = new Map(
                 cachedEntries
@@ -361,6 +368,148 @@ export function getTitleScanCacheEntries(
     root: string
 ): LibraryCacheTitleEntry[] | null {
     return titleScanCache.get(root) ?? null;
+}
+
+export function getAllTitleScanCacheEntries(): Array<{
+    root: string;
+    entry: LibraryCacheTitleEntry;
+}> {
+    return [...titleScanCache].flatMap(([root, entries]) =>
+        entries.map((entry) => ({ root, entry }))
+    );
+}
+
+export function renameTitleScanCacheSourcePath(
+    sourcePath: string,
+    destinationPath: string
+): void {
+    const source = path.resolve(sourcePath);
+
+    for (const entries of titleScanCache.values()) {
+        for (const entry of entries) {
+            if (path.resolve(entry.sourcePath) === source) {
+                entry.sourcePath = destinationPath;
+            }
+            if (entry.extraSourcePaths) {
+                entry.extraSourcePaths = entry.extraSourcePaths.map(
+                    (entryPath) =>
+                        path.resolve(entryPath) === source
+                            ? destinationPath
+                            : entryPath
+                );
+            }
+        }
+    }
+}
+
+function syncLibraryGroupEntry(platform: TitlePlatform, titleId: string): void {
+    const entries = [...titleScanCache.values()]
+        .flat()
+        .filter(
+            (entry) => entry.platform === platform && entry.titleId === titleId
+        );
+    const group = libraryGroups.find(
+        (candidate) =>
+            candidate.platform === platform &&
+            (candidate.entries.some((entry) => entry.titleId === titleId) ||
+                entries.some((entry) => entry.family === candidate.family))
+    );
+    if (!group) {
+        return;
+    }
+
+    group.entries = group.entries.filter((entry) => entry.titleId !== titleId);
+    for (const entry of entries) {
+        mergeTitleEntry(group.entries, entry);
+    }
+}
+
+export function removeTitleScanCacheSourcePaths(sourcePaths: string[]): void {
+    const removed = new Set(
+        sourcePaths.map((sourcePath) => path.resolve(sourcePath))
+    );
+    const affected = new Map<
+        string,
+        { platform: TitlePlatform; titleId: string }
+    >();
+
+    for (const [root, entries] of titleScanCache) {
+        const retained = entries.filter((entry) => {
+            const entryPaths = [
+                entry.sourcePath,
+                ...(entry.extraSourcePaths ?? []),
+            ];
+            if (
+                !entryPaths.some((entryPath) =>
+                    removed.has(path.resolve(entryPath))
+                )
+            ) {
+                return true;
+            }
+            affected.set(`${entry.platform}:${entry.titleId}`, {
+                platform: entry.platform,
+                titleId: entry.titleId,
+            });
+            return false;
+        });
+        titleScanCache.set(root, retained);
+    }
+    for (const { platform, titleId } of affected.values()) {
+        syncLibraryGroupEntry(platform, titleId);
+    }
+}
+
+export function addTitleScanCacheSource(options: {
+    platform: TitlePlatform;
+    titleId: string;
+    sourcePath: string;
+    name: string | null;
+    version: number | null;
+    sizeBytes: number;
+}): void {
+    const identity = identifyTitle(options.titleId, options.platform);
+    if (!identity) {
+        return;
+    }
+    const root = [...titleScanCache.keys()]
+        .filter((candidate) =>
+            isSameOrNestedPath(candidate, options.sourcePath)
+        )
+        .sort((left, right) => right.length - left.length)[0];
+    if (!root) {
+        return;
+    }
+    const existing = getLibraryCacheEntry(options.titleId, options.platform);
+    const group = libraryGroups.find(
+        (candidate) =>
+            candidate.platform === options.platform &&
+            candidate.family === identity.family
+    );
+    const entry: LibraryCacheTitleEntry = {
+        platform: options.platform,
+        titleId: identity.titleId,
+        family: identity.family,
+        kind: identity.kind ?? TitleKindValues.Unknown,
+        name: options.name ?? group?.name ?? existing?.name ?? options.titleId,
+        region: group?.region ?? null,
+        iconUrl: group?.iconUrl ?? null,
+        bannerUrl: group?.bannerUrl ?? null,
+        version: options.version,
+        sizeBytes: options.sizeBytes,
+        copyCount: 1,
+        productCode: group?.productCode ?? existing?.productCode ?? null,
+        sourcePath: options.sourcePath,
+    };
+    const entries = titleScanCache.get(root) ?? [];
+    titleScanCache.set(root, [
+        ...entries.filter(
+            (candidate) =>
+                path.resolve(candidate.sourcePath) !==
+                path.resolve(options.sourcePath)
+        ),
+        entry,
+    ]);
+    syncLibraryGroupEntry(options.platform, options.titleId);
 }
 
 export function getTitleMediaUrl(

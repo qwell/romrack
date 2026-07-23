@@ -14,8 +14,8 @@ import {
     generateWupTitleFiles,
     type WupGenerationProgress,
 } from '../platforms/wiiu.js';
-import { clearTitleScanCache } from '../library.js';
 import { findFirstReadableWiiURoot } from '../platforms/wiiu.js';
+import { addTitleScanCacheSource } from '../library.js';
 import { markTitleCopiesValidating, revalidateTitleCopies } from './titles.js';
 import { TitlePlatform } from '../../shared/titles.js';
 
@@ -56,8 +56,6 @@ async function downloadWiiUTitle(
         onProgress,
         signal,
     });
-
-    clearTitleScanCache();
 
     return response;
 }
@@ -205,6 +203,15 @@ async function processDownloadQueue(): Promise<void> {
         nextItem.installedTitleName = result.name;
         nextItem.installedSourcePath = result.outputDir;
 
+        addTitleScanCacheSource({
+            platform: nextItem.platform,
+            titleId: nextItem.titleId,
+            sourcePath: result.outputDir,
+            name: result.name,
+            version: result.titleVersion,
+            sizeBytes: result.sizeBytes,
+        });
+
         logger.log(
             'server',
             `download completed: ${nextItem.groupName} ${nextItem.label} ${nextItem.titleId}`
@@ -232,11 +239,9 @@ async function processDownloadQueue(): Promise<void> {
         logger.warn('server', `Download failed: ${formatLogError(error)}`);
 
         broadcastDownloadQueue();
-        clearTitleScanCache();
         revalidateCancelledDownload(nextItem);
     } finally {
         if (cancelledDownloadIds.has(nextItem.id)) {
-            clearTitleScanCache();
             revalidateCancelledDownload(nextItem);
         }
         cancelledDownloadIds.delete(nextItem.id);
@@ -264,7 +269,6 @@ function cancelActiveDownload(item: DownloadQueueItem): void {
 
     const abortController = activeDownloadAbortControllers.get(item.id);
     abortController?.abort();
-    clearTitleScanCache();
     if (activeDownloadSourcePaths.has(item.id)) {
         markTitleCopiesValidating([
             { platform: item.platform, titleId: item.titleId },

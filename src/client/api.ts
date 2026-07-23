@@ -3,6 +3,8 @@ import {
     type ConfigResponse,
     type ConfigValidateRootResponse,
     type LibraryResponse,
+    type LibraryRenameResponse,
+    type LibraryRenamePreviewResponse,
     type LibraryConvertQueuedResponse,
     type LibraryVerifyResponse,
     type StorageFat32ListResponse,
@@ -25,6 +27,16 @@ export function getLibrary(
 
 export function verifyLibrary(): Promise<LibraryVerifyResponse> {
     return requestJson('/api/library/verify');
+}
+
+export function renameLibrary(
+    signal?: AbortSignal
+): Promise<LibraryRenameResponse> {
+    return requestJson('/api/library/rename', { method: 'POST', signal });
+}
+
+export function previewLibraryRenames(): Promise<LibraryRenamePreviewResponse> {
+    return requestJson('/api/library/rename');
 }
 
 export function queueLibraryConvert(

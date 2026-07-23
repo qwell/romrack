@@ -6,10 +6,12 @@ import {
     type LibraryVerifyProgress,
     type TitleValidationSocketEvent,
     LIBRARY_CONVERT_SOCKET_COMMAND,
+    LIBRARY_RENAME_SOCKET_COMMAND,
     LIBRARY_VERIFY_SOCKET_COMMAND,
 } from '../shared/socket.js';
 import { type DownloadQueueItem } from '../shared/download.js';
 import {
+    type ActionState,
     formatActionFileCount,
     formatActionProgress,
     formatActionState,
@@ -42,6 +44,90 @@ export const SLOT_BADGE_STATE_LABELS: Record<SlotBadgeState, string> = {
     unavailable: 'Unavailable',
     unknown: 'Unknown',
 };
+
+export type LibraryRenameAction = {
+    id: string;
+    state: ActionState;
+    total: number;
+    renamed: number;
+    unchanged: number;
+    message: string;
+    error: string | null;
+    canCancel: boolean;
+};
+
+export function getLibraryRenameActionBarEntries(items: LibraryRenameAction[]) {
+    return items.map((item) => ({
+        key: `library-rename:${item.id}`,
+        id: item.id,
+        state: item.state,
+        clearCommand: LIBRARY_RENAME_SOCKET_COMMAND.clear,
+        cells: [
+            {
+                className: 'action-bar-progress',
+                text: item.state === 'complete' ? 'Done' : '-',
+            },
+            {
+                className: 'action-bar-files',
+                text: `${item.renamed} / ${item.total} items`,
+            },
+            {
+                className: 'action-bar-icon',
+                text: formatActionStateIcon(item.state),
+            },
+            {
+                className: 'action-bar-state',
+                text: formatActionState(item.state, {
+                    'in-progress': 'Renaming',
+                }),
+            },
+            {
+                className: 'action-bar-size',
+                text: '',
+            },
+            {
+                className: 'action-bar-title',
+                text: 'Rename library',
+            },
+        ],
+        details: {
+            text:
+                item.error ??
+                (item.state === 'cancelled' ||
+                (item.state === 'in-progress' && !item.canCancel)
+                    ? item.message
+                    : undefined),
+            buttons: [
+                ...(item.state === 'in-progress' && item.canCancel
+                    ? [
+                          {
+                              text: 'Cancel',
+                              command: LIBRARY_RENAME_SOCKET_COMMAND.cancel,
+                          },
+                      ]
+                    : []),
+                ...(item.state === 'failed' || item.state === 'cancelled'
+                    ? [
+                          {
+                              text: 'Retry',
+                              command: LIBRARY_RENAME_SOCKET_COMMAND.retry,
+                          },
+                      ]
+                    : []),
+                ...(item.state === 'complete' ||
+                item.state === 'failed' ||
+                item.state === 'cancelled'
+                    ? [
+                          {
+                              text: 'Clear',
+                              command: LIBRARY_RENAME_SOCKET_COMMAND.clear,
+                          },
+                      ]
+                    : []),
+            ],
+        },
+    }));
+}
 
 type RemoveTitlesFromLibraryOptions = {
     groups: TitleGroup[];
@@ -720,9 +806,28 @@ export function handleLibraryActionBarCommand(
     action: string,
     itemId: string,
     verifications: LibraryVerifyEvent[],
+    renames: LibraryRenameAction[],
+    cancelRename: () => void,
+    retryRename: () => void,
     queueVerificationDownloads: (items: DownloadQueueItem[]) => boolean
 ): boolean {
     switch (action) {
+        case LIBRARY_RENAME_SOCKET_COMMAND.cancel:
+            cancelRename();
+            return true;
+
+        case LIBRARY_RENAME_SOCKET_COMMAND.retry:
+            retryRename();
+            return true;
+
+        case LIBRARY_RENAME_SOCKET_COMMAND.clear: {
+            const index = renames.findIndex((item) => item.id === itemId);
+            if (index >= 0) {
+                renames.splice(index, 1);
+            }
+            return true;
+        }
+
         // Verify
         case LIBRARY_VERIFY_SOCKET_COMMAND.clear: {
             const index = verifications.findIndex(

@@ -114,10 +114,7 @@ async function loadWudKeys(imagePath: string): Promise<WudKeys | null> {
             }
         }
     }
-    logger.warn(
-        'wud',
-        `no usable disc key for ${imagePath}; checked ${candidates.join(' and ')}`
-    );
+
     return null;
 }
 
